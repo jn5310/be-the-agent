@@ -4,7 +4,7 @@
 // ===== 1. 상수와 세계 데이터 =====
 const SAVE_KEY = 'be-the-agent:save';
 const BACKUP_KEY = 'be-the-agent:save:backup'; // 읽지 못한 세이브를 지우지 않고 보관
-const SAVE_VERSION = 10;
+const SAVE_VERSION = 11;
 const WEEKS = 52;
 const SQUAD = 24;
 const WORLD_SEED = 20261030; // 구단 이름·전력은 모든 게임에서 같게 고정
@@ -379,6 +379,288 @@ const EXPORT_WEIGHTS = 'BRA:10 ARG:7 FRA:6 ESP:5 POR:4 ENG:3 GER:3 ITA:3 NED:3 B
   'JPN:2 KOR:2 USA:2 MEX:1 DEN:2 NOR:1 SWE:2 POL:2 CZE:1 AUT:1 SUI:1 TUR:1 GRE:1 UKR:1 RUS:1 ROU:1 HUN:1 CHI:1 PAR:1 ECU:1 ' +
   'PER:1 VEN:1 BOL:1 SCO:1 IRL:1 CAN:1 CRC:1 AUS:1 IRN:1 RSA:1 CHN:1 THA:1 VIE:1 IDN:1 UZB:1';
 
+// --- 12단계 세계 확장: 새 나라 47개 (기존 58개국 뒤에 붙임). 모양은 COUNTRY_DATA와 같음 ---
+const COUNTRY_DATA_2 = [
+  ['CYP', '키프로스', '유럽', 'gr', 'GR', 59, [14, 16, 16, 16], '니코시아 리마솔 라르나카 파포스 파랄림니 스트로볼로스 아라디푸 라카타미아 아야나파 달리 라치아 입소나스 예르마소야 키티 페이아 폴리스 아크나 데리니아 소티라 리오페트리 크실로파구 오르미디아 아티에누 코키노트리미티아 에피스코피 콜로시 아카키 페리스테로나 드로몰락시아 키소네르가'],
+  ['ISR', '이스라엘', '유럽', 'he', 'HE', 60, [14, 16, 16, 16], '텔아비브 예루살렘 하이파 베르셰바 네타냐 아슈도드 페타티크바 리숀레지온 홀론 라마트간 바트얌 헤르츨리야 크파르사바 라아나나 아슈켈론 레호보트 나사렛 아풀라 티베리아스 에일라트 키르야트시모나 나하리야 하데라 로드 라믈레 사크닌 아코 디모나 키르야트가트 예후드'],
+  ['BUL', '불가리아', '유럽', 'bg', 'SLAV', 57, [16, 16, 16, 16], '소피아 플로브디프 바르나 부르가스 루세 스타라자고라 플레벤 슬리벤 도브리치 슈멘 페르니크 하스코보 얌볼 파자르지크 블라고에프그라드 벨리코투르노보 브라차 가브로보 비딘 몬타나 크르잘리 큐스텐딜 로베치 실리스트라 라즈그라드 스몰랸 사모코프 보테브그라드 포모리에 네세바르'],
+  ['SVK', '슬로바키아', '유럽', 'sk', 'SLAV', 58, [12, 16, 16, 16], '브라티슬라바 코시체 프레쇼프 질리나 반스카비스트리차 니트라 트르나바 트렌친 마르틴 포프라트 프리에비자 즈볼렌 포바슈스카비스트리차 노베잠키 미할로우체 스피슈스카노바베스 코마르노 피에슈탸니 세니차 스칼리차 루좀베로크 두브니차 토폴차니 후메네 바르데요우 루체네츠 리마우스카소보타 두나이스카스트레다 갈란타 레보차'],
+  ['SVN', '슬로베니아', '유럽', 'sl', 'SLAV', 57, [10, 16, 16, 16], '류블랴나 마리보르 첼레 크라니 코페르 벨레녜 노보메스토 프투이 트르보블레 캄니크 예세니체 노바고리차 돔잘레 무르스카소보타 슈코퓌아로카 이졸라 피란 포스토이나 로가슈카슬라티나 크르슈코 브레지체 슬로벤그라데츠 라도블리차 아이도프시치나 그로수플례 리티야 자고리예 코체비예 블레드'],
+  ['BIH', '보스니아 헤르체고비나', '유럽', 'bs', 'SLAV', 56, [12, 16, 16, 16], '사라예보 바냐루카 투즐라 제니차 모스타르 비하치 브르치코 비옐리나 프리예도르 트라브니크 도보이 차진 고라주데 즈보르니크 리브노 비소코 그라차니차 루카바츠 시로키브리예그 차플리나 그라다차츠 테슬리치 브라투나츠 트레비녜 포차 야이체 코니츠 산스키모스트 부고이노 카칸'],
+  ['MNE', '몬테네그로', '유럽', 'slav', 'SLAV', 50, [10, 10, 12, 12], '포드고리차 닉시치 헤르체그노비 플레블랴 비옐로폴레 체티녜 바르 베라네 부드바 울치니 티바트 코토르 로자예 다닐로브그라드 모이코바츠 플라브 콜라신 플루지네 안드리예비차 투지 골루보브치 자블랴크'],
+  ['MKD', '북마케도니아', '유럽', 'mk', 'SLAV', 51, [12, 12, 14, 14], '스코페 비톨라 쿠마노보 프릴레프 테토보 벨레스 슈티프 오흐리드 고스티바르 스트루미차 카바다르치 코차니 키체보 스트루가 라도비시 게브겔리야 데바르 크리바팔랑카 스베티니콜레 네고티노 델체보 비니차 레센 프로비슈티프'],
+  ['ALB', '알바니아', '유럽', 'sq', 'SQ', 52, [10, 14, 14, 14], '티라나 두러스 블로러 엘바산 슈코더르 피에르 코르처 베라트 루슈녜 포그라데츠 카버여 라치 쿠커스 레저 지로카스트라 사란더 파토스 페슈코피 부렐 크루여 테펠레너 퍼르메트'],
+  ['FIN', '핀란드', '유럽', 'fi', 'FI', 55, [12, 10, 12, 12], '헬싱키 에스포 탐페레 반타 투르쿠 오울루 위베스퀼레 라티 쿠오피오 포리 코우볼라 요엔수 라펜란타 해멘린나 바사 세이내요키 로바니에미 미켈리 코트카 살로 포르보 코콜라 휘빙캐 라우마 야코브스타드 마리에함 케미 이살미'],
+  ['ISL', '아이슬란드', '유럽', 'is', 'NORD', 53, [12, 12, 12, 12], '레이캬비크 코파보귀르 하프나르피외르뒤르 아퀴레이리 가르다바이르 모스펠스바이르 아크라네스 셀포스 케플라비크 그린다비크 베스트만나에이야르 이사피외르뒤르 사우다르크로퀴르 에이일스스타디르 후사비크 보르가르네스 크베라게르디 올라프스비크 달비크 세이디스피외르뒤르 회픈 시글뤼피외르뒤르 블뢴뒤오스 네스카우프스타뒤르'],
+  ['FRO', '페로 제도', '유럽', 'nord', 'NORD', 46, [10, 10, 10, 10], '토르스하운 클락스비크 루나비크 트베로이리 바구르 푸글라피외르 산다바구르 미드바구르 쇠르바구르 에이디 괴타 콜라피외르 스코알리 토프티르 산두르 크발바 호위비크 아르기르 베스트만나 크비비크 레이르비크 비다레이디'],
+  ['LUX', '룩셈부르크', '유럽', 'fr', 'FR', 50, [16, 14, 14, 14], '룩셈부르크 에슈쉬르알제트 디페르당주 뒤들랑주 에텔브뤼크 디키르히 빌츠 에히테르나흐 레미히 그레벤마허 메르슈 베르트랑주 슈트라센 에스페랑주 자넴 페탕주 카일 몽도르프 슈타인포르트 로당주 비센 클레르보 비안덴'],
+  ['WAL', '웨일스', '유럽', 'cy', 'EN', 49, [12, 16, 16, 16], '카디프 스완지 뉴포트 렉섬 뱅거 애버리스트위스 발라 배리 브리젠드 카나번 카마던 콜윈베이 플린트 해버퍼드웨스트 란디드노 라넬리 머서티드빌 니스 뉴타운 폰티프리드 포트탤벗 릴 홀리헤드 프레스타틴 애먼퍼드 쿰브란 케어필리 몰드 버클리 웰시풀 에버베일'],
+  ['NIR', '북아일랜드', '유럽', 'en', 'EN', 50, [12, 12, 14, 14], '벨파스트 데리 리즈번 뉴리 아마 뱅어 크레이개번 밸리미나 콜레인 란 캐릭퍼거스 포터다운 러건 던개넌 에니스킬런 오마 뉴타운애비 앤트림 밸리클레어 밴브리지 리머버디 쿡스타운 다운패트릭 스트라베인 할리우드 코머 매허러펠트 뉴타우너즈 밸리머니 포트스튜어트'],
+  ['MLT', '몰타', '유럽', 'mt', 'EN', 47, [12, 14, 14, 14], '발레타 비르키르카라 모스타 코르미 자바르 슬리에마 산주안 낙사르 제이툰 라바트 함룬 마르사스칼라 프구라 제부지 스위에키 파올라 아타르드 비르제부자 타르시엔 그지라 멜리에하 마르사 플로리아나 시지에위 루카 주리에크 빅토리아 나두르 셰우키야'],
+  ['EST', '에스토니아', '유럽', 'et', 'ET', 48, [10, 10, 10, 10], '탈린 타르투 나르바 패르누 코흐틀라예르베 빌리안디 라크베레 마르두 쿠레사레 실라매 발가 버루 이흐비 합살루 케일라 파이데 엘바 사우에 펄바 이게바 라플라'],
+  ['LVA', '라트비아', '유럽', 'lv', 'LV', 51, [10, 10, 12, 12], '리가 다우가우필스 리에파야 옐가바 유르말라 벤츠필스 레제크네 발미에라 오그레 투쿰스 체시스 살라스필스 쿨디가 올라이네 사울크라스티 바우스카 시굴다 예카브필스 탈시 도벨레 크라슬라바 마도나'],
+  ['LTU', '리투아니아', '유럽', 'lt', 'LT', 50, [10, 14, 14, 14], '빌뉴스 카우나스 클라이페다 샤울레이 파네베지스 알리투스 마리얌폴레 마제이케이 요나바 우테나 케다이니아이 텔셰이 타우라게 우크메르게 비사기나스 플룽게 크레팅가 팔랑가 라드빌리슈키스 드루스키닌카이 로키슈키스 비르자이 가르그주다이 엘렉트레나이'],
+  ['BLR', '벨라루스', '유럽', 'ru', 'SLAV', 54, [16, 16, 14, 14], '민스크 호멜 마힐료우 비쳅스크 흐로드나 브레스트 바브루이스크 바라나비치 바리사우 핀스크 오르샤 마지르 살리호르스크 나바폴라츠크 말라제치나 폴라츠크 즐로빈 스베틀라호르스크 레치차 슬루츠크 조지나 슬로님 칼린카비치 스마르혼'],
+  ['MDA', '몰도바', '유럽', 'ro', 'RO', 52, [10, 12, 12, 12], '키시너우 티라스폴 벌치 벤데르 르브니차 카훌 웅게니 소로카 오르헤이 콤라트 체아디르룽가 스트러셰니 커우셰니 드로키아 에디네츠 흔체슈티 플로레슈티 이알로베니 슨제레이 두버사리'],
+  ['GEO', '조지아', '유럽', 'ka', 'KA', 55, [10, 10, 10, 16], '트빌리시 쿠타이시 바투미 루스타비 주그디디 고리 포티 삼트레디아 호니 텔라비 오주르게티 제스타포니 마르네울리 하슈리 세나키 치아투라 트키불리 보르조미 라고데히 아할치헤 카스피 므츠헤타 사가레조 시그나기'],
+  ['ARM', '아르메니아', '유럽', 'hy', 'HY', 52, [10, 12, 12, 12], '예레반 귬리 바나조르 바가르샤파트 아보뱐 카판 흐라즈단 아르마비르 아르타샤트 이제반 고리스 차렌차반 아라라트 마시스 세반 아슈타라크 딜리잔 시시안 알라베르디 스테파나반 가바르 메그리'],
+  ['AZE', '아제르바이잔', '유럽', 'az', 'TR', 56, [10, 12, 12, 12], '바쿠 간자 숨가이트 밍게체비르 시르반 나흐치반 셰키 렌케란 예블라흐 쿠바 가발라 샤마히 사비라바드 아그스타파 자가탈라 바르다 이미실리 살리안 괴이차이 마살리 아스타라 하치마스'],
+  ['KAZ', '카자흐스탄', '유럽', 'kk', 'TR', 56, [14, 14, 14, 14], '알마티 아스타나 심켄트 카라간다 악토베 타라즈 파블로다르 외스케멘 세메이 아티라우 코스타나이 크즐로르다 오랄 페트로파블 악타우 테미르타우 투르키스탄 콕셰타우 탈디코르간 에키바스투즈 루드니 자나오젠 발하시 제즈카즈간'],
+  ['IND', '인도', '아시아·오세아니아', 'in', 'EN', 50, [12, 12, 14, 14], '콜카타 뭄바이 벵갈루루 첸나이 델리 파나지 마르가오 바스코다가마 코치 하이데라바드 잠셰드푸르 구와하티 실롱 임팔 아이자울 푸네 아마다바드 러크나우 코지코드 트리반드룸 루디아나 찬디가르 부바네스와르 란치 나그푸르 인도르 자이푸르 마두라이 코임바토르 비샤카파트남'],
+  ['MAS', '말레이시아', '아시아·오세아니아', 'ms', 'EN', 50, [14, 14, 16, 16], '쿠알라룸푸르 조호르바루 이포 조지타운 쿠칭 코타키나발루 샤알람 클랑 프탈링자야 믈라카 콴탄 알로르스타르 코타바루 쿠알라트렝가누 스렘반 미리 산다칸 타와우 시부 바투파핫 무아르 캉가르 테메를로 타이핑 슬라양 카장 수방자야 세팡'],
+  ['SGP', '싱가포르', '아시아·오세아니아', 'ms', 'EN', 46, [10, 10, 10, 10], '탐피니스 주롱 우드랜즈 셍캉 펑골 호우강 비샨 앙모키오 토아파요 베독 클레멘티 이슌 셈바왕 부킷바톡 부킷판장 초아추캉 파시르리스 게일랑 칼랑 퀸스타운 마린퍼레이드 부킷메라'],
+  ['IRQ', '이라크', '아시아·오세아니아', 'ar', 'AR', 55, [20, 20, 16, 16], '바그다드 바스라 모술 아르빌 술라이마니야 나자프 카르발라 나시리야 키르쿠크 두호크 힐라 라마디 쿠트 디와니야 아마라 바쿠바 팔루자 사마와 사마라 자호 티크리트 쿠파 할라브자 하디사 움카스르 주바이르 탈아파르'],
+  ['JOR', '요르단', '아시아·오세아니아', 'ar', 'AR', 54, [12, 14, 14, 14], '암만 자르카 이르비드 루사이파 아카바 마다바 살트 마프라크 제라시 아즐룬 카라크 타필라 마안 람사 사하브 와디무사 데이르알라 수웨일레 나우르 쿠프란자'],
+  ['OMA', '오만', '아시아·오세아니아', 'ar', 'AR', 51, [14, 14, 14, 14], '무스카트 살랄라 소하르 니즈와 수르 이브리 바르카 루스타크 부라이미 사함 바우샤르 시브 이브라 무트라 카부라 수와이크 이즈키 바흘라 아담 하이마 두큼'],
+  ['KUW', '쿠웨이트', '아시아·오세아니아', 'ar', 'AR', 51, [10, 10, 10, 10], '쿠웨이트시티 하왈리 살미야 자흐라 파르와니야 아흐마디 무바라크알카비르 파하힐 카이탄 사바히야 망가프 피르두스 리가이 술라이비야 아르디야 와프라'],
+  ['BHR', '바레인', '아시아·오세아니아', 'ar', 'AR', 50, [10, 10, 10, 10], '마나마 무하라크 리파 이사타운 하마드타운 시트라 부다이야 지드하프스 아왈리 디라즈 말키야 사르 투블리 주페어'],
+  ['NZL', '뉴질랜드', '아시아·오세아니아', 'en', 'EN', 50, [10, 10, 12, 12], '오클랜드 웰링턴 크라이스트처치 해밀턴 타우랑가 더니든 파머스턴노스 넬슨 네이피어 로토루아 뉴플리머스 팡가레이 인버카길 왕가누이 기즈번 헤이스팅스 어퍼허트 로어허트 포리루아 퀸스타운 티마루 블레넘 매스터턴 레빈'],
+  ['SEN', '세네갈', '아프리카', 'wa', 'FR', 55, [14, 14, 16, 16], '다카르 투바 티에스 카올락 생루이 지갱쇼르 음부르 디우르벨 루가 탐바쿤다 콜다 카프린 피킨 뤼피스크 게디아웨 리샤르톨 티바완 마탐 세디우 케두구 포도르 음바케 파티크 조알'],
+  ['CIV', '코트디부아르', '아프리카', 'ci', 'FR', 55, [14, 16, 16, 16], '아비장 야무수크로 부아케 달로아 산페드로 코로고 만 가냐 디보 세겔라 본두쿠 오디엔네 그랑바상 아부아소 아냐마 뱅제르빌 수브레 다나네 기글로 카티올라 부나 아디아케 티아살레 아그보빌'],
+  ['CMR', '카메룬', '아프리카', 'ci', 'FR', 54, [18, 16, 16, 16], '두알라 야운데 가루아 바멘다 마루아 바푸삼 응가운데레 베르투아 림베 에데아 쿰바 은콩삼바 부에아 에볼로와 쿠세리 크리비 상멜리마 품반 드샹 음발마요 바피아 음부다 바팡 기데르'],
+  ['MLI', '말리', '아프리카', 'wa', 'FR', 52, [16, 16, 16, 16], '바마코 시카소 몹티 쿠티알라 카예스 세구 가오 팀북투 키달 산 부구니 칼라반코로 카티 니오노 젠네 마르칼라 키타 니오로 쿨리코로 바풀라베 두엔차 반디아가라 케니에바'],
+  ['KEN', '케냐', '아프리카', 'ea', 'EN', 49, [18, 18, 16, 16], '나이로비 몸바사 키수무 나쿠루 엘도레트 티카 말린디 키탈레 가리사 카카메가 니에리 마차코스 메루 키시 부시아 나이바샤 케리초 엠부 키투이 와지르 라무 카지아도 무랑가 붕고마 호마베이 미고리 난유키'],
+  ['COD', '콩고민주공화국', '아프리카', 'cd', 'FR', 54, [16, 16, 16, 16], '킨샤사 루붐바시 음부지마이 키상가니 마타디 카낭가 리카시 콜웨지 고마 부카부 음반다카 반둔두 킥위트 부니아 우비라 칼레미 보마 베니 부템보 게메나 이시로 무안다 킨두 치카파'],
+  ['ANG', '앙골라', '아프리카', 'pt', 'PT', 51, [16, 16, 16, 16], '루안다 우암부 로비투 벵겔라 쿠이투 루방구 말란즈 나미브 소유 카빈다 우이즈 사우리무 숨브 온지바 메농그 루에나 둔두 은달라탄두 카쿠아쿠 비아나 카툼벨라 카젱가 카마쿠파 카샤'],
+  ['ZAM', '잠비아', '아프리카', 'zm', 'EN', 51, [18, 16, 16, 16], '루사카 키트웨 은돌라 카브웨 칭골라 무풀리라 리빙스턴 루안샤 카사마 치파타 몽구 솔웨지 마자부카 초마 은첼렝게 만사 페타우케 몬제 카피리음포시 칼로모 시아봉가 음피카 이소카 칠랑가'],
+  ['HON', '온두라스', '북중미', 'es', 'ES', 53, [10, 10, 12, 12], '테구시갈파 산페드로술라 라세이바 촐루테카 코마야과 엘프로그레소 촐로마 단리 시과테페케 후티칼파 푸에르토코르테스 라리마 비야누에바 텔라 산타로사데코판 토코아 오모아 나카오메 카타카마스 라파스 산로렌소 그라시아스'],
+  ['GUA', '과테말라', '북중미', 'es', 'ES', 50, [12, 12, 14, 14], '과테말라시티 케찰테낭고 에스킨틀라 믹스코 비야누에바 코반 마사테낭고 치말테낭고 푸에르토바리오스 레탈룰레우 후티아파 할라파 치키물라 살라마 솔롤라 토토니카판 우에우에테낭고 안티과 산마르코스 사카파 플로레스 코아테페케 아마티틀란 산타루시아'],
+  ['PAN', '파나마', '북중미', 'es', 'ES', 52, [10, 12, 12, 12], '파나마시티 콜론 다비드 산미겔리토 라초레라 아라이한 산티아고 치트레 라스타블라스 페노노메 아과둘세 보케테 알미란테 창기놀라 차메 안톤 나타 소나'],
+  ['SLV', '엘살바도르', '북중미', 'es', 'ES', 49, [12, 10, 12, 12], '산살바도르 산타아나 산미겔 소야팡고 산타테클라 아포파 메히카노스 델가도 아우아차판 우술루탄 손소나테 코후테페케 찰라테낭고 라우니온 일로팡고 산비센테 수치토토 라리베르타드 메타판 아카후틀라'],
+  ['JAM', '자메이카', '북중미', 'en', 'EN', 50, [14, 12, 12, 12], '킹스턴 몬테고베이 스패니시타운 포트모어 메이펜 맨더빌 오초리오스 포트앤토니오 모런트베이 블랙리버 사바나라마 팰머스 린스테드 올드하버 크리스티애나 포트마리아 브라운스타운 산타크루스 루시 스튜어트타운']
+];
+// 새 나라 영어: [영어 이름, 도시]
+const COUNTRY_EN_2 = {
+  CYP: ['Cyprus', 'Nicosia|Limassol|Larnaca|Paphos|Paralimni|Strovolos|Aradippou|Lakatamia|Ayia Napa|Dali|Latsia|Ypsonas|Germasogeia|Kiti|Peyia|Polis|Achna|Deryneia|Sotira|Liopetri|Xylofagou|Ormideia|Athienou|Kokkinotrimithia|Episkopi|Kolossi|Akaki|Peristerona|Dromolaxia|Kissonerga'],
+  ISR: ['Israel', 'Tel Aviv|Jerusalem|Haifa|Beersheba|Netanya|Ashdod|Petah Tikva|Rishon LeZion|Holon|Ramat Gan|Bat Yam|Herzliya|Kfar Saba|Raanana|Ashkelon|Rehovot|Nazareth|Afula|Tiberias|Eilat|Kiryat Shmona|Nahariya|Hadera|Lod|Ramla|Sakhnin|Acre|Dimona|Kiryat Gat|Yehud'],
+  BUL: ['Bulgaria', 'Sofia|Plovdiv|Varna|Burgas|Ruse|Stara Zagora|Pleven|Sliven|Dobrich|Shumen|Pernik|Haskovo|Yambol|Pazardzhik|Blagoevgrad|Veliko Tarnovo|Vratsa|Gabrovo|Vidin|Montana|Kardzhali|Kyustendil|Lovech|Silistra|Razgrad|Smolyan|Samokov|Botevgrad|Pomorie|Nesebar'],
+  SVK: ['Slovakia', 'Bratislava|Košice|Prešov|Žilina|Banská Bystrica|Nitra|Trnava|Trenčín|Martin|Poprad|Prievidza|Zvolen|Považská Bystrica|Nové Zámky|Michalovce|Spišská Nová Ves|Komárno|Piešťany|Senica|Skalica|Ružomberok|Dubnica|Topoľčany|Humenné|Bardejov|Lučenec|Rimavská Sobota|Dunajská Streda|Galanta|Levoča'],
+  SVN: ['Slovenia', 'Ljubljana|Maribor|Celje|Kranj|Koper|Velenje|Novo Mesto|Ptuj|Trbovlje|Kamnik|Jesenice|Nova Gorica|Domžale|Murska Sobota|Škofja Loka|Izola|Piran|Postojna|Rogaška Slatina|Krško|Brežice|Slovenj Gradec|Radovljica|Ajdovščina|Grosuplje|Litija|Zagorje|Kočevje|Bled'],
+  BIH: ['Bosnia and Herzegovina', 'Sarajevo|Banja Luka|Tuzla|Zenica|Mostar|Bihać|Brčko|Bijeljina|Prijedor|Travnik|Doboj|Cazin|Goražde|Zvornik|Livno|Visoko|Gračanica|Lukavac|Široki Brijeg|Čapljina|Gradačac|Teslić|Bratunac|Trebinje|Foča|Jajce|Konjic|Sanski Most|Bugojno|Kakanj'],
+  MNE: ['Montenegro', 'Podgorica|Nikšić|Herceg Novi|Pljevlja|Bijelo Polje|Cetinje|Bar|Berane|Budva|Ulcinj|Tivat|Kotor|Rožaje|Danilovgrad|Mojkovac|Plav|Kolašin|Plužine|Andrijevica|Tuzi|Golubovci|Žabljak'],
+  MKD: ['North Macedonia', 'Skopje|Bitola|Kumanovo|Prilep|Tetovo|Veles|Štip|Ohrid|Gostivar|Strumica|Kavadarci|Kočani|Kičevo|Struga|Radoviš|Gevgelija|Debar|Kriva Palanka|Sveti Nikole|Negotino|Delčevo|Vinica|Resen|Probištip'],
+  ALB: ['Albania', 'Tirana|Durrës|Vlorë|Elbasan|Shkodër|Fier|Korçë|Berat|Lushnjë|Pogradec|Kavajë|Laç|Kukës|Lezhë|Gjirokastër|Sarandë|Patos|Peshkopi|Burrel|Krujë|Tepelenë|Përmet'],
+  FIN: ['Finland', 'Helsinki|Espoo|Tampere|Vantaa|Turku|Oulu|Jyväskylä|Lahti|Kuopio|Pori|Kouvola|Joensuu|Lappeenranta|Hämeenlinna|Vaasa|Seinäjoki|Rovaniemi|Mikkeli|Kotka|Salo|Porvoo|Kokkola|Hyvinkää|Rauma|Jakobstad|Mariehamn|Kemi|Iisalmi'],
+  ISL: ['Iceland', 'Reykjavík|Kópavogur|Hafnarfjörður|Akureyri|Garðabær|Mosfellsbær|Akranes|Selfoss|Keflavík|Grindavík|Vestmannaeyjar|Ísafjörður|Sauðárkrókur|Egilsstaðir|Húsavík|Borgarnes|Hveragerði|Ólafsvík|Dalvík|Seyðisfjörður|Höfn|Siglufjörður|Blönduós|Neskaupstaður'],
+  FRO: ['Faroe Islands', 'Tórshavn|Klaksvík|Runavík|Tvøroyri|Vágur|Fuglafjørður|Sandavágur|Miðvágur|Sørvágur|Eiði|Gøta|Kollafjørður|Skáli|Toftir|Sandur|Hvalba|Hoyvík|Argir|Vestmanna|Kvívík|Leirvík|Viðareiði'],
+  LUX: ['Luxembourg', 'Luxembourg|Esch-sur-Alzette|Differdange|Dudelange|Ettelbruck|Diekirch|Wiltz|Echternach|Remich|Grevenmacher|Mersch|Bertrange|Strassen|Hesperange|Sanem|Pétange|Kayl|Mondorf|Steinfort|Rodange|Bissen|Clervaux|Vianden'],
+  WAL: ['Wales', 'Cardiff|Swansea|Newport|Wrexham|Bangor|Aberystwyth|Bala|Barry|Bridgend|Caernarfon|Carmarthen|Colwyn Bay|Flint|Haverfordwest|Llandudno|Llanelli|Merthyr Tydfil|Neath|Newtown|Pontypridd|Port Talbot|Rhyl|Holyhead|Prestatyn|Ammanford|Cwmbran|Caerphilly|Mold|Buckley|Welshpool|Ebbw Vale'],
+  NIR: ['Northern Ireland', 'Belfast|Derry|Lisburn|Newry|Armagh|Bangor|Craigavon|Ballymena|Coleraine|Larne|Carrickfergus|Portadown|Lurgan|Dungannon|Enniskillen|Omagh|Newtownabbey|Antrim|Ballyclare|Banbridge|Limavady|Cookstown|Downpatrick|Strabane|Holywood|Comber|Magherafelt|Newtownards|Ballymoney|Portstewart'],
+  MLT: ['Malta', 'Valletta|Birkirkara|Mosta|Qormi|Żabbar|Sliema|San Ġwann|Naxxar|Żejtun|Rabat|Ħamrun|Marsaskala|Fgura|Żebbuġ|Swieqi|Paola|Attard|Birżebbuġa|Tarxien|Gżira|Mellieħa|Marsa|Floriana|Siġġiewi|Luqa|Żurrieq|Victoria|Nadur|Xewkija'],
+  EST: ['Estonia', 'Tallinn|Tartu|Narva|Pärnu|Kohtla-Järve|Viljandi|Rakvere|Maardu|Kuressaare|Sillamäe|Valga|Võru|Jõhvi|Haapsalu|Keila|Paide|Elva|Saue|Põlva|Jõgeva|Rapla'],
+  LVA: ['Latvia', 'Riga|Daugavpils|Liepāja|Jelgava|Jūrmala|Ventspils|Rēzekne|Valmiera|Ogre|Tukums|Cēsis|Salaspils|Kuldīga|Olaine|Saulkrasti|Bauska|Sigulda|Jēkabpils|Talsi|Dobele|Krāslava|Madona'],
+  LTU: ['Lithuania', 'Vilnius|Kaunas|Klaipėda|Šiauliai|Panevėžys|Alytus|Marijampolė|Mažeikiai|Jonava|Utena|Kėdainiai|Telšiai|Tauragė|Ukmergė|Visaginas|Plungė|Kretinga|Palanga|Radviliškis|Druskininkai|Rokiškis|Biržai|Gargždai|Elektrėnai'],
+  BLR: ['Belarus', 'Minsk|Gomel|Mogilev|Vitebsk|Grodno|Brest|Bobruisk|Baranovichi|Borisov|Pinsk|Orsha|Mozyr|Soligorsk|Novopolotsk|Molodechno|Polotsk|Zhlobin|Svetlogorsk|Rechitsa|Slutsk|Zhodino|Slonim|Kalinkovichi|Smorgon'],
+  MDA: ['Moldova', 'Chișinău|Tiraspol|Bălți|Bender|Rîbnița|Cahul|Ungheni|Soroca|Orhei|Comrat|Ceadîr-Lunga|Strășeni|Căușeni|Drochia|Edineț|Hîncești|Florești|Ialoveni|Sîngerei|Dubăsari'],
+  GEO: ['Georgia', 'Tbilisi|Kutaisi|Batumi|Rustavi|Zugdidi|Gori|Poti|Samtredia|Khoni|Telavi|Ozurgeti|Zestaponi|Marneuli|Khashuri|Senaki|Chiatura|Tkibuli|Borjomi|Lagodekhi|Akhaltsikhe|Kaspi|Mtskheta|Sagarejo|Sighnaghi'],
+  ARM: ['Armenia', 'Yerevan|Gyumri|Vanadzor|Vagharshapat|Abovyan|Kapan|Hrazdan|Armavir|Artashat|Ijevan|Goris|Charentsavan|Ararat|Masis|Sevan|Ashtarak|Dilijan|Sisian|Alaverdi|Stepanavan|Gavar|Meghri'],
+  AZE: ['Azerbaijan', 'Baku|Ganja|Sumgait|Mingachevir|Shirvan|Nakhchivan|Shaki|Lankaran|Yevlakh|Quba|Gabala|Shamakhi|Sabirabad|Agstafa|Zaqatala|Barda|Imishli|Salyan|Goychay|Masally|Astara|Khachmaz'],
+  KAZ: ['Kazakhstan', 'Almaty|Astana|Shymkent|Karaganda|Aktobe|Taraz|Pavlodar|Oskemen|Semey|Atyrau|Kostanay|Kyzylorda|Oral|Petropavl|Aktau|Temirtau|Turkistan|Kokshetau|Taldykorgan|Ekibastuz|Rudny|Zhanaozen|Balkhash|Zhezkazgan'],
+  IND: ['India', 'Kolkata|Mumbai|Bengaluru|Chennai|Delhi|Panaji|Margao|Vasco da Gama|Kochi|Hyderabad|Jamshedpur|Guwahati|Shillong|Imphal|Aizawl|Pune|Ahmedabad|Lucknow|Kozhikode|Trivandrum|Ludhiana|Chandigarh|Bhubaneswar|Ranchi|Nagpur|Indore|Jaipur|Madurai|Coimbatore|Visakhapatnam'],
+  MAS: ['Malaysia', 'Kuala Lumpur|Johor Bahru|Ipoh|George Town|Kuching|Kota Kinabalu|Shah Alam|Klang|Petaling Jaya|Malacca|Kuantan|Alor Setar|Kota Bharu|Kuala Terengganu|Seremban|Miri|Sandakan|Tawau|Sibu|Batu Pahat|Muar|Kangar|Temerloh|Taiping|Selayang|Kajang|Subang Jaya|Sepang'],
+  SGP: ['Singapore', 'Tampines|Jurong|Woodlands|Sengkang|Punggol|Hougang|Bishan|Ang Mo Kio|Toa Payoh|Bedok|Clementi|Yishun|Sembawang|Bukit Batok|Bukit Panjang|Choa Chu Kang|Pasir Ris|Geylang|Kallang|Queenstown|Marine Parade|Bukit Merah'],
+  IRQ: ['Iraq', 'Baghdad|Basra|Mosul|Erbil|Sulaymaniyah|Najaf|Karbala|Nasiriyah|Kirkuk|Duhok|Hillah|Ramadi|Kut|Diwaniyah|Amarah|Baqubah|Fallujah|Samawah|Samarra|Zakho|Tikrit|Kufa|Halabja|Haditha|Umm Qasr|Zubair|Tal Afar'],
+  JOR: ['Jordan', 'Amman|Zarqa|Irbid|Russeifa|Aqaba|Madaba|Salt|Mafraq|Jerash|Ajloun|Karak|Tafilah|Maan|Ramtha|Sahab|Wadi Musa|Deir Alla|Sweileh|Naur|Kufranja'],
+  OMA: ['Oman', 'Muscat|Salalah|Sohar|Nizwa|Sur|Ibri|Barka|Rustaq|Buraimi|Saham|Bawshar|Seeb|Ibra|Muttrah|Khabourah|Suwaiq|Izki|Bahla|Adam|Haima|Duqm'],
+  KUW: ['Kuwait', 'Kuwait City|Hawalli|Salmiya|Jahra|Farwaniya|Ahmadi|Mubarak Al-Kabeer|Fahaheel|Khaitan|Sabahiya|Mangaf|Firdous|Riggae|Sulaibiya|Ardiya|Wafra'],
+  BHR: ['Bahrain', 'Manama|Muharraq|Riffa|Isa Town|Hamad Town|Sitra|Budaiya|Jidhafs|Awali|Diraz|Malkiya|Saar|Tubli|Juffair'],
+  NZL: ['New Zealand', 'Auckland|Wellington|Christchurch|Hamilton|Tauranga|Dunedin|Palmerston North|Nelson|Napier|Rotorua|New Plymouth|Whangarei|Invercargill|Whanganui|Gisborne|Hastings|Upper Hutt|Lower Hutt|Porirua|Queenstown|Timaru|Blenheim|Masterton|Levin'],
+  SEN: ['Senegal', 'Dakar|Touba|Thiès|Kaolack|Saint-Louis|Ziguinchor|Mbour|Diourbel|Louga|Tambacounda|Kolda|Kaffrine|Pikine|Rufisque|Guédiawaye|Richard-Toll|Tivaouane|Matam|Sédhiou|Kédougou|Podor|Mbacké|Fatick|Joal'],
+  CIV: ['Ivory Coast', 'Abidjan|Yamoussoukro|Bouaké|Daloa|San-Pédro|Korhogo|Man|Gagnoa|Divo|Séguéla|Bondoukou|Odienné|Grand-Bassam|Aboisso|Anyama|Bingerville|Soubré|Danané|Guiglo|Katiola|Bouna|Adiaké|Tiassalé|Agboville'],
+  CMR: ['Cameroon', 'Douala|Yaoundé|Garoua|Bamenda|Maroua|Bafoussam|Ngaoundéré|Bertoua|Limbe|Edéa|Kumba|Nkongsamba|Buea|Ebolowa|Kousséri|Kribi|Sangmélima|Foumban|Dschang|Mbalmayo|Bafia|Mbouda|Bafang|Guider'],
+  MLI: ['Mali', 'Bamako|Sikasso|Mopti|Koutiala|Kayes|Ségou|Gao|Timbuktu|Kidal|San|Bougouni|Kalaban Coro|Kati|Niono|Djenné|Markala|Kita|Nioro|Koulikoro|Bafoulabé|Douentza|Bandiagara|Kéniéba'],
+  KEN: ['Kenya', 'Nairobi|Mombasa|Kisumu|Nakuru|Eldoret|Thika|Malindi|Kitale|Garissa|Kakamega|Nyeri|Machakos|Meru|Kisii|Busia|Naivasha|Kericho|Embu|Kitui|Wajir|Lamu|Kajiado|Muranga|Bungoma|Homa Bay|Migori|Nanyuki'],
+  COD: ['DR Congo', 'Kinshasa|Lubumbashi|Mbuji-Mayi|Kisangani|Matadi|Kananga|Likasi|Kolwezi|Goma|Bukavu|Mbandaka|Bandundu|Kikwit|Bunia|Uvira|Kalemie|Boma|Beni|Butembo|Gemena|Isiro|Muanda|Kindu|Tshikapa'],
+  ANG: ['Angola', 'Luanda|Huambo|Lobito|Benguela|Kuito|Lubango|Malanje|Namibe|Soyo|Cabinda|Uíge|Saurimo|Sumbe|Ondjiva|Menongue|Luena|Dundo|Ndalatando|Cacuaco|Viana|Catumbela|Cazenga|Camacupa|Caxito'],
+  ZAM: ['Zambia', 'Lusaka|Kitwe|Ndola|Kabwe|Chingola|Mufulira|Livingstone|Luanshya|Kasama|Chipata|Mongu|Solwezi|Mazabuka|Choma|Nchelenge|Mansa|Petauke|Monze|Kapiri Mposhi|Kalomo|Siavonga|Mpika|Isoka|Chilanga'],
+  HON: ['Honduras', 'Tegucigalpa|San Pedro Sula|La Ceiba|Choluteca|Comayagua|El Progreso|Choloma|Danlí|Siguatepeque|Juticalpa|Puerto Cortés|La Lima|Villanueva|Tela|Santa Rosa de Copán|Tocoa|Omoa|Nacaome|Catacamas|La Paz|San Lorenzo|Gracias'],
+  GUA: ['Guatemala', 'Guatemala City|Quetzaltenango|Escuintla|Mixco|Villa Nueva|Cobán|Mazatenango|Chimaltenango|Puerto Barrios|Retalhuleu|Jutiapa|Jalapa|Chiquimula|Salamá|Sololá|Totonicapán|Huehuetenango|Antigua|San Marcos|Zacapa|Flores|Coatepeque|Amatitlán|Santa Lucía'],
+  PAN: ['Panama', 'Panama City|Colón|David|San Miguelito|La Chorrera|Arraiján|Santiago|Chitré|Las Tablas|Penonomé|Aguadulce|Boquete|Almirante|Changuinola|Chame|Antón|Natá|Soná'],
+  SLV: ['El Salvador', 'San Salvador|Santa Ana|San Miguel|Soyapango|Santa Tecla|Apopa|Mejicanos|Delgado|Ahuachapán|Usulután|Sonsonate|Cojutepeque|Chalatenango|La Unión|Ilopango|San Vicente|Suchitoto|La Libertad|Metapán|Acajutla'],
+  JAM: ['Jamaica', 'Kingston|Montego Bay|Spanish Town|Portmore|May Pen|Mandeville|Ocho Rios|Port Antonio|Morant Bay|Black River|Savanna-la-Mar|Falmouth|Linstead|Old Harbour|Christiana|Port Maria|Browns Town|Santa Cruz|Lucea|Stewart Town']
+};
+// 기존 나라에 더하는 부(팀 수)와 그 부 구단에 먼저 쓰는 작은 도시 [한국어, 영어] (5대 리그는 6부까지, 나머지는 4부까지)
+const MORE_TIERS = {
+  ENG: [[24, 24], '스티버니지 크롤리 바넷 대거넘 그림즈비 스컨소프 게이츠헤드 하틀풀 달링턴 체스터필드 매클스필드 키더민스터 헤리퍼드 토키 요빌 워킹 메이드스톤 올더숏 이스틀리 올트링엄 사우스포트 촐리 탬워스 케터링 게인즈버러 벅스턴 스페니무어 블라이스 워킹턴 켄들 랭커스터 텔퍼드 슈루즈베리 글로스터 첼트넘 웨이머스 트루로 첼름스퍼드 다트퍼드 브롬리 서턴 질링엄 크루 로치데일 올덤 모어캠 맨스필드 링컨 돈캐스터 반즐리 허더즈필드 브래드퍼드 스톡포트 월솔 콜체스터 샐퍼드', 'Stevenage|Crawley|Barnet|Dagenham|Grimsby|Scunthorpe|Gateshead|Hartlepool|Darlington|Chesterfield|Macclesfield|Kidderminster|Hereford|Torquay|Yeovil|Woking|Maidstone|Aldershot|Eastleigh|Altrincham|Southport|Chorley|Tamworth|Kettering|Gainsborough|Buxton|Spennymoor|Blyth|Workington|Kendal|Lancaster|Telford|Shrewsbury|Gloucester|Cheltenham|Weymouth|Truro|Chelmsford|Dartford|Bromley|Sutton|Gillingham|Crewe|Rochdale|Oldham|Morecambe|Mansfield|Lincoln|Doncaster|Barnsley|Huddersfield|Bradford|Stockport|Walsall|Colchester|Salford'],
+  ESP: [[20, 20], '폰페라다 루고 오렌세 페롤 폰테베드라 산티아고데콤포스텔라 아빌레스 랑그레오 토렐라베가 로그로뇨 비토리아 에이바르 이룬 투델라 소리아 세고비아 아빌라 사모라 레온 팔렌시아 탈라베라 카세레스 메리다 리나레스 하엔 우베다 알헤시라스 마르베야 헤레스 세우타 멜리야 로르카 카르타헤나 알바세테 쿠엥카 테루엘 레우스 사바델 테라사 바달로나 만레사 이비사 엘다 알코이 간디아', 'Ponferrada|Lugo|Ourense|Ferrol|Pontevedra|Santiago de Compostela|Avilés|Langreo|Torrelavega|Logroño|Vitoria|Eibar|Irún|Tudela|Soria|Segovia|Ávila|Zamora|León|Palencia|Talavera|Cáceres|Mérida|Linares|Jaén|Úbeda|Algeciras|Marbella|Jerez|Ceuta|Melilla|Lorca|Cartagena|Albacete|Cuenca|Teruel|Reus|Sabadell|Terrassa|Badalona|Manresa|Ibiza|Elda|Alcoy|Gandía'],
+  GER: [[18, 18, 18], '겔젠키르헨 묀헨글라트바흐 볼프스부르크 레버쿠젠 진스하임 퓌르트 잉골슈타트 잔트하우젠 하이덴하임 다름슈타트 오펜바흐 카셀 에르푸르트 예나 켐니츠 츠비카우 마그데부르크 할레 코트부스 포츠담 뤼베크 올덴부르크 메펜 뮌스터 페를 부퍼탈 오버하우젠 크레펠트 뒤렌 코블렌츠 트리어 자르브뤼켄 홈부르크 피르마젠스 카이저슬라우테른 울름 알렌 로이틀링겐 포르츠하임 운터하힝 부르크하우젠 뷔르츠부르크 슈바인푸르트 바이로이트 밤베르크 호프 파사우 로젠하임 메밍겐 켐프텐 기센 풀다 함 지겐 리프슈타트 노르데르슈테트 플렌스부르크 노이뮌스터 힐데스하임 괴팅겐', 'Gelsenkirchen|Mönchengladbach|Wolfsburg|Leverkusen|Sinsheim|Fürth|Ingolstadt|Sandhausen|Heidenheim|Darmstadt|Offenbach|Kassel|Erfurt|Jena|Chemnitz|Zwickau|Magdeburg|Halle|Cottbus|Potsdam|Lübeck|Oldenburg|Meppen|Münster|Verl|Wuppertal|Oberhausen|Krefeld|Düren|Koblenz|Trier|Saarbrücken|Homburg|Pirmasens|Kaiserslautern|Ulm|Aalen|Reutlingen|Pforzheim|Unterhaching|Burghausen|Würzburg|Schweinfurt|Bayreuth|Bamberg|Hof|Passau|Rosenheim|Memmingen|Kempten|Gießen|Fulda|Hamm|Siegen|Lippstadt|Norderstedt|Flensburg|Neumünster|Hildesheim|Göttingen'],
+  ITA: [[20, 20, 20], '아스콜리 아벨리노 베네벤토 카탄차로 코센차 크로토네 포자 타란토 포텐차 마테라 브린디시 안드리아 바를레타 트라파니 시라쿠사 라구사 아그리젠토 사사리 올비아 테르니 아레초 시에나 루카 프라토 피스토이아 엠폴리 카라라 리미니 체세나 포를리 라벤나 페라라 레조에밀리아 피아첸차 만토바 레코 몬차 바레세 노바라 알레산드리아 베르첼리 쿠네오 아스티 비엘라 사보나 산레모 트레비소 바사노 트렌토 볼차노 포르데노네 사수올로 카르피 프로시노네 라티나 비테르보 테라모 키에티 캄포바소 카세르타 구비오 페르모 마체라타 페사로', 'Ascoli|Avellino|Benevento|Catanzaro|Cosenza|Crotone|Foggia|Taranto|Potenza|Matera|Brindisi|Andria|Barletta|Trapani|Siracusa|Ragusa|Agrigento|Sassari|Olbia|Terni|Arezzo|Siena|Lucca|Prato|Pistoia|Empoli|Carrara|Rimini|Cesena|Forlì|Ravenna|Ferrara|Reggio Emilia|Piacenza|Mantova|Lecco|Monza|Varese|Novara|Alessandria|Vercelli|Cuneo|Asti|Biella|Savona|Sanremo|Treviso|Bassano|Trento|Bolzano|Pordenone|Sassuolo|Carpi|Frosinone|Latina|Viterbo|Teramo|Chieti|Campobasso|Caserta|Gubbio|Fermo|Macerata|Pesaro'],
+  FRA: [[16, 16, 16], '랑스 갱강 반 캥페르 라발 니오르 푸아티에 라로셸 앙굴렘 포 바욘 페르피냥 베지에 세트 아비뇽 아를 마르티그 오바뉴 칸 앙티브 프레쥐스 아작시오 바스티아 안시 샹베리 발랑스 부르캉브레스 빌프랑슈 로안 로데즈 알비 샤토루 오를레앙 샤르트르 루앙 셰르부르 됭케르크 불로뉴 칼레 발랑시엔 보베 크레테유 베르사유 스당 에피날 뮐루즈 콜마르 벨포르 브장송 소쇼 트루아', 'Lens|Guingamp|Vannes|Quimper|Laval|Niort|Poitiers|La Rochelle|Angoulême|Pau|Bayonne|Perpignan|Béziers|Sète|Avignon|Arles|Martigues|Aubagne|Cannes|Antibes|Fréjus|Ajaccio|Bastia|Annecy|Chambéry|Valence|Bourg-en-Bresse|Villefranche|Roanne|Rodez|Albi|Châteauroux|Orléans|Chartres|Rouen|Cherbourg|Dunkerque|Boulogne|Calais|Valenciennes|Beauvais|Créteil|Versailles|Sedan|Épinal|Mulhouse|Colmar|Belfort|Besançon|Sochaux|Troyes'],
+  NED: [[18, 18], '펜로 시타르트 케르크라더 에먼 아선 데펜터르 헹엘로 알멜로 오스 헬몬트 발베이크 덴보스 스파컨뷔르흐 카트베이크 레인스뷔르흐 바렌드레흐트 노르트베이크 아메르스포르트 힐베르쉼 퓌르메런트', 'Venlo|Sittard|Kerkrade|Emmen|Assen|Deventer|Hengelo|Almelo|Oss|Helmond|Waalwijk|Den Bosch|Spakenburg|Katwijk|Rijnsburg|Barendrecht|Noordwijk|Amersfoort|Hilversum|Purmerend'],
+  POR: [[18, 16], '빌라노바드가이아 바르셀루스 파솔스페헤이라 페나피엘 빌라두콘드 포보아드바르징 파말리캉 토헤스베드라스 산타렝 카스텔루브랑쿠 과르다 브라간사 비아나두카스텔루 폰타델가다 앙그라두에로이스무 올량 라구스 베자', 'Vila Nova de Gaia|Barcelos|Paços de Ferreira|Penafiel|Vila do Conde|Póvoa de Varzim|Famalicão|Torres Vedras|Santarém|Castelo Branco|Guarda|Bragança|Viana do Castelo|Ponta Delgada|Angra do Heroísmo|Olhão|Lagos|Beja'],
+  BEL: [[16, 16], '로셀라레 이퍼르 아알스트 신트니클라스 투르나이 무스크론 베르비에 외펜 할레 빌보르더 투른하우트 헤일 로멜 데인제 오우데나르더 라루비에르', 'Roeselare|Ieper|Aalst|Sint-Niklaas|Tournai|Mouscron|Verviers|Eupen|Halle|Vilvoorde|Turnhout|Geel|Lommel|Deinze|Oudenaarde|La Louvière'],
+  TUR: [[18, 18], '에르주룸 반 엘라즈 바트만 샨르우르파 오르두 기레순 아마스야 토카트 초룸 볼루 뒤즈제 종굴다크 카라뷔크 크르클라렐리 에디르네 테키르다 발르케시르', 'Erzurum|Van|Elazig|Batman|Sanliurfa|Ordu|Giresun|Amasya|Tokat|Çorum|Bolu|Düzce|Zonguldak|Karabük|Kirklareli|Edirne|Tekirdağ|Balikesir'],
+  SCO: [[10, 10], '아브로스 몬트로즈 피터헤드 엘긴 커크콜디 던펌린 알로아 그리녹 덤바턴 스트랜라 앤넌 덤프리스 카우든비스 브레친', 'Arbroath|Montrose|Peterhead|Elgin|Kirkcaldy|Dunfermline|Alloa|Greenock|Dumbarton|Stranraer|Annan|Dumfries|Cowdenbeath|Brechin'],
+  AUT: [[16, 16], '볼프스베르크 하르트베르크 리트 알타흐 브레겐츠 루스테나우 크렘스 아이젠슈타트 바덴 비너노이슈타트 카펜베르크 마테르스부르크 그뢰디히 쿠프슈타인 암슈테텐', 'Wolfsberg|Hartberg|Ried|Altach|Bregenz|Lustenau|Krems|Eisenstadt|Baden|Wiener Neustadt|Kapfenberg|Mattersburg|Grödig|Kufstein|Amstetten'],
+  SUI: [[16, 16], '샤프하우젠 빌 뇌샤텔 프리부르 이베르동 프라우엔펠트 쿠어 벨린초나 크리엔스 추크 졸로투른 올텐 브리그 라쇼드퐁 니옹', 'Schaffhausen|Biel|Neuchâtel|Fribourg|Yverdon|Frauenfeld|Chur|Bellinzona|Kriens|Zug|Solothurn|Olten|Brig|La Chaux-de-Fonds|Nyon'],
+  GRE: [[16, 16], '코린토스 아르타 카르디차 트리칼라 코자니 베리아 드라마 코모티니 알렉산드루폴리 리바디아 라미아 할키다 피르고스 레팀노 로도스 케르키라', 'Korinthos|Arta|Karditsa|Trikala|Kozani|Veria|Drama|Komotini|Alexandroupoli|Livadeia|Lamia|Chalkida|Pyrgos|Rethymno|Rhodes|Corfu'],
+  DEN: [[12, 14], '나이스트베드 홀베크 슬라겔세 뉘쾨빙 스벤보르 하데르슬레우 쇠네르보르 아벤로 콜링 스키베 링뷔 브뢴비 예링 프레데릭스하운', 'Næstved|Holbæk|Slagelse|Nykøbing|Svendborg|Haderslev|Sønderborg|Aabenraa|Kolding|Skive|Lyngby|Brøndby|Hjørring|Frederikshavn'],
+  NOR: [[14, 14], '사릅스보르 하마르 기외비크 콩스빙에르 라르비크 아렌달 그림스타 에게르순 모이라나 나르비크 하르스타 알타 레방에르 크리스티안순', 'Sarpsborg|Hamar|Gjøvik|Kongsvinger|Larvik|Arendal|Grimstad|Egersund|Mo i Rana|Narvik|Harstad|Alta|Levanger|Kristiansund'],
+  SWE: [[16, 14], '쇠데르텔리에 순스발 외스테르순드 루레오 셸레프테오 팔룬 칼스타드 트롤헤탄 바르베리 크리스티안스타드 란스크로나 트렐레보리 벡셰 비스뷔', 'Södertälje|Sundsvall|Östersund|Luleå|Skellefteå|Falun|Karlstad|Trollhättan|Varberg|Kristianstad|Landskrona|Trelleborg|Växjö|Visby'],
+  CZE: [[16, 16], '프로스티요프 프르제로프 지흘라바 체스케부데요비체 타보르 피세크 프르지브람 클라드노 콜린 흐루딤 트르시네츠 비트코비체 호도닌 즈노이모 브르제츨라프 우헤르스케흐라디슈테', 'Prostějov|Přerov|Jihlava|České Budějovice|Tábor|Písek|Příbram|Kladno|Kolín|Chrudim|Třinec|Vítkovice|Hodonín|Znojmo|Břeclav|Uherské Hradiště'],
+  POL: [[18, 18], '오폴레 지엘로나구라 고주프 레그니차 왈브지흐 엘블롱크 올슈틴 플로츠크 브워츠와베크 칼리시 코닌 레시노 타르누프 노비송치 제슈프 스탈로바볼라 자모시치 수바우키', 'Opole|Zielona Góra|Gorzów|Legnica|Wałbrzych|Elbląg|Olsztyn|Płock|Włocławek|Kalisz|Konin|Leszno|Tarnów|Nowy Sącz|Rzeszów|Stalowa Wola|Zamość|Suwałki'],
+  CRO: [[16, 16], '벨리카고리차 시사크 비로비티차 비예로바르 코프리브니차 차코베츠 고스피치 마카르스카 솔린 트로기르 크닌 포레치 로비니 우마그 사모보르 자프레시치', 'Velika Gorica|Sisak|Virovitica|Bjelovar|Koprivnica|Čakovec|Gospić|Makarska|Solin|Trogir|Knin|Poreč|Rovinj|Umag|Samobor|Zaprešić'],
+  SRB: [[16, 16], '소코바냐 자예차르 보르 피로트 브라네 프로쿠플레 크루셰바츠 야고디나 파라친 시드 솜보르 키킨다 브르샤츠 루마 샤바츠 로즈니차', 'Sokobanja|Zaječar|Bor|Pirot|Vranje|Prokuplje|Kruševac|Jagodina|Paraćin|Šid|Sombor|Kikinda|Vršac|Ruma|Šabac|Loznica'],
+  UKR: [[16, 14], '테르노필 이바노프랑키우스크 루츠크 리우네 지토미르 흐멜니츠키 체르니우치 우즈호로드 크로피우니츠키 크레멘추크 카미안스케 니코폴 오렉산드리야 베르디안스크', 'Ternopil|Ivano-Frankivsk|Lutsk|Rivne|Zhytomyr|Khmelnytskyi|Chernivtsi|Uzhhorod|Kropyvnytskyi|Kremenchuk|Kamianske|Nikopol|Oleksandriia|Berdiansk'],
+  RUS: [[16, 16], '야로슬라블 툴라 랴잔 칼루가 브랸스크 쿠르스크 벨고로드 리페츠크 탐보프 펜자 사란스크 오렌부르크 아스트라한 마하치칼라 그로즈니 소치', 'Yaroslavl|Tula|Ryazan|Kaluga|Bryansk|Kursk|Belgorod|Lipetsk|Tambov|Penza|Saransk|Orenburg|Astrakhan|Makhachkala|Grozny|Sochi'],
+  ROU: [[16, 16], '수체아바 피아트라네암츠 바이아마레 사투마레 잘러우 비스트리차 투르구무레슈 알바율리아 데바 후네도아라 레시차 드로베타투르누세베린 슬라티나 알렉산드리아 지우르지우 칼라라시', 'Suceava|Piatra Neamț|Baia Mare|Satu Mare|Zalău|Bistrița|Târgu Mureș|Alba Iulia|Deva|Hunedoara|Reșița|Drobeta-Turnu Severin|Slatina|Alexandria|Giurgiu|Călărași'],
+  HUN: [[16, 16], '베스프렘 터터바녀 셰케이 커포슈바르 너지커니저 잘라에게르세그 파파 쇼프론 두너우이바로시 에르드 바츠 살고터랸 커진츠바르치커 베케슈처버 메죄쾨베슈드 키슈바르다', 'Veszprém|Tatabánya|Szekszárd|Kaposvár|Nagykanizsa|Zalaegerszeg|Pápa|Sopron|Dunaújváros|Érd|Vác|Salgótarján|Kazincbarcika|Békéscsaba|Mezőkövesd|Kisvárda'],
+  IRL: [[12, 12], '킬케니 웩스퍼드 칼로 털러모어 멀링가 나반 캐번 모너핸 레터케니 캐슬바 트랄리 클론멜 엔니스 롱퍼드', 'Kilkenny|Wexford|Carlow|Tullamore|Mullingar|Navan|Cavan|Monaghan|Letterkenny|Castlebar|Tralee|Clonmel|Ennis|Longford'],
+  BRA: [[20, 20], '우베를란지아 히베이랑프레투 소로카바 상주제두스캄푸스 주이스지포라 론드리나 마링가 카시아스두술 펠로타스 샤페코 블루메나우 비토리아 아라카주 테레지나 상루이스 캄피나그란지 카루아루 페트롤리나 이타보라이 볼타헤돈다 브라질리아 아나폴리스 포르투벨류 마카파', 'Uberlândia|Ribeirão Preto|Sorocaba|São José dos Campos|Juiz de Fora|Londrina|Maringá|Caxias do Sul|Pelotas|Chapecó|Blumenau|Vitória|Aracaju|Teresina|São Luís|Campina Grande|Caruaru|Petrolina|Itaboraí|Volta Redonda|Brasília|Anápolis|Porto Velho|Macapá'],
+  ARG: [[20, 20], '라리오하 산티아고델에스테로 후후이 카타마르카 산루이스 리오쿠아르토 비야마리아 라파엘라 후닌 탄딜 올라바리아 트렐레우 코모도로리바다비아 우수아이아 바릴로체 산니콜라스 캄파나 사라테 메를로 모론 템페를레이', 'La Rioja|Santiago del Estero|Jujuy|Catamarca|San Luis|Río Cuarto|Villa María|Rafaela|Junín|Tandil|Olavarría|Trelew|Comodoro Rivadavia|Ushuaia|Bariloche|San Nicolás|Campana|Zárate|Merlo|Morón|Temperley'],
+  URU: [[14, 14], '플로리다 두라스노 트레인타이트레스 로차 산호세데마요 프라이벤토스 카넬로네스 판도 시우다드델라코스타 카르멜로 돌로레스 영', 'Florida|Durazno|Treinta y Tres|Rocha|San José de Mayo|Fray Bentos|Canelones|Pando|Ciudad de la Costa|Carmelo|Dolores|Young'],
+  COL: [[16, 16], '아르메니아 투룰루아 팔미라 부에나벤투라 소가모소 두이타마 지파키라 소아차 엔비가도 이타구이 리오네그로 바예두파르 신셀레호 리오아차 포파얀 플로렌시아', 'Armenia|Tuluá|Palmira|Buenaventura|Sogamoso|Duitama|Zipaquirá|Soacha|Envigado|Itagüí|Rionegro|Valledupar|Sincelejo|Riohacha|Popayán|Florencia'],
+  CHI: [[14, 14], '칼라마 코피아포 오바예 킬로타 산펠리페 로스앙헬레스 쿠리코 리나레스 발디비아 푼타아레나스 산안토니오 멜리피야 푸엔테알토 마이푸', 'Calama|Copiapó|Ovalle|Quillota|San Felipe|Los Ángeles|Curicó|Linares|Valdivia|Punta Arenas|San Antonio|Melipilla|Puente Alto|Maipú'],
+  PAR: [[16, 16], '페드로후안카바예로 코로넬오비에도 산에스타니슬라오 카아세페 파라과리 이타우구아 마리아노로케알론소 림피오 아레구아 카라페과 산페드로 카아사파 오르케타 살토델과이라', 'Pedro Juan Caballero|Coronel Oviedo|San Estanislao|Caacupé|Paraguarí|Itauguá|Mariano Roque Alonso|Limpio|Areguá|Carapeguá|San Pedro|Caazapá|Horqueta|Salto del Guairá'],
+  ECU: [[12, 12], '케베도 바바오요 라타쿵가 툴칸 아소게스 밀라그로 라리베르타드 엘코카 푸요 테나 마차치 산타엘레나', 'Quevedo|Babahoyo|Latacunga|Tulcán|Azogues|Milagro|La Libertad|El Coca|Puyo|Tena|Machachi|Santa Elena'],
+  PER: [[16, 16], '훌리아카 아야쿠초 우아누코 푸칼파 타라포토 모케과 일로 침보테 우아초 피스코 툼베스 차차포야스 하엔 아방카이', 'Juliaca|Ayacucho|Huánuco|Pucallpa|Tarapoto|Moquegua|Ilo|Chimbote|Huacho|Pisco|Tumbes|Chachapoyas|Jaén|Abancay'],
+  BOL: [[14, 14], '야쿠이바 리베랄타 과야라메린 비야존 투피사 우유니 키야코요 사카바 코비하 카미리 베르메호 와르네스', 'Yacuiba|Riberalta|Guayaramerín|Villazón|Tupiza|Uyuni|Quillacollo|Sacaba|Cobija|Camiri|Bermejo|Warnes'],
+  VEN: [[14, 14], '바르셀로나 발렌시아 산펠리페 아카리과 과나레 산페르난도 투쿠피타 엘티그레 카루파노 푸에르토아야쿠초 산후안데로스모로스 로스테케스', 'Barcelona|Valencia|San Felipe|Acarigua|Guanare|San Fernando|Tucupita|El Tigre|Carúpano|Puerto Ayacucho|San Juan de los Morros|Los Teques'],
+  USA: [[16, 16], '로체스터 버펄로 하트퍼드 프로비던스 리치먼드 노퍽 롤리 그린빌 찰스턴 서배너 잭슨빌 버밍햄 채터누가 녹스빌 렉싱턴 인디애나폴리스 털사 엘패소 투손 리노 보이시 스포캔 오마하 디모인', 'Rochester|Buffalo|Hartford|Providence|Richmond|Norfolk|Raleigh|Greenville|Charleston|Savannah|Jacksonville|Birmingham|Chattanooga|Knoxville|Lexington|Indianapolis|Tulsa|El Paso|Tucson|Reno|Boise|Spokane|Omaha|Des Moines'],
+  MEX: [[16, 16], '셀라야 레온 이라푸아토 사카테카스 두랑고 에르모시요 시우다드오브레곤 로스모치스 테픽 콜리마 쿠에르나바카 파추카 틀락스칼라 비야에르모사 툭스틀라 캄페체 체투말 탐피코', 'Celaya|León|Irapuato|Zacatecas|Durango|Hermosillo|Ciudad Obregón|Los Mochis|Tepic|Colima|Cuernavaca|Pachuca|Tlaxcala|Villahermosa|Tuxtla|Campeche|Chetumal|Tampico'],
+  CAN: [[10, 12], '서리 미시소가 브램턴 런던 키치너 윈저 오샤와 세인트캐서린스 서드베리 선더베이 새스커툰 켈로나 몽크턴 프레더릭턴 가티노 셔브룩', 'Surrey|Mississauga|Brampton|London|Kitchener|Windsor|Oshawa|St. Catharines|Sudbury|Thunder Bay|Saskatoon|Kelowna|Moncton|Fredericton|Gatineau|Sherbrooke'],
+  CRC: [[12, 12], '그레시아 산라몬 팔마레스 투리알바 과필레스 니코야 산타크루스 케포스 시우다드네일리 산비토 데삼파라도스 쿠리다밧', 'Grecia|San Ramón|Palmares|Turrialba|Guápiles|Nicoya|Santa Cruz|Quepos|Ciudad Neily|San Vito|Desamparados|Curridabat'],
+  KOR: [[16, 16], '화성 평택 시흥 김포 파주 양주 의정부 남양주 구리 하남 이천 안양 부천 광명 당진 서산 아산 경주 거제 통영 양산 순천 광양 군산 익산 강릉 속초 충주', 'Hwaseong|Pyeongtaek|Siheung|Gimpo|Paju|Yangju|Uijeongbu|Namyangju|Guri|Hanam|Icheon|Anyang|Bucheon|Gwangmyeong|Dangjin|Seosan|Asan|Gyeongju|Geoje|Tongyeong|Yangsan|Suncheon|Gwangyang|Gunsan|Iksan|Gangneung|Sokcho|Chungju'],
+  JPN: [[20, 16], '미토 우쓰노미야 마에바시 고후 나가노 마쓰모토 도야마 후쿠이 기후 누마즈 후지에다 이와타 도요하시 나라 와카야마 돗토리 마쓰에 도쿠시마 다카마쓰 고치 이마바리 기타카미 아키타 야마가타 모리오카 하치노헤 이와키 후쿠시마 오이타 미야자키 사가 오키나와', 'Mito|Utsunomiya|Maebashi|Kofu|Nagano|Matsumoto|Toyama|Fukui|Gifu|Numazu|Fujieda|Iwata|Toyohashi|Nara|Wakayama|Tottori|Matsue|Tokushima|Takamatsu|Kochi|Imabari|Kitakami|Akita|Yamagata|Morioka|Hachinohe|Iwaki|Fukushima|Oita|Miyazaki|Saga|Okinawa'],
+  CHN: [[16, 16], '쑤저우 우시 닝보 원저우 샤먼 푸저우 난창 창사 허페이 스자좡 타이위안 후허하오터 란저우 시닝 인촨 우루무치 하얼빈 옌볜 다퉁 웨이팡 쯔보 메이저우', 'Suzhou|Wuxi|Ningbo|Wenzhou|Xiamen|Fuzhou|Nanchang|Changsha|Hefei|Shijiazhuang|Taiyuan|Hohhot|Lanzhou|Xining|Yinchuan|Ürümqi|Harbin|Yanbian|Datong|Weifang|Zibo|Meizhou'],
+  KSA: [[16, 16], '얀부 라비그 우나이자 알라스 하파르알바틴 사카카 아라르 알바하 비샤 카미스무샤이트 알쿠라이야트 둡바 알울라 다란', 'Yanbu|Rabigh|Unaizah|Ar Rass|Hafar Al-Batin|Sakakah|Arar|Al Bahah|Bisha|Khamis Mushait|Al Qurayyat|Duba|Al-Ula|Dhahran'],
+  QAT: [[10, 10], '알다옌 알샤하니야 무아이테르 알카리티야트 알게웨이리야 마디낫알샤말 루와이스 알와브 움바브 알카라나', 'Al Daayen|Al Shahaniya|Muaither|Al Kharitiyat|Al Ghuwariyah|Madinat ash Shamal|Ar Ruways|Al Waab|Umm Bab|Al Karaana'],
+  UAE: [[12, 12], '알다프라 루와이스 마디나트자예드 하타 디바알히슨 코르파칸 하므리야 알자이드 마사피 알나흐다 제벨알리 알카와니즈', 'Al Dhafra|Ruwais|Madinat Zayed|Hatta|Dibba Al-Hisn|Khor Fakkan|Hamriyah|Al Dhaid|Masafi|Al Nahda|Jebel Ali|Al Khawaneej'],
+  IRN: [[16, 16], '자헤단 카즈빈 잔잔 사리 고르간 우르미아 산난다지 호람아바드 일람 셈난 비르잔드 부셰르 아바단 데즈풀 카샨 사브제바르', 'Zahedan|Qazvin|Zanjan|Sari|Gorgan|Urmia|Sanandaj|Khorramabad|Ilam|Semnan|Birjand|Bushehr|Abadan|Dezful|Kashan|Sabzevar'],
+  UZB: [[14, 14], '우르겐치 히바 굴리스탄 치르치크 알말리크 앙그렌 베카바드 마르길란 쿠바 샤흐리삽즈 데나우 자라프샨', 'Urgench|Khiva|Gulistan|Chirchiq|Olmaliq|Angren|Bekabad|Margilan|Quva|Shahrisabz|Denov|Zarafshon'],
+  THA: [[16, 16], '라용 사뭇쁘라깐 빠툼타니 나콘빠톰 깐짜나부리 핏사눌록 람빵 치앙라이 수랏타니 뜨랑 송클라 시사켓 우본랏차타니 나콘사완', 'Rayong|Samut Prakan|Pathum Thani|Nakhon Pathom|Kanchanaburi|Phitsanulok|Lampang|Chiang Rai|Surat Thani|Trang|Songkhla|Sisaket|Ubon Ratchathani|Nakhon Sawan'],
+  VIE: [[12, 12], '빈즈엉 동나이 롱안 꽝닌 하이즈엉 타이빈 빈푹 박닌 꽝남 플레이꾸 부온마투옷 붕따우', 'Binh Duong|Dong Nai|Long An|Quang Ninh|Hai Duong|Thai Binh|Vinh Phuc|Bac Ninh|Quang Nam|Pleiku|Buon Ma Thuot|Vung Tau'],
+  IDN: [[16, 16], '수라카르타 마두라 시도아르조 그레식 클라텐 치레본 타식말라야 세랑 브카시 람풍 잠비 벵쿨루 아체 마나도 쿠팡 자야푸라', 'Surakarta|Madura|Sidoarjo|Gresik|Klaten|Cirebon|Tasikmalaya|Serang|Bekasi|Lampung|Jambi|Bengkulu|Aceh|Manado|Kupang|Jayapura'],
+  AUS: [[14, 14], '선샤인코스트 투움바 매카이 록햄프턴 번버리 밸러랫 벤디고 와가와가 탐워스 론서스턴 앨리스스프링스 마운트갬비어 오렌지 배서스트', 'Sunshine Coast|Toowoomba|Mackay|Rockhampton|Bunbury|Ballarat|Bendigo|Wagga Wagga|Tamworth|Launceston|Alice Springs|Mount Gambier|Orange|Bathurst'],
+  EGY: [[16, 16], '베니수에프 쿠스 키나 마르사마트루 아리시 후르가다 샤름엘셰이크 카프르엘셰이크 다미에타 시빈엘콤 바나 미트감르 말라위 에드푸', 'Beni Suef|Qus|Qena|Marsa Matruh|Arish|Hurghada|Sharm El Sheikh|Kafr El Sheikh|Damietta|Shibin El Kom|Banha|Mit Ghamr|Mallawi|Edfu'],
+  MAR: [[16, 16], '베르칸 타자 크니프라 세타트 모하메디아 쿠리브가 에사우이라 와르자자트 에라시디아 이프란 알호세이마 라라슈 크사르엘케비르 티즈니트', 'Berkane|Taza|Khenifra|Settat|Mohammedia|Khouribga|Essaouira|Ouarzazate|Errachidia|Ifrane|Al Hoceima|Larache|Ksar El Kebir|Tiznit'],
+  TUN: [[16, 16], '제르바 자르지스 토죄르 케빌리 시디부지드 카세린 엘케프 실리아나 젠두바 함맘리프 라데스 마디아 마트뢰르 엘제마', 'Djerba|Zarzis|Tozeur|Kebili|Sidi Bouzid|Kasserine|El Kef|Siliana|Jendouba|Hammam-Lif|Radès|Mahdia|Mateur|El Djem'],
+  ALG: [[16, 16], '젤파 메데아 칠레프 모스타가넴 렐리잔 마스카라 사이다 티아레트 라그와트 가르다이아 우아르글라 엘우에드 스키크다 겔마', 'Djelfa|Médéa|Chlef|Mostaganem|Relizane|Mascara|Saïda|Tiaret|Laghouat|Ghardaïa|Ouargla|El Oued|Skikda|Guelma'],
+  RSA: [[16, 16], '저미스턴 베노니 복스버그 스프링스 페리니힝 클레르크스도르프 포체프스트룸 위트뱅크 뉴캐슬 리처즈베이 조지 업잉턴 마피켕 토호얀도우', 'Germiston|Benoni|Boksburg|Springs|Vereeniging|Klerksdorp|Potchefstroom|Witbank|Newcastle|Richards Bay|George|Upington|Mahikeng|Thohoyandou'],
+  NGA: [[16, 16], '아쿠레 오그보모쇼 오숑보 아도에키티 로코자 마쿠르디 미나 바우치 곰베 요라 마이두구리 소코토 카치나 칼라바르 아사바 아우카', 'Akure|Ogbomosho|Osogbo|Ado Ekiti|Lokoja|Makurdi|Minna|Bauchi|Gombe|Yola|Maiduguri|Sokoto|Katsina|Calabar|Asaba|Awka'],
+  GHA: [[16, 16], '와 볼가탕가 테치만 은카우카우 위네바 둔크와 타르콰 아샤이만 은사왐 악심 엘미나', 'Wa|Bolgatanga|Techiman|Nkawkaw|Winneba|Dunkwa|Tarkwa|Ashaiman|Nsawam|Axim|Elmina']
+};
+// 새 이름 풀 [이름 순서, 이름, 성]과 영어 [이름, 성]
+const NAME_DATA_2 = {
+  he: ['fl', '에란 오메르 요나탄 도르 탈 이타이 리엘 다니엘 아비 니르 로이 엘리 샤하르 오르 길 아미르 노암 이도 오프리 요아브 이단 오하드',
+    '코헨 레비 미즈라히 페레츠 비톤 다한 아브라함 프리드만 샤피라 아줄라이 말카 오하나 카츠 가비존 암살렘 하다드 바루크 벤시몬 골란 샤케드'],
+  bg: ['fl', '게오르기 이반 디미타르 페타르 니콜라이 스토얀 토도르 블라디미르 마르틴 크리스티안 보리스 스베토슬라프 안톤 플라멘 일리야 바실 키릴 벤치슬라프 라도슬라프 즈드라브코',
+    '페트로프 이바노프 게오르기에프 디미트로프 니콜로프 스토야노프 토도로프 일리예프 안겔로프 콜레프 마리노프 포포프 미하일로프 키릴로프 흐리스토프 야네프 파블로프 바실레프 라데프 츠베트코프 슬라보프 돈체프'],
+  sk: ['fl', '유라이 마레크 마르틴 토마시 미할 페테르 루카시 야쿠프 다비드 온드레이 로베르트 마투시 파트리크 아담 레네 로만 스타니슬라프 이반 야로슬라프 밀로시',
+    '코바치 호르바트 바르가 토트 발라시 노바크 폴라크 크라이초비치 후다크 심코 미시크 루카치 바란 콜라르 오라베츠 크메티 바르토시 우르반 가이도시 마자르'],
+  sl: ['fl', '루카 얀 지가 니크 팀 미하 블라시 네이츠 잔 로크 마티츠 야카 가슈페르 알랴시 벤야민 안드라시 도멘 에리크 틸렌 클레멘',
+    '노바크 호르바트 코바치치 크라인츠 주판치치 포토치니크 믈라카르 코스 비드마르 골로브 투르크 크랄 주판 비자크 흐리바르 카우치치 로즈만 카스텔리츠 코렌 자가르 페테크 파블린 콜라르 예레브'],
+  bs: ['fl', '에딘 하리스 아메르 에미르 아드난 케난 엘비르 아르민 알미르 미르자 세나드 에르메딘 무하메드 아미르 엘다르 네르민 에니스 다미르 베다드 아르넬',
+    '호지치 하지치 코바체비치 델리치 베기치 메흐메도비치 살리호비치 하사노비치 후시치 알리치 스마이치 무이치 할릴로비치 아흐메토비치 무라토비치 오메로비치 카리치 함지치 셰히치 차우셰비치'],
+  mk: ['fl', '고란 알렉산다르 다르코 보얀 스테판 니콜라 아리얀 티호미르 야니 필립 마르코 디미타르 이반 마리오 빅토르 다비드 안드레이 블라트코 즐라트코 사슈코',
+    '트라이코프스키 니콜로프스키 스토야노프스키 리스토프스키 벨코프스키 스피로프스키 토도로프스키 포포프스키 디미트로프스키 안겔로프스키 페트로프스키 요바노프스키 코스토프스키 파블로프스키 조르지에프스키 마르코프스키 일리에프스키 미트레프스키 아타나소프스키 즈드라브코프스키'],
+  sq: ['fl', '아르벤 베스니크 에르말 크리스티안 소콜 아르디안 도리안 엔드리트 발론 아를린드 베킴 파토스 겐티안 로리크 슈켈전 레이 인드리트 아르브노르 윌베르 아곤',
+    '베리샤 크라스니치 호자 가시 샬라 켈멘디 모리나 라마 바이라미 이스마일리 카치 무치 차니 레카 두슈쿠 하사니 아브디우 무스타파 비티치 제치리 레제피 자페리 알리미 바샤'],
+  fi: ['fl', '테무 미코 유카 요니 유호 라우리 에로 온니 아투 엘리아스 레오 발테리 로페 산테리 니코 빌레 안티 투오마스 사미 예세',
+    '코르호넨 비르타넨 매키넨 니에미넨 매켈래 해맬래이넨 라이네 헤이키넨 코스키넨 얘르비넨 레흐토넨 레흐티넨 사리넨 살미넨 헤이노넨 니에미 헤이킬래 킨누넨 살로넨 투루넨 라이티넨 투오미넨 란타넨 카랴라이넨'],
+  is: ['fl', '아론 귈비 요한 알프레드 비르키르 회르뒤르 라그나르 카우리 루나르 아르노르 홀마르 스베리르 이사크 하콘 욘 안드리 알베르트 비다르 에이뒤르 스테판 비야르니 다비드 에이나르',
+    '군나르손 시귀르드손 그뷔드뮌드손 욘손 에이나르손 마그뉘손 올라프손 크리스티아운손 스테파운손 요하네손 비외른손 아우르나손 할도르손 소르다르손 잉가손 파울손 비야르나손 헬가손 하우크손 프리드릭손'],
+  cy: ['fl', '딜런 리스 개러스 에런 벤 조 오웨인 이완 게신 휴 요안 카이 모건 토모스 엘리스 로드리 에미르 스테판 알레드 다비드',
+    '존스 윌리엄스 데이비스 에번스 토머스 로버츠 휴스 루이스 그리피스 프라이스 에드워즈 리스 로이드 오언 파월 프리처드 패리 하월스 르웰린 본 퓨 보언 젠킨스'],
+  mt: ['fl', '조지프 루크 커트 안드레이 클레이턴 라이언 장 테디 잭 후안 스티브 제이크 매슈 칼 가브리엘 니컬러스 브랜던 숀 닐 시릴',
+    '보르그 카밀레리 벨라 파루자 잠미트 갈레아 미칼레프 그레크 아타르드 스피테리 아초파르디 미프수드 아지우스 파체 삼무트 카사르 무스카트 본니치 슈에레브 페네크 데보노 셈브리 카루아나 브리파 가우치'],
+  et: ['fl', '카를 마르트 라스무스 마르쿠스 헨리 케빈 요나스 마티아스 로베르트 마르틴 라우노 아르투르 심 콘스탄틴 세르게이 에리크 크리스티안 타비 안드레스 카렐',
+    '탐 사르 세프 매기 카스크 쿠크 레바네 일베스 패른 코펠 레피크 쿠스크 라우드 바헤르 칼라스 릴 오츠 키비 라우르 테데르 캉구르 맨드 퀴트'],
+  lv: ['fl', '야니스 안드리스 크리스탑스 아르투르스 로베르츠 에드가르스 마르틴시 다비스 라이비스 알렉세이스 블라디슬라브스 글렙스 에두아르츠 카를리스 발레리스 루돌프스 긴츠 톰스 페테리스 리하르츠',
+    '베르진시 칼닌시 오졸스 얀손스 리에핀시 크루민시 발로디스 클랴빈시 자린시 페테르손스 비톨스 오졸린시 그린베르그스 라치스 실린시 에글리티스 즈비르불리스 스프로기스 타라소브스 이바노브스'],
+  lt: ['fl', '토마스 만타스 루카스 유스타스 도나타스 비킨타스 그비다스 아르비다스 에드가라스 파울류스 로카스 도만타스 카롤리스 에르네스타스 리나스 빌류스 에밀리유스 마리우스 사울류스 다리우스',
+    '카즐라우스카스 얀카우스카스 페트라우스카스 스탄케비치우스 바실리아우스카스 주카우스카스 부트쿠스 파울라우스카스 우르보나스 카발리아우스카스 바라나우스카스 나비츠카스 림쿠스 루코셰비치우스 포치우스 라마나우스카스 사비츠카스 사칼라우스카스 모츠쿠스 바이트쿠스'],
+  ka: ['fl', '기오르기 레반 니카 루카 사바 다비트 라샤 오타르 주라브 이라클리 구람 토르니케 발레리 자바 베카 안조르 메라브 니콜로스 바호 기가',
+    '베리제 카파나제 겔라시빌리 마이수라제 기오르가제 로미제 마말라제 치클라우리 코바히제 고기차이시빌리 후치시빌리 자파리제 즈바니아 아바시제 키크나제 돌리제 치헤이제 나텔라시빌리 바실라제 메스히'],
+  hy: ['fl', '아람 호바네스 고르 티그란 아르투르 카렌 나레크 바한 다비트 에드가르 아르만 하이크 레본 사르기스 게보르크 알렉산드르 에리크 로베르트 바라즈다트 아르타크',
+    '페트로샨 하코뱐 사르그샨 하루튜냔 그리고랸 호바니샨 가자랸 카라페탼 아베티샨 므크르트찬 바르다냔 하차트랸 마르티로샨 포고샨 아바갼 갈스탼 마누캰 시모냔 자카랸 바바얀'],
+  az: ['fl', '엘빈 라밀 라샤드 에민 투랄 오르한 마히르 나미크 부가르 루파트 캄란 루슬란 엘누르 알리 무라드 파리드 아이딘 토랄 샤흐리야르 일킨',
+    '맘마도프 알리예프 후세이노프 하사노프 굴리예프 이스마일로프 압둘라예프 자파로프 르자예프 바바예프 카리모프 무스타파예프 나시로프 바이라모프 마흐무도프 아가예프 살라호프 이브라기모프 카지모프 라히모프'],
+  kk: ['fl', '누를란 예를란 아스하트 바우르잔 이슬람베크 막사트 아바트 테미를란 예르케불란 다우렌 아이볼 술탄 루슬란 아르만 다미르 알리베크 자슬란 세리크잔 올자스 바크티야르',
+    '아흐메토프 이스카코프 오마로프 베코프 사르세노프 카시모프 라히모프 무하노프 우테게노프 아베노프 주마베코프 켄제베코프 베이세노프 툴레게노프 누를라노프 세리코프 볼라토프 예르메코프 다울레토프 사파로프'],
+  in: ['fl', '아미트 라비 로히트 비크람 아르준 카란 디팍 산자이 라제시 수레시 마노지 아자이 비자이 나빈 프라카시 하리시 키란 안키트 바룬 가우라브',
+    '샤르마 베르마 굽타 파텔 레디 나이르 메논 필라이 라오 아이어 차테르지 바네르지 무케르지 고시 두타 바트 조시 쿨카르니 데사이 차우한'],
+  ms: ['fl', '아흐마드 무함마드 하피즈 아이만 하킴 다니알 하지크 이르판 아미르 샤룰 나즈미 파즐리 아즈미 아리프 루크만 자키 아즈리프 피르다우스 이즈완 사이풀',
+    '라시드 유소프 이스마일 이브라힘 하미드 라자크 압둘라 오스만 마흐무드 자카리아 카말 하산 살레 자아파르 노르딘 아지즈 사마드 라흐만 와하브 하룬'],
+  wa: ['fl', '무사 셰이크 이브라히마 마마두 압둘라예 파페 라민 우스만 바바카르 모두 말리크 살리우 알리운 유수프 아마두 부바카르 술레이만 세이두 아다마 시디',
+    '디오프 은디아예 사르 디알로 파예 게예 섹 소우 바 시세 음바예 디우프 팔 니앙 티암 은다오 시 와데 트라오레 케이타 쿨리발리 디아라 시소코 둠비아 코나테 상가레 사마세쿠'],
+  ci: ['fl', '야오 쿠아시 윌프리드 세르주 프랑크 장필리프 세바스티앵 시몽 이브라힘 세코 니콜라 오딜롱 크리스티앙 아메드 제레미 에마뉘엘 앙드레 조르주 클린턴 마르크 장 파트리크 스테판 앙투안',
+    '쿠아시 코네 밤바 투레 야오 쿠아메 디오망데 상가레 코낭 캉가 포파나 아케 아크파 은고노 에솜바 음본도 아탕가나 에방가 음바르가 아베가 빌롱 포초 캄가 은조야'],
+  ea: ['fl', '마이클 빅터 에릭 브라이언 케네디 조지프 덩컨 콜린스 마수드 아유브 케네스 클리프턴 로런스 벤슨 패트릭 앤서니 리처드 엘비스 모지스 데니스',
+    '오티에노 오디암보 음왕기 오몬디 카마우 오치엥 온양고 웨케사 주마 무투아 은조로게 키프로티치 오두오르 오위노 오우마 음부루 와풀라 바라사 체루이요트 왐부아'],
+  cd: ['fl', '트레소르 글로디 피스통 에리티에 메르베유 조엘 가엘 크리스티앙 조나탕 리키 그라스 다리오 아마니 야니크 디외메르시 세드리크 샹셀 아르튀르 메샤크 실라스 테오 잭슨',
+    '카송고 일룽가 은고이 음푸투 치망가 루쿠사 무코코 카옘베 마쿠수 치볼라 칼룰루 카바셀레 물룸바 음포쿠 카봉고 로콩가 음부유 칼론지 은콩골로 칸다'],
+  zm: ['fl', '콜린스 모지스 조지프 이매뉴얼 기프트 에번스 기븐 펠릭스 브라이언 켈빈 앨런 오거스틴 벤슨 스펜서 아이작 프레디 마틴 로이 클리퍼드 에드워드',
+    '피리 반다 물렝가 므완사 칠레셰 카브웨 룽구 무손다 찬다 므윌라 사칼라 캉와 차마 음베웨 줄루 템보 찬사 응고마 칼룽가 브왈랴']
+};
+const NAME_EN_2 = {
+  he: ['Eran|Omer|Yonatan|Dor|Tal|Itay|Liel|Daniel|Avi|Nir|Roy|Eli|Shahar|Or|Gil|Amir|Noam|Ido|Ofri|Yoav|Idan|Ohad',
+    'Cohen|Levi|Mizrahi|Peretz|Biton|Dahan|Avraham|Friedman|Shapira|Azulay|Malka|Ohana|Katz|Gabizon|Amsalem|Haddad|Baruch|Bensimon|Golan|Shaked'],
+  bg: ['Georgi|Ivan|Dimitar|Petar|Nikolay|Stoyan|Todor|Vladimir|Martin|Kristian|Boris|Svetoslav|Anton|Plamen|Iliya|Vasil|Kiril|Ventsislav|Radoslav|Zdravko',
+    'Petrov|Ivanov|Georgiev|Dimitrov|Nikolov|Stoyanov|Todorov|Iliev|Angelov|Kolev|Marinov|Popov|Mihaylov|Kirilov|Hristov|Yanev|Pavlov|Vasilev|Radev|Tsvetkov|Slavov|Donchev'],
+  sk: ['Juraj|Marek|Martin|Tomáš|Michal|Peter|Lukáš|Jakub|Dávid|Ondrej|Róbert|Matúš|Patrik|Adam|René|Roman|Stanislav|Ivan|Jaroslav|Miloš',
+    'Kováč|Horváth|Varga|Tóth|Baláž|Novák|Polák|Krajčovič|Hudák|Šimko|Mišík|Lukáč|Baran|Kollár|Oravec|Kmeť|Bartoš|Urban|Gajdoš|Maďar'],
+  sl: ['Luka|Jan|Žiga|Nik|Tim|Miha|Blaž|Nejc|Žan|Rok|Matic|Jaka|Gašper|Aljaž|Benjamin|Andraž|Domen|Erik|Tilen|Klemen',
+    'Novak|Horvat|Kovačič|Krajnc|Zupančič|Potočnik|Mlakar|Kos|Vidmar|Golob|Turk|Kralj|Zupan|Bizjak|Hribar|Kavčič|Rozman|Kastelic|Koren|Žagar|Petek|Pavlin|Kolar|Jereb'],
+  bs: ['Edin|Haris|Amer|Emir|Adnan|Kenan|Elvir|Armin|Almir|Mirza|Senad|Ermedin|Muhamed|Amir|Eldar|Nermin|Enis|Damir|Vedad|Arnel',
+    'Hodžić|Hadžić|Kovačević|Delić|Begić|Mehmedović|Salihović|Hasanović|Husić|Alić|Smajić|Mujić|Halilović|Ahmetović|Muratović|Omerović|Karić|Hamzić|Šehić|Čaušević'],
+  mk: ['Goran|Aleksandar|Darko|Bojan|Stefan|Nikola|Arijan|Tihomir|Jani|Filip|Marko|Dimitar|Ivan|Mario|Viktor|David|Andrej|Vlatko|Zlatko|Saško',
+    'Trajkovski|Nikolovski|Stojanovski|Ristovski|Velkovski|Spirovski|Todorovski|Popovski|Dimitrovski|Angelovski|Petrovski|Jovanovski|Kostovski|Pavlovski|Gjorgjievski|Markovski|Ilievski|Mitrevski|Atanasovski|Zdravkovski'],
+  sq: ['Arben|Besnik|Ermal|Kristjan|Sokol|Ardian|Dorian|Endrit|Valon|Arlind|Bekim|Fatos|Gentian|Lorik|Shkelzen|Rei|Indrit|Arbnor|Ylber|Agon',
+    'Berisha|Krasniqi|Hoxha|Gashi|Shala|Kelmendi|Morina|Rama|Bajrami|Ismajli|Kaçi|Muçi|Çani|Leka|Dushku|Hasani|Avdiu|Mustafa|Bytyqi|Zeqiri|Rexhepi|Xhaferi|Alimi|Basha'],
+  fi: ['Teemu|Mikko|Jukka|Joni|Juho|Lauri|Eero|Onni|Aatu|Elias|Leo|Valtteri|Roope|Santeri|Niko|Ville|Antti|Tuomas|Sami|Jesse',
+    'Korhonen|Virtanen|Mäkinen|Nieminen|Mäkelä|Hämäläinen|Laine|Heikkinen|Koskinen|Järvinen|Lehtonen|Lehtinen|Saarinen|Salminen|Heinonen|Niemi|Heikkilä|Kinnunen|Salonen|Turunen|Laitinen|Tuominen|Rantanen|Karjalainen'],
+  is: ['Aron|Gylfi|Jóhann|Alfreð|Birkir|Hörður|Ragnar|Kári|Rúnar|Arnór|Hólmar|Sverrir|Ísak|Hákon|Jón|Andri|Albert|Viðar|Eiður|Stefán|Bjarni|Davíð|Einar',
+    'Gunnarsson|Sigurðsson|Guðmundsson|Jónsson|Einarsson|Magnússon|Ólafsson|Kristjánsson|Stefánsson|Jóhannesson|Björnsson|Árnason|Halldórsson|Þórðarson|Ingason|Pálsson|Bjarnason|Helgason|Hauksson|Friðriksson'],
+  cy: ['Dylan|Rhys|Gareth|Aaron|Ben|Joe|Owain|Iwan|Gethin|Huw|Ioan|Cai|Morgan|Tomos|Elis|Rhodri|Emyr|Steffan|Aled|Dafydd',
+    'Jones|Williams|Davies|Evans|Thomas|Roberts|Hughes|Lewis|Griffiths|Price|Edwards|Rees|Lloyd|Owen|Powell|Pritchard|Parry|Howells|Llewellyn|Vaughan|Pugh|Bowen|Jenkins'],
+  mt: ['Joseph|Luke|Kurt|Andrei|Clayton|Ryan|Jean|Teddy|Zach|Juan|Steve|Jake|Matthew|Karl|Gabriel|Nicholas|Brandon|Shaun|Neil|Cyril',
+    'Borg|Camilleri|Vella|Farrugia|Zammit|Galea|Micallef|Grech|Attard|Spiteri|Azzopardi|Mifsud|Agius|Pace|Sammut|Cassar|Muscat|Bonnici|Xuereb|Fenech|Debono|Schembri|Caruana|Briffa|Gauci'],
+  et: ['Karl|Mart|Rasmus|Markus|Henri|Kevin|Joonas|Mattias|Robert|Martin|Rauno|Artur|Siim|Konstantin|Sergei|Erik|Kristjan|Taavi|Andres|Kaarel',
+    'Tamm|Saar|Sepp|Mägi|Kask|Kukk|Rebane|Ilves|Pärn|Koppel|Lepik|Kuusk|Raud|Vaher|Kallas|Lill|Ots|Kivi|Laur|Teder|Kangur|Mänd|Kütt'],
+  lv: ['Jānis|Andris|Kristaps|Artūrs|Roberts|Edgars|Mārtiņš|Dāvis|Raivis|Aleksejs|Vladislavs|Glebs|Eduards|Kārlis|Valērijs|Rūdolfs|Gints|Toms|Pēteris|Rihards',
+    'Bērziņš|Kalniņš|Ozols|Jansons|Liepiņš|Krūmiņš|Balodis|Kļaviņš|Zariņš|Pētersons|Vītols|Ozoliņš|Grīnbergs|Lācis|Siliņš|Eglītis|Zvirbulis|Sproģis|Tarasovs|Ivanovs'],
+  lt: ['Tomas|Mantas|Lukas|Justas|Donatas|Vykintas|Gvidas|Arvydas|Edgaras|Paulius|Rokas|Domantas|Karolis|Ernestas|Linas|Vilius|Emilijus|Marius|Saulius|Darius',
+    'Kazlauskas|Jankauskas|Petrauskas|Stankevičius|Vasiliauskas|Žukauskas|Butkus|Paulauskas|Urbonas|Kavaliauskas|Baranauskas|Navickas|Rimkus|Lukoševičius|Pocius|Ramanauskas|Savickas|Sakalauskas|Mockus|Vaitkus'],
+  ka: ['Giorgi|Levan|Nika|Luka|Saba|Davit|Lasha|Otar|Zurab|Irakli|Guram|Tornike|Valeri|Jaba|Beka|Anzor|Merab|Nikoloz|Vakho|Giga',
+    'Beridze|Kapanadze|Gelashvili|Maisuradze|Giorgadze|Lomidze|Mamaladze|Tsiklauri|Kobakhidze|Gogichaishvili|Khutsishvili|Japaridze|Zhvania|Abashidze|Kiknadze|Dolidze|Chkheidze|Natelashvili|Basiladze|Meskhi'],
+  hy: ['Aram|Hovhannes|Gor|Tigran|Artur|Karen|Narek|Vahan|Davit|Edgar|Arman|Hayk|Levon|Sargis|Gevorg|Aleksandr|Erik|Robert|Varazdat|Artak',
+    'Petrosyan|Hakobyan|Sargsyan|Harutyunyan|Grigoryan|Hovhannisyan|Ghazaryan|Karapetyan|Avetisyan|Mkrtchyan|Vardanyan|Khachatryan|Martirosyan|Poghosyan|Avagyan|Galstyan|Manukyan|Simonyan|Zakaryan|Babayan'],
+  az: ['Elvin|Ramil|Rashad|Emin|Tural|Orkhan|Mahir|Namik|Vugar|Rufat|Kamran|Ruslan|Elnur|Ali|Murad|Farid|Aydin|Toral|Shahriyar|Ilkin',
+    'Mammadov|Aliyev|Huseynov|Hasanov|Guliyev|Ismayilov|Abdullayev|Jafarov|Rzayev|Babayev|Karimov|Mustafayev|Nasirov|Bayramov|Mahmudov|Agayev|Salakhov|Ibragimov|Kazimov|Rahimov'],
+  kk: ['Nurlan|Yerlan|Askhat|Baurzhan|Islambek|Maksat|Abat|Temirlan|Yerkebulan|Dauren|Aibol|Sultan|Ruslan|Arman|Damir|Alibek|Zhaslan|Serikzhan|Olzhas|Bakhtiyar',
+    'Akhmetov|Iskakov|Omarov|Bekov|Sarsenov|Kassymov|Rakhimov|Mukhanov|Utegenov|Abenov|Zhumabekov|Kenzhebekov|Beisenov|Tulegenov|Nurlanov|Serikov|Bolatov|Ermekov|Dauletov|Saparov'],
+  in: ['Amit|Ravi|Rohit|Vikram|Arjun|Karan|Deepak|Sanjay|Rajesh|Suresh|Manoj|Ajay|Vijay|Naveen|Prakash|Harish|Kiran|Ankit|Varun|Gaurav',
+    'Sharma|Verma|Gupta|Patel|Reddy|Nair|Menon|Pillai|Rao|Iyer|Chatterjee|Banerjee|Mukherjee|Ghosh|Dutta|Bhat|Joshi|Kulkarni|Desai|Chauhan'],
+  ms: ['Ahmad|Muhammad|Hafiz|Aiman|Hakim|Danial|Haziq|Irfan|Amir|Shahrul|Nazmi|Fazly|Azmi|Arif|Lukman|Zaki|Azrif|Firdaus|Izwan|Saiful',
+    'Rashid|Yusoff|Ismail|Ibrahim|Hamid|Razak|Abdullah|Osman|Mahmud|Zakaria|Kamal|Hassan|Salleh|Jaafar|Nordin|Aziz|Samad|Rahman|Wahab|Harun'],
+  wa: ['Moussa|Cheikh|Ibrahima|Mamadou|Abdoulaye|Pape|Lamine|Ousmane|Babacar|Modou|Malick|Saliou|Alioune|Youssouf|Amadou|Boubacar|Souleymane|Seydou|Adama|Sidy',
+    'Diop|Ndiaye|Sarr|Diallo|Faye|Gueye|Seck|Sow|Ba|Cissé|Mbaye|Diouf|Fall|Niang|Thiam|Ndao|Sy|Wade|Traoré|Keita|Coulibaly|Diarra|Sissoko|Doumbia|Konaté|Sangaré|Samassékou'],
+  ci: ['Yao|Kouassi|Wilfried|Serge|Franck|Jean-Philippe|Sébastien|Simon|Ibrahim|Seko|Nicolas|Odilon|Christian|Hamed|Jérémie|Emmanuel|André|Georges|Clinton|Marc|Jean|Patrick|Stéphane|Antoine',
+    'Kouassi|Koné|Bamba|Touré|Yao|Kouamé|Diomandé|Sangaré|Konan|Kanga|Fofana|Aké|Akpa|Ngono|Essomba|Mvondo|Atangana|Ebanga|Mbarga|Abega|Bilong|Fotso|Kamga|Njoya'],
+  ea: ['Michael|Victor|Eric|Brian|Kennedy|Joseph|Duncan|Collins|Masoud|Ayub|Kenneth|Clifton|Lawrence|Benson|Patrick|Anthony|Richard|Elvis|Moses|Dennis',
+    'Otieno|Odhiambo|Mwangi|Omondi|Kamau|Ochieng|Onyango|Wekesa|Juma|Mutua|Njoroge|Kiprotich|Oduor|Owino|Ouma|Mburu|Wafula|Barasa|Cheruiyot|Wambua'],
+  cd: ['Trésor|Glody|Fiston|Héritier|Merveille|Joël|Gaël|Christian|Jonathan|Ricky|Grâce|Dario|Amani|Yannick|Dieumerci|Cédric|Chancel|Arthur|Meschack|Silas|Théo|Jackson',
+    'Kasongo|Ilunga|Ngoy|Mputu|Tshimanga|Lukusa|Mukoko|Kayembe|Makusu|Tshibola|Kalulu|Kabasele|Mulumba|Mpoku|Kabongo|Lokonga|Mbuyu|Kalonji|Nkongolo|Kanda'],
+  zm: ['Collins|Moses|Joseph|Emmanuel|Gift|Evans|Given|Felix|Brian|Kelvin|Allan|Augustine|Benson|Spencer|Isaac|Freddy|Martin|Roy|Clifford|Edward',
+    'Phiri|Banda|Mulenga|Mwansa|Chileshe|Kabwe|Lungu|Musonda|Chanda|Mwila|Sakala|Kangwa|Chama|Mbewe|Zulu|Tembo|Chansa|Ngoma|Kalunga|Bwalya']
+};
+// 새 구단 이름 접미어 [한국어, 영어]
+const CLUB_SUFFIX_2 = {
+  HE: ['코하브 바라크 아리 갈 샤하르 오페크 아이트 타마르', 'Kokhav|Barak|Ari|Gal|Shahar|Ofek|Ayit|Tamar'],
+  SQ: ['일 루페 디엘리 우이쿠 스투히아 코메타 허나 발러', 'Yll|Rrufe|Dielli|Ujku|Stuhia|Kometa|Hëna|Valë'],
+  FI: ['카르후 쿠르키 뮈르스키 태흐티 살라마 수시 쿠 알토', 'Karhu|Kurki|Myrsky|Tähti|Salama|Susi|Kuu|Aalto'],
+  ET: ['태흐트 토름 코트카스 훈트 밸크 라이네', 'Täht|Torm|Kotkas|Hunt|Välk|Laine'],
+  LV: ['즈바이그즈네 베트라 에르글리스 빌크스 지벤스 빌니스', 'Zvaigzne|Vētra|Ērglis|Vilks|Zibens|Vilnis'],
+  LT: ['즈바이그주데 아우드라 에렐리스 빌카스 자이바스 아우슈라', 'Žvaigždė|Audra|Erelis|Vilkas|Žaibas|Aušra'],
+  KA: ['바르스크블라비 카리 아르치비 므겔리 엘바 탈가 로미 므제', 'Varskvlavi|Kari|Artsivi|Mgeli|Elva|Talga|Lomi|Mze'],
+  HY: ['아스트그 아르치브 가일 아레브 므리크 카이차크 알리크 아류츠', 'Astgh|Artsiv|Gayl|Arev|Mrrik|Kaytsak|Alik|Aryuts']
+};
+// 새 게임(세계 규칙 2)에서 더하는 해외 진출 국적 가중치. 기존 세이브의 기존 구단 선수는 예전 가중치 그대로
+const EXPORT_WEIGHTS_2 = 'SEN:4 CIV:4 CMR:3 MLI:3 COD:2 KEN:1 ZAM:1 ANG:1 BIH:2 MNE:1 MKD:1 ALB:2 SVN:1 SVK:1 BUL:1 GEO:2 ARM:1 AZE:1 ISR:1 FIN:1 ISL:1 WAL:1 NIR:1 JAM:2 HON:1 PAN:1 KAZ:1 LTU:1 LVA:1 EST:1 BLR:1 MDA:1 CYP:1 LUX:1 GUA:1 SLV:1 IRQ:1 JOR:1 IND:1 NZL:1 MAS:1 MLT:1 FRO:1 KUW:1 OMA:1 BHR:1 SGP:1';
+// 새 이름 풀에서 실존 유명 선수와 겹치는 조합
+const BLOCKED_NAMES_2 = '도르_페레츠 다니엘_페레츠 아비_코헨 니르_비톤 요나탄_코헨 마르틴_페트로프 게오르기_이바노프 니콜라이_미하일로프 토도르_야네프 크리스티안_디미트로프 아르민_호지치 알렉산다르_트라이코프스키 스테판_리스토프스키 다르코_벨코프스키 블라트코_스토야노프스키 스테판_스피로프스키 발론_베리샤 아르디안_이스마일리 안티_니에미 니코_해맬래이넨 귈비_시귀르드손 아론_군나르손 비르키르_비야르나손 라그나르_시귀르드손 카우리_아우르나손 요한_그뷔드뮌드손 회르뒤르_마그뉘손 알베르트_그뷔드뮌드손 아르노르_시귀르드손 스베리르_잉가손 리스_윌리엄스 에런_휴스 이완_로버츠 안드레이_아지우스 스티브_보르그 잭_무스카트 마리우스_스탄케비치우스 에드가라스_얀카우스카스 도나타스_카즐라우스카스 게보르크_가자랸 아르타크_그리고랸 토랄_바이라모프 에민_마흐무도프 엘빈_맘마도프 로히트_샤르마 무사_시소코 세이두_케이타 마마두_디아라 파페_사르 파페_게예 압둘라예_디알로 무사_코나테 이브라히마_코나테 이브라히마_상가레 세이두_둠비아 부바카르_트라오레 아다마_트라오레 아마두_디알로 마마두_사르 파페_시세 무사_은디아예 이브라히마_니앙 세코_포파나 크리스티앙_쿠아메 윌프리드_캉가 이브라힘_상가레 에릭_오몬디 트레소르_음푸투 크리스티앙_카바셀레 이매뉴얼_반다';
+
 // ===== 2. 공용 도구 =====
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
@@ -409,47 +691,96 @@ const randInt = (lo, hi, r) => lo + Math.floor(r() * (hi - lo + 1));
 
 // ===== 3. 세계: 국가·리그·구단 =====
 const BIG5 = 5; // COUNTRY_DATA 앞 5개국
-const COUNTRIES = COUNTRY_DATA.map(([id, name, region, pool, suffix, level, tiers, cities], i) => ({
-  i, id, ko: name, en: COUNTRY_EN[id][0], region, pool, suffix, level, tiers, cities: cities.split(' '), citiesEn: COUNTRY_EN[id][1].split('|'), clubs: [],
-  get name() { return LANG === 'en' ? this.en : this.ko; }
-}));
+const OLD_COUNTRIES = COUNTRY_DATA.length; // 11단계까지 있던 58개국
+// 나라: 11단계까지 있던 부(oldTiers) 뒤에 늘린 부(MORE_TIERS)를 붙임. 새 나라는 모든 부가 새 부
+const COUNTRIES = [...COUNTRY_DATA, ...COUNTRY_DATA_2].map(([id, name, region, pool, suffix, level, tiers, cities], i) => {
+  const en = COUNTRY_EN[id] || COUNTRY_EN_2[id];
+  const more = MORE_TIERS[id] || [[], '', ''];
+  return {
+    i, id, ko: name, en: en[0], region, pool, suffix, level, tiers: tiers.concat(more[0]), oldTiers: i < OLD_COUNTRIES ? tiers.length : 0,
+    cities: cities.split(' '), citiesEn: en[1].split('|'), towns: more[1] ? more[1].split(' ') : [], townsEn: more[2] ? more[2].split('|') : [], clubs: [],
+    get name() { return LANG === 'en' ? this.en : this.ko; }
+  };
+});
 const COUNTRY_BY_ID = Object.fromEntries(COUNTRIES.map(c => [c.id, c]));
-const NAMES = Object.fromEntries(Object.entries(NAME_DATA).map(([k, [order, first, last]]) =>
-  [k, { order, first: first.split(' '), last: last.split(' '), firstEn: NAME_EN[k][0].split('|'), lastEn: NAME_EN[k][1].split('|') }]));
-const EXPORTERS = EXPORT_WEIGHTS.split(' ').flatMap(s => {
+const NAME_ALL = { ...NAME_DATA, ...NAME_DATA_2 };
+const NAME_ALL_EN = { ...NAME_EN, ...NAME_EN_2 };
+const NAMES = Object.fromEntries(Object.entries(NAME_ALL).map(([k, [order, first, last]]) =>
+  [k, { order, first: first.split(' '), last: last.split(' '), firstEn: NAME_ALL_EN[k][0].split('|'), lastEn: NAME_ALL_EN[k][1].split('|') }]));
+const NEW_POOLS = new Set(Object.keys(NAME_DATA_2));
+const BLOCKED_NEW = new Set(BLOCKED_NAMES_2.split(' ').map(n => n.replace(/_/g, ' ')));
+const weightsList = text => text.split(' ').flatMap(s => {
   const [id, w] = s.split(':');
   return Array(Number(w)).fill(id);
 });
+const EXPORTERS = weightsList(EXPORT_WEIGHTS); // 11단계까지의 해외 진출 국적 (예전 세이브의 기존 구단 선수는 이대로)
+const EXPORTERS_ALL = EXPORTERS.concat(weightsList(EXPORT_WEIGHTS_2));
+const suffixOf = key => (CLUB_SUFFIX[key] ? [CLUB_SUFFIX[key].split(' '), CLUB_SUFFIX_EN[key].split('|')] : [CLUB_SUFFIX_2[key][0].split(' '), CLUB_SUFFIX_2[key][1].split('|')]);
 
-// 부별 평균 수준: 5대 리그는 부마다 7, 나머지는 8씩 낮아짐
-const tierLevel = (country, t) => country.level - t * (country.i < BIG5 ? 7 : 8);
+// 부별 평균 수준: 5대 리그는 1~4부 7씩, 5·6부 5씩 낮아짐. 나머지는 2부 8, 3부 6, 4부 5 (11단계까지 있던 부는 예전과 같음)
+const TIER_DROP = [[0, 7, 14, 21, 26, 31], [0, 8, 14, 19]];
+const tierLevel = (country, t) => country.level - TIER_DROP[country.i < BIG5 ? 0 : 1][t];
 const leagueName = (country, t) => L(`${country.name} ${t + 1}부`, `${country.name} Div. ${t + 1}`);
 
-// 구단: 부별로 강한 순서, 큰 도시부터 배정
+// 구단: 부별로 강한 순서, 큰 도시부터 배정. 11단계까지 있던 구단(번호 0~2001)은 그때와 같은 순서·같은 난수로 먼저 만들고(세이브 호환),
+// 늘린 부와 새 나라 구단은 그 뒤 번호로 붙임. t0 = 처음 부(선수를 만들 때 씀), t = 지금 부
 const CLUBS = [];
+const makers = COUNTRIES.map(country => {
+  const [suffixes, suffixesEn] = suffixOf(country.suffix);
+  return { r: rng(hash(WORLD_SEED, country.i)), used: new Set(), n: 0, m: 0, suffixes, suffixesEn };
+});
+function addClub(country, t, k, size, ko, en, r, list) {
+  const club = { id: CLUBS.length, ko, en, country, t, t0: t, rank: k, off: 6 - (12 * k) / Math.max(1, size - 1) + (r() - 0.5) * 2, get name() { return LANG === 'en' ? this.en : this.ko; } };
+  CLUBS.push(club);
+  list.push(club);
+}
 for (const country of COUNTRIES) {
-  const r = rng(hash(WORLD_SEED, country.i));
-  const suffixes = CLUB_SUFFIX[country.suffix].split(' ');
-  const suffixesEn = CLUB_SUFFIX_EN[country.suffix].split('|');
-  const used = new Set();
-  let n = 0;
-  country.tiers.forEach((size, t) => {
+  const mk = makers[country.i];
+  for (let t = 0; t < country.oldTiers; t++) {
+    const size = country.tiers[t];
     const list = [];
-    for (let k = 0; k < size; k++, n++) {
-      const city = country.cities[n % country.cities.length];
-      let si = Math.floor(r() * suffixes.length);
-      let name = `${city} ${suffixes[si % suffixes.length]}`;
-      while (used.has(name)) name = `${city} ${suffixes[++si % suffixes.length]}`;
-      used.add(name);
-      const en = `${country.citiesEn[n % country.cities.length]} ${suffixesEn[si % suffixes.length]}`;
-      const club = { id: CLUBS.length, ko: name, en, country, t, rank: k, off: 6 - (12 * k) / Math.max(1, size - 1) + (r() - 0.5) * 2, get name() { return LANG === 'en' ? this.en : this.ko; } };
-      CLUBS.push(club);
-      list.push(club);
+    for (let k = 0; k < size; k++, mk.n++) {
+      const city = country.cities[mk.n % country.cities.length];
+      let si = Math.floor(mk.r() * mk.suffixes.length);
+      let name = `${city} ${mk.suffixes[si % mk.suffixes.length]}`;
+      while (mk.used.has(name)) name = `${city} ${mk.suffixes[++si % mk.suffixes.length]}`;
+      mk.used.add(name);
+      addClub(country, t, k, size, name, `${country.citiesEn[mk.n % country.cities.length]} ${mk.suffixesEn[si % mk.suffixes.length]}`, mk.r, list);
     }
     country.clubs.push(list);
-  });
+  }
+}
+const OLD_CLUBS = CLUBS.length; // 2,002
+// 늘린 부·새 나라: 작은 도시(towns)부터 쓰고 모자라면 큰 도시에 두 번째 구단. 한 도시의 접미어를 다 쓰면 다음 도시로
+for (const country of COUNTRIES) {
+  const mk = makers[country.i];
+  const ko = country.towns.concat(country.cities);
+  const en = country.townsEn.concat(country.citiesEn);
+  const len = mk.suffixes.length;
+  for (let t = country.oldTiers; t < country.tiers.length; t++) {
+    const size = country.tiers[t];
+    const list = [];
+    for (let k = 0; k < size; k++) {
+      let si = Math.floor(mk.r() * len);
+      let tries = 0;
+      while (mk.used.has(`${ko[mk.m % ko.length]} ${mk.suffixes[si % len]}`)) {
+        si += 1;
+        if (++tries % len === 0) mk.m += 1;
+      }
+      const c = mk.m % ko.length;
+      const name = `${ko[c]} ${mk.suffixes[si % len]}`;
+      mk.used.add(name);
+      mk.m += 1;
+      addClub(country, t, k, size, name, `${en[c]} ${mk.suffixesEn[si % len]}`, mk.r, list);
+    }
+    country.clubs.push(list);
+  }
 }
 const SLOTS = CLUBS.length * SQUAD;
+const OLD_SLOTS = OLD_CLUBS * SQUAD; // 48,048: 11단계까지의 세이브 크기
+// 세계 규칙: state.wv 2 = 12단계 이후 새 게임, 1 = 예전 세이브(기존 구단 선수는 예전 규칙 그대로 만들어 같은 선수가 됨)
+const oldRules = s => s < OLD_SLOTS && state.wv < 2;
+const abilityFloor = s => (oldRules(s) ? 40 : 30); // 하부 리그가 깊어져 능력 하한을 30으로 (예전 선수는 40)
 const CLUB_BY_KO = new Map(CLUBS.map(c => [c.ko, c])); // 저장된 한국어 구단 이름 → 구단 (기억 문구 번역용)
 
 // ===== 4. 선수: 시드·슬롯·세대가 같으면 항상 같은 선수 =====
@@ -461,12 +792,14 @@ const creationAge = (r, g) => (g === 0 ? 17 + Math.floor(((r() + r()) / 2) * 18)
 // 시즌 말 이탈 확률(나이별): 은퇴·하부 리그 이동을 합친 값. 30시즌 동안 나이 분포가 안정되도록 맞춤
 const leaveChance = age => (age <= 22 ? 0.02 : age <= 29 ? 0.03 : age <= 32 ? 0.07 : age === 33 ? 0.15 : age === 34 ? 0.3 : age === 35 ? 0.5 : age === 36 ? 0.75 : 1);
 
+// 국적: 처음 구단(club = 슬롯의 원래 구단)과 처음 부 기준. 새 게임은 새 나라 선수도 해외 리그로 진출
 function nationalityFor(club, r) {
   const c = club.country;
-  const domestic = c.i < BIG5 ? (club.t === 0 ? 0.55 : 0.75) : (club.t === 0 ? 0.82 : 0.9);
+  const domestic = c.i < BIG5 ? (club.t0 === 0 ? 0.55 : 0.75) : (club.t0 === 0 ? 0.82 : 0.9);
   if (r() < domestic) return c;
+  const list = club.id < OLD_CLUBS && state.wv < 2 ? EXPORTERS : EXPORTERS_ALL;
   let id;
-  do id = pick(EXPORTERS, r); while (id === c.id);
+  do id = pick(list, r); while (id === c.id);
   return COUNTRY_BY_ID[id];
 }
 
@@ -489,7 +822,7 @@ function makeName(country, r) {
     fi = Math.floor(r() * pool.first.length);
     li = Math.floor(r() * pool.last.length);
     name = koName(pool, fi, li);
-    if (!BLOCKED_NAMES.has(name)) break;
+    if (!BLOCKED_NAMES.has(name) && !(NEW_POOLS.has(country.pool) && BLOCKED_NEW.has(name))) break;
   }
   return { ko: name, key: `${country.pool}|${fi}|${li}` };
 }
@@ -500,10 +833,11 @@ function coreStats(s, r) {
   const club = CLUBS[Math.floor(s / SQUAD)];
   const age0 = creationAge(r, w.gen[s]);
   const noise = (r() + r() + r() - 1.5) * 5 + (r() < 0.02 ? 6 : 0);
-  const base = clamp(Math.round(tierLevel(club.country, club.t) + club.off + AGE_ADJ[age0 - 17] + noise), 40, 90);
+  const lo = abilityFloor(s);
+  const base = clamp(Math.round(tierLevel(club.country, club.t0) + club.off + AGE_ADJ[age0 - 17] + noise), lo, 90);
   const headroom = Math.max(0, 24 - age0) * (0.8 + r() * 1.6) + r() * 3 + (r() < 0.03 ? 8 : 0);
   const pot = clamp(Math.round(base + headroom), base, 95);
-  return { club, base, pot, ability: clamp(base + w.grow[s], 40, 90), birth: w.gseason[s] - age0 };
+  return { club, base, pot, ability: clamp(base + w.grow[s], lo, 90), birth: w.gseason[s] - age0 };
 }
 
 function getPlayer(s) {
@@ -608,7 +942,7 @@ function newWorld(seed) {
 function newGame() {
   const seed = (Math.random() * 2 ** 32) >>> 0;
   state = {
-    version: SAVE_VERSION, seed, season: 1, week: 1,
+    version: SAVE_VERSION, seed, season: 1, week: 1, wv: 2,
     agencyCash: TUNE.soloCash, rep: START_REP, ap: TUNE.soloAp, debtWeeks: 0, over: false, founded: false,
     personalCash: 0, invest: newInvest(), items: [], scouted: {}, watch: [], alumni: [], intros: {},
     news: [], needs: [], deals: newDeals(),
@@ -798,8 +1132,9 @@ function endSeason() {
       step = coachStep(step, c.pot - c.ability);
       coachGain += step - plain;
     }
-    w.grow[s] = clamp(w.grow[s] + step, 40 - c.base, 90 - c.base);
-    abil[s] = clamp(c.base + w.grow[s], 40, 90);
+    const lo = abilityFloor(s);
+    w.grow[s] = clamp(w.grow[s] + step, lo - c.base, 90 - c.base);
+    abil[s] = clamp(c.base + w.grow[s], lo, 90);
     natIdx[s] = nationalityFor(c.club, r).i;
   }
 
@@ -2507,19 +2842,9 @@ function pitch(s, clubId) {
 }
 
 // ===== 7. 저장·불러오기 =====
-// 세계 배열은 36진수 고정폭 문자열로 압축 저장 [키, 폭, 형식, 보정값]
-const PACK = [['form', 1, Uint8Array, 0], ['delta', 1, Int8Array, 1], ['fsum', 2, Uint16Array, 0],
+// 11단계까지(v1~v10): 세계 배열을 36진수 고정폭 문자열로 [키, 폭, 형식, 보정값], 선수 48,048명. 읽기만 함
+const PACK_OLD = [['form', 1, Uint8Array, 0], ['delta', 1, Int8Array, 1], ['fsum', 2, Uint16Array, 0],
   ['favg', 1, Uint8Array, 0], ['gen', 2, Uint8Array, 0], ['gseason', 2, Uint16Array, 0], ['grow', 2, Int8Array, 128]];
-
-const DIGITS = '0123456789abcdefghijklmnopqrstuvwxyz';
-const DIGIT2 = Array.from({ length: 1296 }, (_, v) => DIGITS[Math.floor(v / 36)] + DIGITS[v % 36]);
-
-function packArray(arr, width, bias) {
-  const table = width === 1 ? DIGITS : DIGIT2;
-  const parts = new Array(arr.length);
-  for (let i = 0; i < arr.length; i++) parts[i] = table[arr[i] + bias];
-  return parts.join('');
-}
 
 function unpackArray(str, width, Type, bias) {
   const arr = new Type(str.length / width);
@@ -2527,33 +2852,100 @@ function unpackArray(str, width, Type, bias) {
   return arr;
 }
 
+// 12단계부터(v11): 슬롯마다 한 글자씩 6가지. 글자는 JSON에서 이스케이프가 필요 없는 92가지(! ~ ~, "와 \ 제외)
+// fd = (폼-1)×3 + 지난주 변화+1, fa = 이번 시즌 평균 폼×8, va = 지난 시즌 평균 폼×2, gn = 세대, ag = 지금 시즌 - 등장 시즌, gr = 성장치+30
+const CODE = Array.from({ length: 94 }, (_, i) => String.fromCharCode(33 + i)).filter(ch => ch !== '"' && ch !== '\\').join('');
+const CODE_VAL = new Int16Array(128).fill(-1);
+for (let i = 0; i < CODE.length; i++) CODE_VAL[CODE.charCodeAt(i)] = i;
+const WORLD_KEYS = ['fd', 'fa', 'va', 'gn', 'ag', 'gr'];
+
+function codeString(valueAt) {
+  const bytes = new Uint8Array(SLOTS);
+  for (let s = 0; s < SLOTS; s++) bytes[s] = CODE.charCodeAt(clamp(valueAt(s), 0, CODE.length - 1));
+  let out = '';
+  for (let i = 0; i < SLOTS; i += 8192) out += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+  return out;
+}
+
+function packWorld(w) {
+  const played = state.week - 1; // fsum에 더해진 주 수
+  return {
+    fd: codeString(s => (w.form[s] - 1) * 3 + w.delta[s] + 1),
+    fa: codeString(s => (played ? Math.round((w.fsum[s] * 8) / played) : 0)),
+    va: codeString(s => w.favg[s]),
+    gn: codeString(s => w.gen[s]),
+    ag: codeString(s => state.season - w.gseason[s]),
+    gr: codeString(s => w.grow[s] + 30)
+  };
+}
+
+// 빈 세계 배열 (불러올 때 채움)
+const blankWorld = () => ({ form: new Uint8Array(SLOTS), delta: new Int8Array(SLOTS), fsum: new Uint16Array(SLOTS), favg: new Uint8Array(SLOTS).fill(11),
+  gen: new Uint8Array(SLOTS), gseason: new Uint16Array(SLOTS).fill(1), grow: new Int8Array(SLOTS) });
+
+function unpackWorld(dw, season, week) {
+  const damaged = () => new Error(L('세계 정보가 손상되었습니다', 'world data is damaged'));
+  const v = {};
+  for (const key of WORLD_KEYS) {
+    const str = dw[key];
+    if (typeof str !== 'string' || str.length !== SLOTS) throw damaged();
+    const arr = new Uint8Array(SLOTS);
+    for (let s = 0; s < SLOTS; s++) {
+      const n = CODE_VAL[str.charCodeAt(s)];
+      if (n < 0) throw damaged();
+      arr[s] = n;
+    }
+    v[key] = arr;
+  }
+  const w = blankWorld();
+  for (let s = 0; s < SLOTS; s++) {
+    w.form[s] = clamp(Math.floor(v.fd[s] / 3) + 1, 1, 10);
+    w.delta[s] = (v.fd[s] % 3) - 1;
+    w.fsum[s] = Math.round((v.fa[s] / 8) * (week - 1));
+    w.favg[s] = clamp(v.va[s], 2, 20);
+    w.gen[s] = v.gn[s];
+    w.gseason[s] = Math.max(1, season - v.ag[s]);
+    w.grow[s] = v.gr[s] - 30;
+  }
+  return w;
+}
+
+// v1~v10 세이브: 예전 48,048명 배열을 읽고, 늘어난 슬롯(늘린 부·새 나라 구단 선수)은 지금 시즌에 처음 등장한 선수로 채움
+function unpackOldWorld(d) {
+  const w = blankWorld();
+  for (const [key, width, Type, bias] of PACK_OLD) {
+    if (key === 'grow' && d.version === 1) continue;
+    const str = d.world[key];
+    if (typeof str !== 'string' || str.length !== OLD_SLOTS * width) throw new Error(L('세계 정보가 손상되었습니다', 'world data is damaged'));
+    w[key].set(unpackArray(str, width, Type, bias));
+  }
+  const r = rng(hash(d.seed, 1, d.season));
+  for (let s = OLD_SLOTS; s < SLOTS; s++) {
+    w.form[s] = randInt(4, 7, r);
+    w.fsum[s] = Math.round(5.5 * (d.week - 1));
+    w.gseason[s] = d.season;
+  }
+  return w;
+}
+
 function serialize() {
-  const world = {};
-  for (const [key, width, , bias] of PACK) world[key] = packArray(state.world[key], width, bias);
-  return JSON.stringify({ ...state, slots: SLOTS, world });
+  return JSON.stringify({ ...state, slots: SLOTS, world: packWorld(state.world) });
 }
 
 // 예전(v1~v6) 세이브도 읽음: 없는 값은 기본값(성장치 0, 만족 70, 투자 0단계, 스카우트 기록 없음, 이미 회사가 있음, 유대 40 등), 주급은 불러온 뒤 채움
 function deserialize(text) {
   const d = JSON.parse(text);
   const int = v => Number.isInteger(v);
-  if (!d || ![1, 2, 3, 4, 5, 6, 7, 8, 9, SAVE_VERSION].includes(d.version)) throw new Error(L('지원하지 않는 버전입니다', 'unsupported save version'));
-  if (d.slots !== SLOTS) throw new Error(L('세계 구성이 다른 세이브입니다', 'this save is from a different world'));
+  if (!d || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, SAVE_VERSION].includes(d.version)) throw new Error(L('지원하지 않는 버전입니다', 'unsupported save version'));
+  // v10까지는 12단계 전 세계(선수 48,048명), v11부터는 지금 세계
+  const oldWorld = d.version < 11;
+  if (d.slots !== (oldWorld ? OLD_SLOTS : SLOTS)) throw new Error(L('세계 구성이 다른 세이브입니다', 'this save is from a different world'));
   if (!int(d.seed) || !int(d.season) || d.season < 1 || !int(d.week) || d.week < 1 || d.week > WEEKS) throw new Error(L('날짜 정보가 올바르지 않습니다', 'invalid date'));
   if (!Number.isFinite(d.agencyCash) || !Number.isFinite(d.rep) || !Array.isArray(d.logs)) throw new Error(L('기본 정보가 올바르지 않습니다', 'invalid basic data'));
   // 3단계까지는 8명까지 둘 수 있었으므로 8명 세이브도 읽음 (한도 아래로 줄 때까지 영입만 막힘)
   if (!Array.isArray(d.clients) || d.clients.length > Math.max(8, maxClients()) || !d.clients.every(c => c && int(c.s) && c.s >= 0 && c.s < SLOTS && int(c.g) && int(c.end))) throw new Error(L('소속 선수 정보가 올바르지 않습니다', 'invalid player data'));
-  if (!d.world) throw new Error(L('세계 정보가 없습니다', 'world data is missing'));
-  const world = {};
-  for (const [key, width, Type, bias] of PACK) {
-    const str = d.world[key];
-    if (key === 'grow' && d.version === 1) {
-      world.grow = new Int8Array(SLOTS);
-      continue;
-    }
-    if (typeof str !== 'string' || str.length !== SLOTS * width) throw new Error(L('세계 정보가 손상되었습니다', 'world data is damaged'));
-    world[key] = unpackArray(str, width, Type, bias);
-  }
+  if (!d.world || typeof d.world !== 'object') throw new Error(L('세계 정보가 없습니다', 'world data is missing'));
+  const world = oldWorld ? unpackOldWorld(d) : unpackWorld(d.world, d.season, d.week);
   const cooldowns = {};
   if (d.cooldowns && typeof d.cooldowns === 'object') {
     for (const [key, until] of Object.entries(d.cooldowns)) if (int(until)) cooldowns[key] = until;
@@ -2612,6 +3004,8 @@ function deserialize(text) {
   // 알려진 필드만 옮김 (모르는 값이 상태에 섞이지 않게)
   return {
     version: SAVE_VERSION, seed: d.seed, season: d.season, week: d.week,
+    // 세계 규칙(12단계): 예전 세이브는 1(기존 구단 선수를 예전 규칙으로 만듦), 새 게임은 2
+    wv: oldWorld ? 1 : d.wv === 1 ? 1 : 2,
     agencyCash: d.agencyCash, rep: clamp(Math.round(d.rep), 0, 100),
     ap: int(d.ap) ? clamp(d.ap, 0, d.founded === false ? TUNE.soloAp : TUNE.ap) : d.founded === false ? TUNE.soloAp : TUNE.ap,
     debtWeeks: int(d.debtWeeks) ? clamp(d.debtWeeks, 0, DEBT_LIMIT) : 0,
@@ -2669,7 +3063,8 @@ function readBackup() {
 
 // 예전 세이브에 없던 값 채우기: 주급(v1), 국가대표 기준·이번 시즌 기록(v1~v3), 함께하기 시작한 주(v1~v6: 가장 오래된 기록 시즌의 첫 주)
 function fillWages() {
-  if (!state.natCut) state.natCut = computeNatCut();
+  // 12단계: 예전 세이브에는 새 나라 국가대표 기준이 없어서 다시 계산
+  if (!state.natCut || COUNTRIES.some(c => !(c.id in state.natCut))) state.natCut = computeNatCut();
   // v9까지 세이브: 이적 기간 중이면 보강이 필요한 구단을 지금 찾음
   if (state.needs === null) {
     state.needs = [];
@@ -2758,6 +3153,11 @@ function importSave(file) {
 // ===== 8. 화면 =====
 const $ = id => document.getElementById(id);
 const REGIONS = [...new Set(COUNTRIES.map(c => c.region))];
+// 리그 탭 지역 버튼 이름 (짧게)
+const REGION_CHIP = { '5대 리그': ['5대 리그', 'Big Five'], 유럽: ['유럽', 'Europe'], 남미: ['남미', 'S. America'], 북중미: ['북중미', 'N. America'], '아시아·오세아니아': ['아시아', 'Asia'], 아프리카: ['아프리카', 'Africa'] };
+// 리그 탭에서 고른 지역 (화면 상태라 저장하지 않음). 고르기 전에는 내 첫 선수가 뛰는 지역
+let worldRegion = null;
+const regionNow = () => worldRegion ?? (state.clients[0] ? clubOf(state.clients[0].s).country.region : REGIONS[0]);
 const LEAGUE_COUNT = COUNTRIES.reduce((n, c) => n + c.tiers.length, 0);
 // index.html에 꼭 있어야 하는 요소 (배포 직후 옛 HTML이 캐시에 남아 있는지 확인용)
 const REQUIRED_IDS = ['hdr-date', 'hdr-cash', 'hdr-rep', 'hdr-ap', 'view', 'btn-next', 'summary', 'summary-title', 'summary-body',
@@ -3211,14 +3611,17 @@ function renderWorld(root) {
     root.append(rowButton('news', undefined, L('세계 뉴스', 'World news'), windowAt() ? L(`보강이 필요한 구단 ${state.needs.length}곳 · 이번 이적 기간 이적 ${state.deals.n}건`, `${state.needs.length} clubs looking to strengthen · ${pl(state.deals.n, 'transfer')} this window`)
       : L(`최근 뉴스 ${state.news.length}건 · 이적 시장 닫힘`, `${state.news.length} recent stories · transfer market closed`)));
     renderScouting(root);
-    for (const region of REGIONS) {
-      const list = el('div', 'list');
-      for (const c of COUNTRIES.filter(x => x.region === region)) {
-        const mine = state.clients.filter(cl => clubOf(cl.s).country === c).length;
-        list.append(rowButton('country', c.i, c.name, L(`${c.tiers.length}부 · ${c.clubs.flat().length}팀`, `${pl(c.tiers.length, 'division')} · ${c.clubs.flat().length} teams`), mine ? MINE(mine) : ''));
-      }
-      root.append(el('h2', 'section', regionName(region)), list);
+    // 12단계: 나라가 105개라 지역을 골라서 봄. 지역 안에서는 1부 수준이 높은 순
+    const region = regionNow();
+    const chips = el('div', 'segment seg3 region-chips');
+    REGIONS.forEach((r, i) => chips.append(segButton('region', i, L(REGION_CHIP[r][0], REGION_CHIP[r][1]), r === region)));
+    const list = el('div', 'list');
+    const inRegion = COUNTRIES.filter(x => x.region === region).sort((a, b) => b.level - a.level || a.i - b.i);
+    for (const c of inRegion) {
+      const mine = state.clients.filter(cl => clubOf(cl.s).country === c).length;
+      list.append(rowButton('country', c.i, c.name, L(`${c.tiers.length}부 · ${c.clubs.flat().length}팀 · 1부 수준 ${c.level}`, `${pl(c.tiers.length, 'division')} · ${c.clubs.flat().length} teams · top flight level ${c.level}`), mine ? MINE(mine) : ''));
     }
+    root.append(el('h2', 'section', L('지역', 'Region')), chips, el('h2', 'section', L(`${regionName(region)} · ${inRegion.length}개국`, `${regionName(region)} · ${pl(inRegion.length, 'country', 'countries')}`)), list);
     return;
   }
   const country = COUNTRIES[ui.country];
@@ -3806,6 +4209,7 @@ function onAction(act, v, o) {
   if (act === 'lang') return stay(() => setLang(v === 1 ? 'en' : 'ko'));
   if (act === 'clubAt') return navigate({ tab: 'world', player: null, country: CLUBS[v].country.i, tier: CLUBS[v].t, club: v });
   if (act === 'pitch') return stay(() => pitch(v, o));
+  if (act === 'region') return stay(() => (worldRegion = REGIONS[v] || REGIONS[0]));
   if (act === 'country') return navigate({ country: v, tier: null, club: null });
   if (act === 'tier') return navigate({ tier: v, club: null });
   if (act === 'club') return navigate({ club: v });
@@ -3882,16 +4286,19 @@ function runSelfCheck() {
     if (f < 1 || f > 10) inRange = false;
   }
   check(inRange, '폼은 1~10 안에 있어야 함');
-  const sample = new Uint16Array([0, 35, 1295]);
-  check(unpackArray(packArray(sample, 2, 0), 2, Uint16Array, 0).join() === '0,35,1295', '저장 압축 왕복');
+  check(unpackArray('0z', 1, Uint8Array, 0).join() === '0,35', '예전 세이브 압축 읽기');
+  // 12단계 세이브 글자: 92가지, 따옴표·역슬래시 없음, 글자 ↔ 값 왕복
+  check(CODE.length === 92 && !/["\\]/.test(CODE) && [...CODE].every((ch, i) => CODE_VAL[ch.charCodeAt(0)] === i), '세이브 글자표');
   const a = getPlayer(1234), b = getPlayer(1234);
   check(a.name === b.name && a.ability === b.ability && a.pot >= a.ability && a.ability >= 40 && a.ability <= 90, '선수 생성은 결정적이고 범위를 지켜야 함');
+  // 12단계 세계: 11단계까지의 구단 번호는 그대로(0~2001), 5대 리그 6부·나머지 4부, 늘린 부 선수는 능력 하한 30까지
+  const deep = getPlayer(SLOTS - 1);
+  check(OLD_CLUBS === 2002 && COUNTRIES.every((c, i) => c.tiers.length === (i < BIG5 ? 6 : 4) && c.clubs.length === c.tiers.length && c.clubs.every((l, t) => l.length === c.tiers[t]))
+    && deep.ability >= abilityFloor(deep.s) && deep.ability <= 90, '세계 확장: 부 수·구단 수·능력 범위');
   check(contractEnd(a, absWeek() + 500) >= absWeek() + 500, '월드 선수 계약은 자동 갱신');
   check(weeklyWage(70) > weeklyWage(60) && weeklyWage(40) >= 200 && commissionOf(10000) === 800, '주급과 수수료(8%) 계산');
   check(growthStep(19, 50, 80, 5.5, 0.5) > 0 && growthStep(19, 80, 80, 5.5, 1) === 0 && growthStep(33, 70, 70, 5.5, 0.5) < 0, '성장은 잠재력까지, 30대 중반은 하락');
   check(growthStep(19, 50, 80, 9, 0.5) >= growthStep(19, 50, 80, 2, 0.5), '폼이 좋으면 더 크게 성장');
-  const grow = new Int8Array([-60, 0, 60]);
-  check(unpackArray(packArray(grow, 2, 128), 2, Int8Array, 128).join() === '-60,0,60', '성장치 저장 왕복');
   const badUi = cleanUi({ tab: 'x', country: 999, tier: 0, club: 5, player: -1 });
   check(badUi.tab === 'clients' && badUi.country === null && badUi.tier === null && badUi.club === null && badUi.player === null, '잘못된 화면 위치는 기본값으로');
   const okUi = cleanUi({ tab: 'world', country: 0, tier: 3, club: CLUBS[0].id, player: 10 });

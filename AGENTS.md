@@ -6,13 +6,14 @@ AI 코딩 도구가 이 리포를 이어서 작업할 때 읽는 문서입니다
 
 인수인계 문서는 세 개입니다. 새 세션은 이 장 → `.kiro/steering/session-handoff.md`(시작 절차·사용자와 일하는 방식·작업 순서·샌드박스 요령) → `.kiro/steering/game-design.md`(사용자 피드백으로 정한 설계 원칙) 순서로 직접 읽습니다. Kiro Web에서는 리포가 작업 폴더(`/projects/sandbox`)의 하위 폴더라서 두 steering 파일이 자동으로 읽히지 않을 수 있습니다.
 
-- **완료:** 1~11단계와 밝은 화면. 8단계 후속(디자인 시안 B, 글꼴)까지 `main`에 머지됐습니다(PR #10). 리뷰 대기: 9단계 이적 시장 PR #11(`phase9-transfer-window`) → 밝은 화면 PR #12(`phase9b-light-theme`) → 10단계 세계 뉴스 PR #13(`phase10-world-news`) → 11단계 영어 버전 PR #14(`phase11-english`) 순서로 쌓았습니다. 머지 전이면 가장 위 브랜치에서 새 브랜치를 따서 이어 가고, 머지 후에는 `main`에서 새 브랜치를 만듭니다.
+- **완료:** 1~12단계와 밝은 화면. 9단계 이적 시장(PR #11)과 밝은 화면(PR #12)까지 `main`에 머지됐습니다. 리뷰 대기: 10단계 세계 뉴스 PR #13(`phase10-world-news`) → 11단계 영어 버전 PR #14(`phase11-english`) → 12단계 세계 확장 PR #15(`phase12-world-expansion`) 순서로 쌓았습니다. 머지 전이면 가장 위 브랜치에서 새 브랜치를 따서 이어 가고, 머지 후에는 `main`에서 새 브랜치를 만듭니다.
 - **정해진 것:** 관계 이야기 화면은 디자인 시안 B(이야기 장면 시트 + 이야기 앨범). 글꼴은 Pretendard(OFL)를 리포에 넣어 씁니다(1장 1번). 화면은 밝은 시안 C(밝은 회색 바탕 + 흰 카드 + 잔디색 상단 바)로 넣었고, A(화이트)·B(종이)로 바꾸려면 `style.css` `:root` 변수만 바꿉니다(`docs/design/light-compare.png`).
 - **사용자 요청 (9단계 뒤 이어서):** ① 화면을 어두운색에서 밝은색으로 바꾸기(완료, 시안 C), ② 세계 뉴스: 어느 구단이 어느 포지션이 부족한지, 누가 누구를 영입했는지(완료, 10단계), ③ 영어 버전 준비: 번역하고, 대화·선수의 말은 너무 단순하지 않게 문장을 최대한 많이 준비하기(완료, 11단계).
+- **사용자 요청 (11단계 뒤, 한 번에 받음):** ① 리그를 더 넣기: 키프로스 같은 비주류 리그도, 5대 리그는 6부까지, 나머지는 4부까지("토큰이 얼마나 들든 이렇게") → 완료, 12단계. ② 처음 화면을 최상의 상태로 구상해서 요소를 배치하기. ③ 지금까지 만든 것을 더 구체화해서, 현실과 비슷하되 재미가 가장 크게 고치고 보고하기.
 - **사이트:** https://jn5310.github.io/be-the-agent/ (Pages가 `main`에서 자동 배포, 머지 후 1~2분)
-- **버전:** 세이브 `SAVE_VERSION = 10`(10단계: 뉴스·보강 필요·이적 기간 결산, 선수의 `pitch`. 11단계의 이름 키 `nk`와 문장 번호 `d.v`는 없어도 읽는 값이라 그대로 v10), `index.html`은 `?v=14`. 다음 배포 때 `?v=15`로 올립니다. 언어는 세이브가 아니라 `localStorage` `be-the-agent:lang`에 따로 저장합니다.
-- **규모:** `game.js` 약 4,040줄(한국어·영어 문장이 같이 들어 있음), 58개국 123개 리그, 구단 2,002개, 선수 48,048명. 글꼴 파일 6개 약 840KB(`fonts/`, 처음 한 번 받고 나면 브라우저에 남음).
-- **마지막 밸런스 검증 (1,000판 × 3시즌, 성실한 봇, 10단계):** 지표 22개 모두 목표 안 (8장 표). 할 일이 있는 주 71.0%, 주당 소식 0.80, 재계약 74.1%, 영입 54.1%, 선수를 잃은 게임 23.9%, 파산 0.6%, 1시즌 안 첫 이적 71.1%, 시즌당 이적 1.82건, 꿈의 구단 이적 13.8%, 1시즌 안 회사 설립 53.5%, 관계 이야기 3시즌 14.4개, 마감 주에 온 이적 제안 20.1%. 유망주 ÷ 베테랑 번 돈 1.12. 세계 이적 시즌당 43.6건. 11단계는 글만 바꿔서 게임 동작이 같습니다: 같은 난수로 돌린 봇 6판 × 3시즌의 상태 지문이 바꾸기 전과 같고, 1,000판 × 5전략을 다시 돌려도 성실한 봇 지표 22개가 모두 목표 안입니다(할 일이 있는 주 71.1%, 시즌당 이적 1.78건, 차이는 시뮬레이터 난수 차이).
+- **버전:** 세이브 `SAVE_VERSION = 11`(12단계: 세계 확장과 세계 배열 새 압축, v1~v10은 예전 세계로 읽어서 늘어난 선수를 채움), `index.html`은 `?v=15`. 다음 배포 때 `?v=16`으로 올립니다. 언어는 세이브가 아니라 `localStorage` `be-the-agent:lang`에 따로 저장합니다.
+- **규모:** `game.js` 약 4,440줄(한국어·영어 문장과 세계 데이터가 같이 들어 있음), 105개국 430개 리그, 구단 6,388개, 선수 153,312명. 세이브 약 92만 자. 글꼴 파일 6개 약 840KB(`fonts/`, 처음 한 번 받고 나면 브라우저에 남음).
+- **마지막 밸런스 검증 (1,000판 × 3시즌, 성실한 봇, 10단계):** 지표 22개 모두 목표 안 (8장 표). 할 일이 있는 주 71.0%, 주당 소식 0.80, 재계약 74.1%, 영입 54.1%, 선수를 잃은 게임 23.9%, 파산 0.6%, 1시즌 안 첫 이적 71.1%, 시즌당 이적 1.82건, 꿈의 구단 이적 13.8%, 1시즌 안 회사 설립 53.5%, 관계 이야기 3시즌 14.4개, 마감 주에 온 이적 제안 20.1%. 유망주 ÷ 베테랑 번 돈 1.12. 세계 이적 시즌당 43.6건. 11단계는 글만 바꿔서 게임 동작이 같습니다: 같은 난수로 돌린 봇 6판 × 3시즌의 상태 지문이 바꾸기 전과 같고, 1,000판 × 5전략을 다시 돌려도 성실한 봇 지표 22개가 모두 목표 안입니다(할 일이 있는 주 71.1%, 시즌당 이적 1.78건, 차이는 시뮬레이터 난수 차이). 12단계 세계 확장 뒤(600판 × 5전략, 7분 20초): 성실한 봇 22개 모두 목표 안(할 일이 있는 주 69.9%, 시즌당 이적 1.97건, 1시즌 안 첫 이적 82.5%, 국가대표 소집 37.8%). 제안을 낼 수 있는 구단이 늘어 이적이 조금 늘었습니다. 베테랑 봇은 재계약 76.2%·시즌당 이적 2.05건으로 목표를 조금 넘고, 유망주 ÷ 베테랑 번 돈은 0.81입니다.
 - **사용자가 중요하게 보는 것:** 에이전트와 선수의 관계처럼 밀접한 부분을 강조하면 게임이 재밌어진다고 봅니다. 새 기능을 만들 때 선수와의 관계에 어떤 순간이 생기는지 먼저 생각합니다 (`game-design.md`). 화면을 크게 바꿀 때는 디자인 시안 몇 개를 이미지로 보여 주고 고르게 합니다.
 
 ### 앞으로 일하는 방식 (사용자 요청)
@@ -62,7 +63,7 @@ AI 코딩 도구가 이 리포를 이어서 작업할 때 읽는 문서입니다
    - 읽지 못한 세이브는 지우지 않고 `be-the-agent:save:backup`에 옮긴 뒤 새 게임을 시작합니다. 기록 탭에서 백업 파일로 받을 수 있습니다.
    - 화면 그리기가 실패하면 화면 위치(`ui`)만 처음으로 돌려 다시 그립니다(`safeRender`). 세이브를 바로 덮어쓰지 않습니다.
 8. **라이선스:** 실존 리그명·구단명·선수명을 쓰지 않습니다. 국가와 도시 이름은 쓰되 구단 접미어는 가상으로 만들고, 실존 유명 선수와 겹치는 이름 조합은 `BLOCKED_NAMES`에 넣습니다.
-9. **배포할 때마다 `index.html`의 `?v=` 숫자를 올립니다** (지금은 `style.css?v=14`, `game.js?v=14`. 글꼴 파일은 바뀌지 않아 숫자를 붙이지 않음). GitHub Pages는 파일을 10분 동안 캐시해서 옛 파일과 새 파일이 섞일 수 있습니다. 새 화면 요소를 추가하면 `REQUIRED_IDS`에도 넣습니다. 요소가 빠져 있으면 게임은 안내만 띄우고 아무것도 저장하지 않습니다.
+9. **배포할 때마다 `index.html`의 `?v=` 숫자를 올립니다** (지금은 `style.css?v=15`, `game.js?v=15`. 글꼴 파일은 바뀌지 않아 숫자를 붙이지 않음). GitHub Pages는 파일을 10분 동안 캐시해서 옛 파일과 새 파일이 섞일 수 있습니다. 새 화면 요소를 추가하면 `REQUIRED_IDS`에도 넣습니다. 요소가 빠져 있으면 게임은 안내만 띄우고 아무것도 저장하지 않습니다.
 10. **화면 이동은 `navigate()`와 `goUp()`으로만 합니다.** 이동할 때마다 브라우저 기록에 쌓여서 안드로이드 뒤로가기가 한 단계씩 돌아갑니다.
 11. **글은 모두 두 언어로 씁니다 (11단계).** 화면·로그·확인창·알림 글은 `L(한국어, 영어)`로 씁니다.
    - 저장해 두는 문구(인연 `how`, 기억 `memo[].t`, 이야기 답 `tales[].t`)는 한국어로 저장하고 `M(한국어, 영어)`로 등록합니다. 화면에서는 `phrase()`로 지금 언어로 바꿉니다. 함수 안에서 만드는 기억 문구는 `MEMO`에 모아 두어, 불러온 세이브도 바로 번역되게 합니다.
@@ -219,6 +220,17 @@ AI 코딩 도구가 이 리포를 이어서 작업할 때 읽는 문서입니다
 - 함께 고친 것: 불만으로 떠난 선수 로그가 한 글자만 나오던 문제(이번 단계에서 생긴 것), 답하지 않은 이야기 답의 영어 번역, "만족 +3 유대 +1." 사이 마침표, 재계약 안내의 다시 협상 주(`TUNE.renewRetry`)
 - 세이브는 v10 그대로, `index.html` `?v=14`
 
+### 12단계 (완료): 세계 확장 (사용자 요청)
+- 5대 리그는 6부까지, 나머지는 4부까지 늘렸습니다. 비주류 나라 47개를 더했습니다: 유럽 25(키프로스·이스라엘·불가리아·슬로바키아·슬로베니아·보스니아 헤르체고비나·몬테네그로·북마케도니아·알바니아·핀란드·아이슬란드·페로 제도·룩셈부르크·웨일스·북아일랜드·몰타·에스토니아·라트비아·리투아니아·벨라루스·몰도바·조지아·아르메니아·아제르바이잔·카자흐스탄), 아시아·오세아니아 9(인도·말레이시아·싱가포르·이라크·요르단·오만·쿠웨이트·바레인·뉴질랜드), 아프리카 8(세네갈·코트디부아르·카메룬·말리·케냐·콩고민주공화국·앙골라·잠비아), 북중미 5(온두라스·과테말라·파나마·엘살바도르·자메이카)
+- 105개국 430개 리그, 구단 6,388개, 선수 153,312명(58개국 123개 리그 2,002개 구단에서 약 3배)
+- 부 수준: 5대 리그는 1~4부 7씩, 5·6부 5씩 낮아짐(잉글랜드 78·71·64·57·52·47). 나머지는 2부 8, 3부 6, 4부 5(대한민국 62·54·48·43). 새 게임은 능력 하한이 30이라 작은 나라 하부 리그(페로 제도 4부 평균 31)도 차이가 납니다
+- 늘린 부 구단은 그 나라 작은 도시부터 씁니다(잉글랜드 6부 게인즈버러·벅스턴, 대한민국 4부 아산·경주·거제). 도시 이름은 한국어·영어 짝으로 넣었습니다(새 나라 1,137곳, 기존 나라 작은 도시 1,112곳). 새 이름 풀 25개(이름·성 1,047개: 히브리, 불가리아, 슬로바키아, 슬로베니아, 보스니아, 마케도니아, 알바니아, 핀란드, 아이슬란드, 웨일스, 몰타, 에스토니아, 라트비아, 리투아니아, 조지아, 아르메니아, 아제르바이잔, 카자흐, 인도, 말레이, 세네갈·말리, 코트디부아르·카메룬, 케냐, 콩고, 잠비아)와 새 구단 접미어 8개, 새 풀에서 실존 유명 선수와 겹치는 이름 70개(`BLOCKED_NAMES_2`, 새 풀에만 적용해서 기존 선수 이름은 그대로)
+- 리그 탭: 지역 버튼 6개(5대 리그·유럽·남미·북중미·아시아·아프리카)로 고르고, 지역 안에서는 1부 수준이 높은 순입니다. 처음에는 내 첫 선수가 뛰는 지역이 열립니다
+- **예전 세이브 그대로:** 11단계까지의 구단 2,002개는 같은 순서·같은 난수로 먼저 만들어 번호·이름·전력이 같고, 늘린 부와 새 나라 구단은 그 뒤 번호입니다. 예전 세이브는 세계 규칙 1(`state.wv`)로 읽어서 기존 구단 선수를 예전 규칙(능력 하한 40, 예전 해외 진출 국적)으로 만들어 같은 선수가 됩니다. 늘어난 슬롯 선수는 불러온 시즌에 처음 등장한 선수(17~34세)입니다. 새 게임은 규칙 2: 새 나라 선수도 해외 리그로 진출합니다(`EXPORT_WEIGHTS_2`)
+- 세이브 압축을 바꿨습니다: 슬롯마다 한 글자씩 6가지(폼·지난주 변화, 이번 시즌 평균 폼, 지난 시즌 평균 폼, 세대, 등장한 뒤 지난 시즌, 성장치). 선수가 3배가 돼도 세이브는 약 92만 자입니다(예전 압축이면 170만 자)
+- 시간(PC 브라우저): 다음 주 약 30ms, 시즌 말 약 0.1초, 저장 약 24ms, 유망주 찾기 약 56ms. 시뮬레이터 1,000판 × 1전략 약 3분
+- 세이브 v11, `index.html` `?v=15`
+
 ### 다음 단계 후보
 - 0장 "다음에 할 일"과 "앞으로 일하는 방식"을 봅니다. 앞으로는 다른 게임의 요소를 하나씩 가져와 넣습니다.
 
@@ -236,9 +248,9 @@ AI 코딩 도구가 이 리포를 이어서 작업할 때 읽는 문서입니다
 | 구역 | 내용 |
 |---|---|
 | 0. 언어 (11단계, 파일 맨 위) | `LANG_KEY`, `LANG`, `L`, `initLang`, 저장 문구 번역(`M`, `PHRASES`, `MEMO`, `phrase`), 영어 셈·나열(`pl`, `listText`), `num` |
-| 1. 상수와 세계 데이터 | `COUNTRY_DATA`, `CLUB_SUFFIX`, `NAME_DATA`, `BLOCKED_NAMES`, 영어(`COUNTRY_EN`, `CLUB_SUFFIX_EN`, `NAME_EN`, `EN_FAMILY_FIRST`), `EXPORT_WEIGHTS` |
+| 1. 상수와 세계 데이터 | `COUNTRY_DATA`, `CLUB_SUFFIX`, `NAME_DATA`, `BLOCKED_NAMES`, 영어(`COUNTRY_EN`, `CLUB_SUFFIX_EN`, `NAME_EN`, `EN_FAMILY_FIRST`), `EXPORT_WEIGHTS`. 12단계 추가분(`COUNTRY_DATA_2`, `COUNTRY_EN_2`, `MORE_TIERS`(늘린 부 팀 수와 작은 도시), `NAME_DATA_2`, `NAME_EN_2`, `CLUB_SUFFIX_2`, `EXPORT_WEIGHTS_2`, `BLOCKED_NAMES_2`)은 기존 데이터를 고치지 않고 뒤에 붙임 |
 | 2. 공용 도구 | `hash`, `rng`(mulberry32), `pick`, `randInt`, `clamp` |
-| 3. 세계 | `COUNTRIES`, `CLUBS`(고정 시드로 생성, 나라·구단은 `ko`·`en`과 지금 언어의 `name`), `CLUB_BY_KO`, `tierLevel`, `leagueName` |
+| 3. 세계 | `COUNTRIES`(`tiers`, `oldTiers`, `towns`), `CLUBS`(고정 시드로 생성: 11단계까지의 구단을 먼저, 늘린 부·새 나라를 뒤에. 구단은 `t`·`t0`·`rank`·`off`, `ko`·`en`과 지금 언어의 `name`), `OLD_CLUBS`, `OLD_SLOTS`, `suffixOf`, `EXPORTERS`·`EXPORTERS_ALL`, `CLUB_BY_KO`, `TIER_DROP`, `tierLevel`, `leagueName`, 세계 규칙(`oldRules`, `abilityFloor`) |
 | 4. 선수 | `koName`, `nameFromKey`(이름 키 → 지금 언어 이름), `makeName`, `coreStats`, `getPlayer(slot)`(`name`·`ko`·`nk`), `weeklyWage`, `companyUpkeep`, `upkeepNow`, `growthStep`, `coachStep`, `marketValue`, `nextForm`, `contractEnd`, `leaveChance` |
 | 공용 짧은 글 | `NO_AP`, `NOT_CLIENT`, `BACK`, `MINE`, `GAME_OVER`, 지역·대회(`REGION_EN`, `regionName`, `CONT_NAME`), `posName`, `familyName`, `bondName`, `itemName` |
 | 5. 상태 | `newGame`(혼자 시작), `newWorld`, `START_TIES`, `pickStartingClients`, `newClient`, `addLog` |
@@ -246,7 +258,7 @@ AI 코딩 도구가 이 리포를 이어서 작업할 때 읽는 문서입니다
 | 6-2. 만족도·유대·협상·소식·경기 | `TUNE`, `weeklyAp`, `clientLimit`, `maxClients`, `gainRep`, 유대(`addBond`, `BOND_TIERS`, `bondName`, `bondKeepBonus`, `bondConsentBonus`, `togetherText`), 세계 뉴스(6-5 구역: `POS_NAME`, `STARTERS`, `lastJong`, `josa`, `named`, `clubGaps`, `pushNews`, `refreshNeeds`, `fitsNeed`, `worldSignings`, `countDeal`, `pitchFit`, `pitching`, `pitchBlock`, `pitch`, `newDeals`), 이적 시장(`WINDOWS`, `inWindow`, `windowAt`, `windowLeft`, `windowEnd`, `isDeadline`, `nextWindow`, `pickLine`, `LATE_LINES`, `ASK_LINES`, `EVENT_TYPES`의 `ask`), 소식 문장(11단계: `vary`, `SAY`, `DREAM_LINES`, `PITCH_LINES`, `offerHead`, `feeText`), 관계 이야기(`TALE_KEYS`, `FAMILY`, `taleSeen`, `taleOpen`, `taleReady`, `startTale`, `familyOf`, `taleTitle`, `albumTile`, `findJunior`, `alumniKnow`, `introActive`, `EVENT_TYPES`의 `call`·`wedding`·`junior`·`praise`), 일정(`leagueGames`, `compRun`, `weekGames`), 경기(`playMatch`, `worldStats`, `playClientWeek`), 국가대표(`computeNatCut`, `natCutFrom`), 성향(`prefsOf`, `fitChecks`, `fitScore`, `consentChance`), `meet`, `renewTerms`, `renew`, `makeOffer`, `acceptOffer`, `transfer`, `keepClient`, `EVENT_TYPES`, `findTip`, `resolveEvent`, `weeklyClients` |
 | 6-3. 회사 설립·자금 쓸 곳 | `foundChecks`, `foundBlock`, `foundAgency`, `walletKey`, `INVEST_TYPES`, `investSteps`, `investUpkeep`, `weeklySpend`, `investBlock`, `invest`, `downgrade`, `dividendRoom`, `afterTax`, `payDividend`, `inject`, `ITEMS`, `netWorth`, `itemBlock`, `buyItem` |
 | 6-4. 유망주 찾기 | `scoutCount`, `potRange`, `potText`, `scoutBlock`, `scout`, `toggleWatch`, `dropRetiredKeys`, `findProspects` |
-| 7. 저장·불러오기 | `serialize`/`deserialize`(검증, v1~v3 변환), `cleanUi`, `backupSave`, `fillWages`, `saveState`, `loadState`, `exportSave`, `exportBackup`, `importSave` |
+| 7. 저장·불러오기 | 세계 압축(`CODE`, `packWorld`, `unpackWorld`, 예전 세이브용 `PACK_OLD`·`unpackArray`·`unpackOldWorld`, `blankWorld`), `serialize`/`deserialize`(검증, v1~v3 변환), `cleanUi`, `backupSave`, `fillWages`, `saveState`, `loadState`, `exportSave`, `exportBackup`, `importSave` |
 | 8. 화면 | `render`, `STATIC_TEXT`·`applyStaticText`(`index.html`에 고정된 글과 `lang`), `marketLine`, 세계 뉴스(`NEWS_TAG`, `NEWS_LINES`, `storedName`, `newsName`, `clubLabel`, `clubEn`, `clubKo`, `newsText`, `newsRow`, `pitchButtons`, `newsBox`, `renderNews`), `renderClients`, `optionInfo`, `dueText`, `newsCard`, 이야기 장면(`sceneQueue`, `openScene`), `heartsNode`, `checkList`, `renderWorld`, `renderClub`, `renderPlayer`, `statsTable`, `careerTable`, `prefsBlock`, `bondNode`, `bondBlock`, `renewPanel`, `clientActions`, `scoutActions`, `playerRow`, `renderScouting`, `segButton`, `renderSolo`, `appendAlumni`, `renderAgency`, `itemList`, `investCard`, `moneyPanel`, `renderLog`, `openSummary`, `openGameOver`, `navigate`, `goUp`, `bindEvents` |
 | 9. 자가 검증·시작 | `runSelfCheck`(언어와 관계없이 통과), `setLang`, `boot`(`initLang` 먼저) |
 
@@ -256,8 +268,9 @@ AI 코딩 도구가 이 리포를 이어서 작업할 때 읽는 문서입니다
 - 선수는 저장하지 않고 `(게임 시드, 슬롯, 세대)`로 매번 같은 값을 만듭니다. 슬롯 = 구단 번호 × 24 + 순번.
 - 구단당 24명: GK 3, DF 8, MF 8, FW 5.
 - 나이: 첫 세대 17~34세(25세 전후가 많음), 은퇴 후 들어온 선수 17~23세.
-- 능력 = 부 수준 + 구단 전력(-6~+6) + 나이 보정 + 잡음, 40~90으로 자름.
-  - 부 수준: 1부 수준에서 5대 리그는 부마다 7, 나머지는 8씩 낮아짐.
+- 능력 = 부 수준 + 구단 전력(-6~+6) + 나이 보정 + 잡음, 하한~90으로 자름. 하한은 새 게임 30, 예전 세이브의 기존 구단 선수 40(`abilityFloor`).
+  - 부 수준(`TIER_DROP`): 1부 수준에서 5대 리그는 1~4부 7씩, 5·6부 5씩, 나머지는 2부 8, 3부 6, 4부 5 낮아짐.
+  - 선수를 만들 때는 구단의 처음 부(`club.t0`)를 씁니다.
 - 잠재력 = 능력 + 여유. 24세보다 어릴수록 여유가 크고, 상한 95.
 - 국적: 1부는 자국 선수 82%(5대 리그 55%), 2부 이하는 90%(5대 리그 75%). 나머지는 `EXPORT_WEIGHTS` 가중치로 정합니다.
 
@@ -285,7 +298,7 @@ v = 25,000 × e^(0.165 × (능력 - 40))
 - 소속 선수는 33세 미만이면 빠지지 않습니다. 은퇴하면 소속 목록에서 빠지고 결산 창에 표시됩니다.
 
 ### 시즌 말 성장·하락 (`growthStep`)
-- 능력 = 생성 능력 + `world.grow[슬롯]` (40~90). 잠재력은 바뀌지 않고, 성장은 잠재력을 넘지 않습니다.
+- 능력 = 생성 능력 + `world.grow[슬롯]` (하한~90). 잠재력은 바뀌지 않고, 성장은 잠재력을 넘지 않습니다.
 - 28세 이하: `(잠재력 - 능력) × 비율 × 폼 보정 × (0.6~1.4)` 만큼 오름. 비율은 20세 이하 0.3, 23세 이하 0.22, 그 위 0.12. 폼 보정은 시즌 평균 폼 1→0.7, 10→1.3.
 - 29~31세: 0 또는 -1. 32세 이상: -1~-2, 34세 이상 -1~-3.
 - 소속 선수는 피지컬 코치 효과(`coachStep`)를 더합니다 (아래 "자금 쓸 곳").
@@ -420,7 +433,7 @@ v = 25,000 × e^(0.165 × (능력 - 40))
 - 스카우트 보내기: 1 AP, 횟수 +1 (기록은 최근 300명, `TUNE.scoutMax`). 소식을 만들지 않고 보고서가 바로 옵니다.
 - 유망주 추천 소식에는 스카우트 1번이 함께 옵니다. 영입하면 잠재력이 정확히 드러나고 로그에 보이던 범위를 남깁니다.
 - 관심 목록: 최대 20명(`TUNE.watchMax`), 영입하거나 은퇴하면 빠집니다(`dropRetiredKeys`, 시즌 말).
-- 유망주 찾기(`findProspects`): 나이(19·21·23세 이하)·포지션으로 거르고, 소속 선수와 영입 확률 20% 미만(`TUNE.findChance`)을 뺀 뒤, 보이는 범위의 위쪽 → 아래쪽 순으로 20명. 진짜 잠재력은 쓰지 않습니다. 선수 48,048명을 훑는 데 PC 브라우저에서 약 60ms.
+- 유망주 찾기(`findProspects`): 나이(19·21·23세 이하)·포지션으로 거르고, 소속 선수와 영입 확률 20% 미만(`TUNE.findChance`)을 뺀 뒤, 보이는 범위의 위쪽 → 아래쪽 순으로 20명. 진짜 잠재력은 쓰지 않습니다. 선수 153,312명을 훑는 데 PC 브라우저에서 약 56ms.
 
 ### 파산
 - 정산 후 자금이 마이너스면 `debtWeeks + 1`, 0 이상이면 0으로 초기화. 8이 되면 `over = true`, 다음 주 버튼이 막히고 파산 창이 뜹니다.
@@ -443,8 +456,9 @@ v = 25,000 × e^(0.165 × (능력 - 40))
 
 ```json
 {
-  "version": 10,
-  "slots": 48048,
+  "version": 11,
+  "slots": 153312,
+  "wv": 2,
   "seed": 1239692193,
   "season": 1,
   "week": 1,
@@ -478,11 +492,13 @@ v = 25,000 × e^(0.165 × (능력 - 40))
   "logs": ["1시즌 1주 · ..."],
   "summary": { "season": 1, "rows": [], "retired": 2228, "repChange": 2, "coachGain": 1, "seen": true },
   "ui": { "tab": "agency", "country": null, "tier": null, "club": null, "player": null },
-  "world": { "form": "...", "delta": "...", "fsum": "...", "favg": "...", "gen": "...", "gseason": "...", "grow": "..." }
+  "world": { "fd": "...", "fa": "...", "va": "...", "gn": "...", "ag": "...", "gr": "..." }
 }
 ```
 
-- `world`의 각 값은 슬롯 수만큼의 숫자를 36진수 고정폭 문자열로 이은 것입니다(`PACK` 참고). 전체 크기는 약 520KB입니다.
+- `world`의 각 값은 슬롯 수(153,312)만큼 한 글자씩 이은 문자열입니다(v11, `packWorld`). 글자는 JSON에서 이스케이프가 필요 없는 92가지(`CODE`: `!`~`~`에서 `"`와 `\` 뺌)이고 값은 0~91입니다. `fd` = (폼-1)×3 + 지난주 변화+1, `fa` = 이번 시즌 평균 폼×8(불러올 때 지난 주 수를 곱해 합계로), `va` = 지난 시즌 평균 폼×2, `gn` = 세대, `ag` = 지금 시즌 - 등장 시즌, `gr` = 성장치+30. 전체 크기는 약 92만 자입니다.
+- `wv` = 세계 규칙(12단계). 2는 새 게임, 1은 v10까지의 세이브를 읽은 게임입니다. 1이면 기존 구단(슬롯 48,048 미만) 선수를 예전 규칙(능력 하한 40, 예전 해외 진출 국적)으로 만들어 같은 선수가 됩니다.
+- v1~v10 세이브(`slots` 48,048)는 예전 압축(36진수 고정폭, `PACK_OLD`)으로 읽고, 늘어난 슬롯은 불러온 시즌에 처음 등장한 선수(세대 0, 등장 시즌 = 지금 시즌)로 채웁니다. 새 나라 국가대표 기준은 불러온 뒤 다시 계산합니다.
 - 11단계(같은 v10): 뉴스·이적 기간 결산·옛 선수·시즌 결산 줄에 이름 키 `nk`(`"풀|이름 번호|성 번호"`)를 더 저장해서 언어를 바꾸면 이름도 바뀝니다. 모양이 맞는 것만 읽고, 없으면 저장된 이름(`nm`·`name`)을 그대로 보여 줍니다. 소식 `d.v`(0~999)는 상황 글·선수의 말 중 어느 문장인지입니다(없으면 0번 문장).
 - 저장되는 글: 인연 `how`, 기억 `memo[].t`, 이야기 답 `tales[].t`는 한국어 원문(화면에서 `phrase()`로 번역), 로그 `logs`는 쓴 때의 언어입니다. 언어 설정은 세이브가 아니라 `localStorage` `be-the-agent:lang`(`ko`/`en`)에 둡니다.
 - v9 세이브는 뉴스·보강 필요·결산과 선수의 `pitch` 없이 v10으로 읽습니다. 보강 필요는 `null`로 읽은 뒤 `fillWages`에서, 이적 기간 중이면 다시 찾습니다. 뉴스는 아는 종류와 아는 필드만, 구단·슬롯 번호가 맞는 것만 60건까지 읽습니다.
@@ -492,14 +508,14 @@ v = 25,000 × e^(0.165 × (능력 - 40))
 - `founded`는 `false`일 때만 혼자인 상태입니다. 선수의 `bond`는 0~100 정수, `how`는 40자, `memo`는 3개·문구 60자까지 읽습니다.
 - `invest`는 아는 투자만 0~최고 단계로 자르고, `items`는 아는 아이템만 중복 없이, `personalCash`는 0 이상으로 읽습니다.
 - `scouted`·`watch`는 "숫자-숫자" 모양의 키만 읽고, 횟수는 1~4, 개수는 300명·20명까지입니다.
-- `version`이 1~10이 아니거나 `slots`가 다르면 불러오지 않습니다. 국가·리그·팀 수를 바꾸면 `slots`가 바뀌므로 기존 세이브를 읽을 수 없게 됩니다. 이때는 `SAVE_VERSION`을 올리고 변환 코드를 추가하거나 새 게임으로 안내합니다.
+- `version`이 1~11이 아니거나 `slots`가 맞지 않으면(v10까지 48,048, v11은 153,312) 불러오지 않습니다. 국가·리그·팀 수를 바꾸면 `slots`가 바뀌므로 기존 세이브를 읽을 수 없게 됩니다. 이때는 `SAVE_VERSION`을 올리고 변환 코드를 추가하거나 새 게임으로 안내합니다.
 
 ## 8. 밸런스와 재미 지표 (`tools/sim.js`)
 
 규칙이나 확률을 바꾸면 반드시 시뮬레이션을 돌려 아래 지표를 확인합니다. 밸런스 숫자는 모두 `game.js`의 `TUNE`에 있습니다.
 
 ```
-node tools/sim.js --games 1000 --all                                    # 전략 5가지 비교 (8코어 약 2분 20초)
+node tools/sim.js --games 1000 --all                                    # 전략 5가지 비교 (12단계부터 8코어 약 12분)
 node tools/sim.js --games 600 --bot attentive --tune '{"limitMax":8}'   # 값 하나 바꿔 보기
 node tools/sim.js --games 300 --seasons 6 --bot attentive               # 긴 커리어
 node tools/sim.js --games 600 --seasons 6 --bot attentive --no-money    # 투자·아이템을 안 쓰는 봇과 비교
