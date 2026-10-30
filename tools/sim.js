@@ -29,6 +29,7 @@ const TARGETS = {
     ['soloBusy', '혼자일 때 할 일이 있는 주', 45, 75, '%'],
     ['bondHigh', '남은 선수 중 유대 60 이상', 30, 70, '%'],
     ['tales', '3시즌 동안 관계 이야기', 6, 20, '개'],
+    ['lateShare', '마감 주에 온 이적 제안', 15, 40, '%'],    // 9단계: 마감일 막판 제안이 몰리는 느낌 (마감 주는 이적 기간 17주 중 2주)
     ['investLevels', '투자 단계 (10단계 중)', 3, 7, ''],
     ['spendShare', '번 돈 중 투자·아이템에 쓴 비율', 40, 85, '%'],
     ['deficitWeeks', '투자 유지비 때문에 적자인 주', 0, 3, '%']
@@ -54,7 +55,7 @@ function loadGame() {
       weeklyWage, commissionOf, clientIncome, clientLimit, recruit, recruitBlock, recruitChance, recruitCost, renew, renewBlock, renewTerms,
       meet, meetBlock, resolveEvent, offerFit, offerCut, counterChance, clientOf, absWeek,
       INVEST_KEYS, ITEMS, investSteps, investUpkeep, upkeepNow, weeklySpend, invest, downgrade, dividendRoom, afterTax, payDividend, inject, buyItem, netWorth,
-      potRange, scout, scoutBlock, toggleWatch, cooldownKey, foundBlock, foundAgency };`);
+      potRange, scout, scoutBlock, toggleWatch, cooldownKey, foundBlock, foundAgency, windowAt, isFreeAgent };`);
   return factory(...Object.values(stubs));
 }
 
@@ -93,6 +94,7 @@ function answer(G, bot, ev, m) {
     case 'sns': return st.agencyCash > 20000 && ok(1) ? 1 : ok(0) ? 0 : 2;
     case 'injury': return ok(0) ? 0 : 1;
     case 'interview': return ok(0) ? 0 : 1;
+    case 'ask': return ok(0) ? 0 : 1; // 이적 요청: AP가 있으면 새 구단을 알아봄, 없으면 남자고 설득
     case 'poach': return ok(0) ? 0 : ok(1) ? 1 : 2;
     default: return 0;
   }
@@ -209,7 +211,12 @@ function botWeek(G, bot, m) {
     if (ev.type === 'offer') {
       m.offers += 1;
       m.consentSum += G.offerFit(G.getPlayer(ev.s), ev.d).consent;
+      if (ev.d.late) m.lateOffers += 1;
+      // 9단계 확인용: 이적 기간이 아닌데 계약 중인 선수에게 온 제안 (0이어야 함, 지난주에 온 제안이 남은 경우는 뺌)
+      const c = G.clientOf(ev.s);
+      if (c && !G.windowAt() && !G.isFreeAgent(c) && ev.until - G.TUNE.eventTtl === G.absWeek()) m.closedOffers += 1;
     }
+    if (ev.type === 'ask') m.asks += 1;
     const go = G.resolveEvent(ev.id, answer(G, bot, ev, m));
     acted = true;
     if (go !== null && !G.clientOf(go) && !G.recruitBlock(G.getPlayer(go))) {
@@ -310,7 +317,8 @@ function playGame(G, bot, seasons) {
   const st = G.state;
   const m = { weeks: 0, decisionWeeks: 0, news: 0, overload: 0, apUsed: 0, offers: 0, consentSum: 0, recruitTry: 0, firstTransfer: 0, bankrupt: 0,
     firstInvest: 0, investSpent: 0, upkeepPaid: 0, taxPaid: 0, itemSpent: 0, downgrades: 0, deficitWeeks: 0, buyWeek: {},
-    scouts: 0, scoutWeeks: 0, busyWithScout: 0, youthTry: 0, youthPotSum: 0, youthMissSum: 0, foundWeek: 0, soloWeeks: 0, soloBusy: 0, apAvail: 0, tales: 0, juniors: 0, taleKinds: {} };
+    scouts: 0, scoutWeeks: 0, busyWithScout: 0, youthTry: 0, youthPotSum: 0, youthMissSum: 0, foundWeek: 0, soloWeeks: 0, soloBusy: 0, apAvail: 0, tales: 0, juniors: 0, taleKinds: {},
+    lateOffers: 0, closedOffers: 0, asks: 0 };
   const signed0 = st.stats.signed;
   for (let w = 0; w < seasons * 52; w++) {
     const news = st.events.length;
@@ -402,6 +410,9 @@ function playGame(G, bot, seasons) {
     callupAny: k.callups > 0 ? 100 : 0,
     dreamAny: k.dream > 0 ? 100 : 0,
     consentAvg: m.offers ? m.consentSum / m.offers : null,
+    lateShare: m.offers ? (m.lateOffers / m.offers) * 100 : null, // 9단계: 마감 주에 온 제안 비율
+    closedOffers: m.closedOffers,
+    asks: m.asks,
     cash: st.agencyCash,
     income: st.clients.reduce((n, c) => n + G.clientIncome(c), 0),
     clients: st.clients.length,
@@ -489,6 +500,7 @@ const median = (rows, key) => {
     if (rows[0].scoutsPerSeason !== undefined) {
       console.log(`    스카우트: 시즌당 ${mean(rows, 'scoutsPerSeason').toFixed(1)}번, 스카우트까지 넣은 할 일 있는 주 ${mean(rows, 'busyWithScout').toFixed(1)}%, 영입하려 한 21세 이하 진짜 잠재력 평균 ${mean(rows, 'youthPot').toFixed(1)} (보이던 범위 가운데와 차이 ${mean(rows, 'youthMiss').toFixed(1)})`);
     }
+    if (bot !== 'passive') console.log(`    이적 시장: 마감 주에 온 제안 ${mean(rows, 'lateShare').toFixed(1)}%, 닫힌 기간에 계약 중인 선수에게 온 제안 ${rows.reduce((n, r) => n + r.closedOffers, 0)}건(0이어야 함), 이적 요청 게임당 ${mean(rows, 'asks').toFixed(2)}건`);
     console.log(`    중앙값: 번 돈 $${Math.round(median(rows, 'earned')).toLocaleString()}, 법인 자금 $${Math.round(median(rows, 'cash')).toLocaleString()}, 개인 자산 $${Math.round(median(rows, 'netWorth')).toLocaleString()}, 주 수입 $${Math.round(median(rows, 'income')).toLocaleString()}`);
   }
   if (summary.youth && summary.veteran) {

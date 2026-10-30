@@ -80,6 +80,15 @@ button { font: inherit; color: inherit; }
 .news-text { margin: 0 0 4px; font-size: 14px; }
 .news-due { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
 .news-bond { margin: 0 0 6px; color: var(--muted); font-size: 12px; }
+.news-tag { margin: 0 0 4px; color: var(--warn); font-size: 12px; font-weight: 700; }
+
+/* 이적 시장 상태 한 줄 (9단계): 열림은 초록 점, 마감일은 노란 글씨, 닫힘은 흐리게 */
+.market { margin: -4px 0 12px; color: var(--muted); font-size: 13px; }
+.market::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--line); vertical-align: 1px; }
+.market.open { color: var(--text); }
+.market.open::before { background: var(--accent); }
+.market.deadline { color: var(--warn); font-weight: 700; }
+.market.deadline::before { background: var(--warn); }
 
 /* 관계 이야기 (디자인 시안 A): 따뜻한 색 카드, 선수의 말, 함께한 이야기 줄 */
 .news.tale { border-color: var(--warm); background: linear-gradient(180deg, rgba(245, 158, 11, 0.1), var(--panel) 55%); }

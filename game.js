@@ -4,7 +4,7 @@
 // ===== 1. 상수와 세계 데이터 =====
 const SAVE_KEY = 'be-the-agent:save';
 const BACKUP_KEY = 'be-the-agent:save:backup'; // 읽지 못한 세이브를 지우지 않고 보관
-const SAVE_VERSION = 8;
+const SAVE_VERSION = 9;
 const WEEKS = 52;
 const SQUAD = 24;
 const WORLD_SEED = 20261030; // 구단 이름·전력은 모든 게임에서 같게 고정
@@ -453,10 +453,11 @@ function pickStartingClients() {
 // 소속 선수 기록: 슬롯·세대·계약 만료·주급·만족·마지막 면담·재협상 가능 주·만료 알림 보낸 계약
 // st = 이번 구간 기록(시즌·구단별), hist = 지난 구간들, playRate = 최근 출전 비율, capped = 국가대표 경험
 // bond = 유대(0~100), since = 함께하기 시작한 절대 주차, how = 인연(만난 계기), memo = 유대가 바뀐 최근 일 [{ w, t, n }]
+// hunt = 이적 요청을 받아 새 구단을 알아보는 마감 절대 주차 (0 = 안 알아봄)
 const newClient = (p, end, sat, bond, how) => ({
   s: p.s, g: p.g, end, wage: weeklyWage(p.ability), sat, met: 0, negUntil: 0, warned: 0,
   st: newStint(p.club, worldStats(p, state.season, state.week)), hist: [], playRate: 0.6, capped: false,
-  bond, since: absWeek(), how, memo: [], tales: []
+  bond, since: absWeek(), how, memo: [], tales: [], hunt: 0
 });
 // 에이전시 커리어 통계 (기록 탭·시뮬레이션용)
 const newCareerStats = () => ({ lost: 0, transfers: 0, dream: 0, callups: 0, renewTry: 0, renewWin: 0, signed: 0 });
@@ -487,6 +488,7 @@ function advanceWeek() {
   const fixed = investUpkeep();
   state.agencyCash += income - upkeep - fixed;
 
+  const closing = isDeadline() ? windowAt() : null; // 지난주가 마감일이었으면 이번 주에 이적 기간이 닫힘
   state.week += 1;
   if (state.week > WEEKS) endSeason();
   state.ap = weeklyAp();
@@ -497,6 +499,11 @@ function advanceWeek() {
 
   addLog(week.lines.length ? `경기: ${week.lines.join(', ')}` : '이번 주 소속 선수 경기 없음');
   addLog(`정산 ${signedCash(income - upkeep - fixed)} (수수료 ${cash(income)}, 운영비 ${cash(upkeep)}${fixed ? `, 투자 유지비 ${cash(fixed)}` : ''})`);
+  // 이적 시장 소식은 정산 다음에 남겨서 내 선수 탭 맨 위에 보이게
+  const win = windowAt();
+  if (closing) addLog(`${closing.name}이 끝났습니다. 다음은 ${nextWindow().win.name}(${nextWindow().win.from}주부터)입니다. 그때까지는 무소속 선수 제안만 옵니다.`);
+  if (win && state.week === win.from) addLog(`${win.name}이 열렸습니다. 마감은 ${weekLabel(windowEnd(win))}이고, 마감 주에는 막판 제안이 몰립니다.`);
+  if (isDeadline()) addLog(`이적 마감일입니다. 이번 주가 지나면 ${win.name}이 닫힙니다. 막판 제안은 이번 주 안에 답해야 합니다.`);
   checkDebt();
   saveState();
   return week.added;
@@ -688,8 +695,9 @@ const TUNE = {
   renewWindow: 26, renewRetry: 2, renewBase: [80, 55, 30],
   transferCut: 0.02, dealShare: 0.25,
   eventTtl: 2, eventMax: 3,
-  // offerFirst: 첫 시즌 후반 첫 이적 보너스. 7단계부터 혼자 시작해 선수가 2~3명뿐이라 0.06 → 0.12
-  offerBase: 0.018, offerStar: 0.025, offerForm: 0.015, offerFree: 0.1, offerYouth: 0.02, offerFirst: 0.12, dreamChance: 0.02, dreamReach: 4, offerRespect: 0.5,
+  // offerFirst: 첫 시즌 첫 이적 보너스. 7단계부터 혼자 시작해 선수가 2~3명뿐이라 0.06 → 0.12.
+  // 9단계부터 이적 기간(22주부터 11주)에만 붙어서 0.12 → 0.25 (1시즌 안 첫 이적·회사 설립을 8단계 수준으로)
+  offerBase: 0.018, offerStar: 0.025, offerForm: 0.015, offerFree: 0.1, offerYouth: 0.02, offerFirst: 0.25, dreamChance: 0.02, dreamReach: 4, offerRespect: 0.5,
   consentBase: 50, consentStep: 12,
   // poachStar: 몸값 $300만 이상 스타를 노리는 다른 에이전시. 7단계에서 유대가 시험받는 순간을 늘리려고 0.002 → 0.004
   playtimeChance: 0.09, raiseChance: 0.08, poachBase: 0.0015, poachStar: 0.004, poachLow: 0.04, sponsorChance: 0.05, snsChance: 0.008,
@@ -714,7 +722,11 @@ const TUNE = {
   // 8단계 관계 이야기: 조건(TALES)을 채운 선수에게 매주 taleChance 확률로 찾아옴(선수마다 이야기마다 한 번)
   // 후배 소개: 영입 확률 +introBonus%p가 introWeeks주 동안. 은퇴식: 유대 farewellBond 이상이거나 2시즌 이상 함께했으면 평판 +1,
   // 유대 alumniBond 이상이면 은퇴 후 그 나라 스카우트로 합류(그 나라 유망주 스카우트 +1번, 최대 alumniMax명)
-  taleChance: 0.05, introBonus: 15, introWeeks: 26, farewellBond: 60, alumniBond: 70, alumniMax: 5
+  taleChance: 0.05, introBonus: 15, introWeeks: 26, farewellBond: 60, alumniBond: 70, alumniMax: 5,
+  // 9단계 이적 시장: 계약 중인 선수의 이적 제안은 이적 기간에만, 기간 안에는 windowBoost배, 마감 주는 deadlineBoost배 더(막판 제안)
+  // 이적 요청: 지금 구단 조건 점수가 askFit 이하인 선수가 이적 기간에 askChance 확률로 새 구단을 찾아 달라고 함.
+  // 알아봐 주면 마감까지 그 선수 제안이 huntBoost배, 마감까지 못 찾으면 만족 -huntMiss
+  windowBoost: 2.8, deadlineBoost: 2, askFit: -2, askChance: 0.04, huntBoost: 1.8, huntMiss: 3
 };
 // 평판 오르는 양은 평판이 높을수록 줄어듦 (30시즌 커리어 동안 천천히 오르게). 소수점은 확률로 반올림
 function gainRep(n) {
@@ -750,6 +762,19 @@ const CUP_WEEKS = [6, 14, 22, 30, 38, 44];
 const CONT_WEEKS = [4, 8, 12, 16, 24, 28, 36, 40, 45];
 const CONT_NAME = { '5대 리그': '유럽 클럽 챔피언십', 유럽: '유럽 클럽 챔피언십', 남미: '남미 클럽 컵', 북중미: '북중미 클럽 컵', '아시아·오세아니아': '아시아 클럽 챔피언십', 아프리카: '아프리카 클럽 챔피언십' };
 const COMPS = ['L', 'C', 'K', 'N']; // 리그, 국내 컵, 대륙 대회, 국가대표
+
+// --- 9단계 이적 시장 (축구 감독 게임의 이적 기간·마감일에서 가져옴): 여름 이적 기간은 47주부터 다음 시즌 6주까지, 겨울은 22~26주.
+// 마지막 주가 마감일. 계약 중인 선수의 이적 제안은 이적 기간에만 오고, 무소속 선수는 언제든 계약할 수 있음(자유 계약)
+const WINDOWS = [{ name: '여름 이적 기간', from: 47, to: 6 }, { name: '겨울 이적 기간', from: 22, to: 26 }];
+const inWindow = (win, week) => (win.from <= win.to ? week >= win.from && week <= win.to : week >= win.from || week <= win.to);
+const windowAt = (week = state.week) => WINDOWS.find(win => inWindow(win, week)) || null;
+const windowLeft = (win, week = state.week) => (week <= win.to ? win.to - week : WEEKS - week + win.to); // 0 = 이번 주가 마감일
+const windowEnd = win => absWeek() + windowLeft(win);                                                // 마감일의 절대 주차
+const isDeadline = () => Boolean(windowAt()) && windowLeft(windowAt()) === 0;
+// 다음 이적 기간: { win, wait: 열리기까지 남은 주 }
+function nextWindow(week = state.week) {
+  return WINDOWS.map(win => ({ win, wait: (win.from - week + WEEKS) % WEEKS })).sort((a, b) => a.wait - b.wait)[0];
+}
 
 const contSlots = country => (country.i < BIG5 ? 4 : country.level >= 66 ? 3 : country.level >= 60 ? 2 : 1);
 const inContinental = club => club.t === 0 && club.rank < contSlots(club.country);
@@ -1105,8 +1130,28 @@ function makeOffer(c, p) {
   const base = Math.max(c.wage, weeklyWage(Math.max(marketAbility(p), Math.round(clubLevel(club)))));
   const wage = Math.round((base * (1.1 + r() * 0.3)) / 50) * 50;
   const fee = isFreeAgent(c) ? 0 : Math.round((valueOf(p) * (0.8 + r() * 0.5)) / 5000) * 5000;
-  return { club: club.id, wage, fee, years: 2 + Math.floor(r() * 3) };
+  // late = 이적 마감일에 온 막판 제안 (그 주 안에 답해야 함)
+  return { club: club.id, wage, fee, years: 2 + Math.floor(r() * 3), late: isDeadline() };
 }
+
+// 여러 문장 중 하나를 고름: 같은 선수·같은 일에는 늘 같은 문장 (새로고침해도 바뀌지 않게)
+const pickLine = (lines, ...keys) => lines[hash(state.seed, ...keys) % lines.length];
+// 마감일 막판 제안을 받은 선수의 말
+const LATE_LINES = [
+  '구단에서 자정까지 답을 달래요. 에이전트님이 괜찮다고 하시면 저는 바로 사인할게요.',
+  '마지막 날에 이런 제안이 올 줄은 몰랐어요. 솔직히 손이 떨려요. 어떻게 하면 좋을까요?',
+  '오늘 안에 정하지 않으면 다음 이적 기간까지 기다려야 하잖아요. 에이전트님 판단을 믿을게요.',
+  '서류는 벌써 다 와 있대요. 저는 짐 쌀 준비도 됐어요. 에이전트님 생각은 어떠세요?',
+  '전화가 계속 울려요. 다른 사람 말은 안 들을게요. 에이전트님이 정해 주세요.'
+];
+// 이적 요청: 선수가 가장 중요하게 여기는 조건에 따라 털어놓는 말
+const ASK_LINES = {
+  money: ['솔직히 말할게요. 제 가치를 제대로 알아주는 팀에서 뛰고 싶어요.', '같은 일을 하는데 저만 덜 받는 것 같아요. 이번 기회에 옮기고 싶어요.'],
+  play: ['벤치에서 또 한 시즌을 보내고 싶지 않아요. 매주 뛸 수 있는 팀이면 어디든 좋아요.', '훈련은 누구보다 열심히 하는데 경기에 못 나가요. 이대로면 제가 무너질 것 같아요.'],
+  stage: ['큰 무대에서 뛰어 보고 싶어요. 지금 아니면 그런 기회가 다시 안 올 것 같아요.', '대륙 대회 중계를 볼 때마다 저기 서 있는 제 모습을 상상해요. 한번 도전해 보고 싶어요.'],
+  home: ['요즘 집 생각이 많이 나요. 가족 곁에서 뛸 수 있는 팀을 찾아 주실 수 있을까요?', '부모님이 경기장에 오실 수 있는 곳에서 뛰고 싶어요. 그게 제 꿈이었거든요.'],
+  stable: ['여기서는 제 자리가 안 보여요. 오래 마음 놓고 뛸 수 있는 팀을 찾고 싶어요.', '해마다 불안한 건 이제 지쳤어요. 저를 길게 믿어 줄 팀으로 가고 싶어요.']
+};
 
 const offerCut = d => Math.round(d.fee * TUNE.transferCut) + dealFee(d.wage);
 const counterChance = () => clamp(Math.round(45 + state.rep / 5), 45, 80) + TUNE.lawyerCounter[state.invest.lawyer];
@@ -1132,6 +1177,7 @@ function transfer(c, d) {
   const gain = offerCut(d);
   c.wage = d.wage;
   c.end = absWeek() + WEEKS * (d.years || 3);
+  c.hunt = 0; // 새 구단을 찾았으니 알아보기 끝
   addSat(c, clamp(5 + fit.score * 2, -10, 20));
   addBond(c, fit.score >= 1 ? 5 : 2, fit.score >= 1 ? `원하던 ${to.name} 이적을 성사시킴` : `${to.name} 이적을 성사시킴`);
   state.agencyCash += gain;
@@ -1177,11 +1223,22 @@ function keepClient(c, p, chance, gain, how) {
 // bond = 그 선택으로 바뀌는 유대(버튼에 표시), memo = 선수가 기억하는 일
 const EVENT_TYPES = {
   offer: {
-    // 아직 이적이 없으면 첫 시즌 후반(27~46주)에 제안이 늘어남: 첫 큰 거래를 1시즌 안에 맛보게
-    chance: (c, p) => TUNE.offerBase + (p.ability >= clubLevel(p.club) + 3 ? TUNE.offerStar : 0) + (state.world.form[c.s] >= 8 ? TUNE.offerForm : 0) + (isFreeAgent(c) ? TUNE.offerFree : 0)
-      + (ageOf(p) <= 21 && p.pot - p.ability >= 10 ? TUNE.offerYouth : 0) + (!state.stats.transfers && state.season === 1 && state.week > 26 && state.week <= LEAGUE_WEEKS ? TUNE.offerFirst : 0),
+    // 9단계: 계약 중인 선수는 이적 기간에만 제안이 옴. 기간 안에는 windowBoost배, 마감 주는 deadlineBoost배 더, 새 구단을 알아보는 중이면 huntBoost배.
+    // 무소속 선수 제안(offerFree)은 기간과 관계없이 옴. 아직 이적이 없으면 첫 시즌 22주부터(겨울·여름 이적 기간) 제안이 늘어남: 첫 큰 거래를 1시즌 안에 맛보게
+    chance: (c, p) => {
+      const free = isFreeAgent(c) ? TUNE.offerFree : 0;
+      const win = windowAt();
+      if (!win) return free;
+      const base = TUNE.offerBase + (p.ability >= clubLevel(p.club) + 3 ? TUNE.offerStar : 0) + (state.world.form[c.s] >= 8 ? TUNE.offerForm : 0)
+        + (ageOf(p) <= 21 && p.pot - p.ability >= 10 ? TUNE.offerYouth : 0);
+      const boost = TUNE.windowBoost * (windowLeft(win) === 0 ? TUNE.deadlineBoost : 1) * (c.hunt >= absWeek() ? TUNE.huntBoost : 1);
+      const first = !state.stats.transfers && state.season === 1 && state.week >= 22 ? TUNE.offerFirst : 0;
+      return base * boost + first + free;
+    },
     make: makeOffer,
     text: (p, d) => `${CLUBS[d.club].id === prefsOf(p).dream ? '꿈의 구단 ' : ''}${CLUBS[d.club].name}(${leagueName(CLUBS[d.club].country, CLUBS[d.club].t)})에서 ${p.name} 선수 영입을 제안했습니다. 주급 ${cash(d.wage)}, ${d.years || 3}시즌, ${d.fee ? `이적료 ${money(d.fee)}` : '자유 이적'}. 성사되면 내 수수료 ${cash(offerCut(d))}.`,
+    // 마감일 막판 제안에는 선수의 말이 붙음 (제안마다 정해진 한 줄)
+    quote: (p, d) => (d.late ? pickLine(LATE_LINES, p.s, d.club) : ''),
     fit: (p, d) => offerFit(p, d),
     options: [
       { label: (p, d) => `수락한다 (선수 동의 ${offerFit(p, d).consent}%)`, run: acceptOffer },
@@ -1289,6 +1346,30 @@ const EVENT_TYPES = {
     ],
     def: 1
   },
+  // 9단계 이적 요청: 지금 구단이 잘 안 맞는 선수가 이적 기간에 새 구단을 찾아 달라고 털어놓음 (마감까지 2주 이상 남았을 때)
+  ask: {
+    chance: (c, p) => {
+      const win = windowAt();
+      if (!win || windowLeft(win) < 2 || isFreeAgent(c) || c.hunt >= absWeek()) return 0;
+      return fitScore(fitChecks(p, prefsOf(p), p.club, c.wage, 0), prefsOf(p)) <= TUNE.askFit ? TUNE.askChance : 0;
+    },
+    text: p => `${p.name} 선수가 이번 이적 기간에 팀을 옮기고 싶다고 털어놓았습니다.`,
+    quote: p => pickLine(ASK_LINES[prefsOf(p).main], p.s, absWeek()),
+    options: [
+      {
+        label: () => '새 구단을 알아본다', ap: 1, bond: 3, memo: '이적을 원할 때 새 구단을 알아봐 줌',
+        run: (c, p) => ((c.hunt = windowEnd(windowAt())), addSat(c, 4), `${p.name} 선수의 새 구단을 알아봅니다. 마감까지 이적 제안이 더 자주 옵니다 (만족 +4).`)
+      },
+      {
+        // 유대가 깊으면 남자는 말을 믿고 따라오지만, 아니면 서운해함
+        label: () => '남아서 자리를 찾자고 설득한다',
+        run: (c, p) => (c.bond >= TUNE.bondCalm ? (addSat(c, 2), `${p.name} 선수가 에이전트를 믿고 남아서 버텨 보기로 했습니다 (만족 +2).`)
+          : (addSat(c, -3), `${p.name} 선수가 설득을 받아들였지만 표정이 어둡습니다 (만족 -3).`))
+      },
+      { label: () => '지금은 때가 아니라고 한다', bond: -3, memo: '이적을 원할 때 들어주지 않음', run: (c, p) => (addSat(c, -5), `${p.name} 선수가 실망했습니다 (만족 -5).`) }
+    ],
+    def: 2
+  },
   // --- 8단계 관계 이야기: 유대가 깊어진 선수에게 선수마다 한 번씩 (make에서 시작한 것으로 기록) ---
   // tale = { title, need: 필요한 유대, weeks: 함께한 주 }, quote = 선수의 말
   call: {
@@ -1381,7 +1462,11 @@ function findTip() {
 }
 
 function pushEvent(type, s, d) {
-  state.events.push({ id: state.nextEventId++, type, s, g: state.world.gen[s], until: absWeek() + TUNE.eventTtl, d: d || {} });
+  // 이적 기간에 계약 중인 선수에게 온 제안은 마감일까지 답해야 함 (마감일 막판 제안은 그 주 안에)
+  const c = clientOf(s);
+  const win = type === 'offer' && c && !isFreeAgent(c) ? windowAt() : null;
+  const until = absWeek() + TUNE.eventTtl;
+  state.events.push({ id: state.nextEventId++, type, s, g: state.world.gen[s], until: win ? Math.min(until, windowEnd(win)) : until, d: d || {} });
 }
 
 // 소식 답하기: AP·비용을 확인하고 결과를 기록. 반환값: 화면 이동할 선수 슬롯 또는 null
@@ -1482,6 +1567,12 @@ function weeklyClients() {
     addSat(c, d);
     // 함께 지낸 시간만큼 유대가 쌓임
     if (now > c.since && (now - c.since) % TUNE.bondTime === 0) addBond(c, 1);
+    // 이적 요청을 받고 알아봤지만 마감까지 새 구단을 못 찾음
+    if (c.hunt && c.hunt < now) {
+      c.hunt = 0;
+      addSat(c, -TUNE.huntMiss);
+      addLog(`마감까지 ${p.name} 선수의 새 구단을 찾지 못했습니다. 선수가 아쉬워합니다 (만족 -${TUNE.huntMiss}).`);
+    }
     if (left === -1) addLog(`${p.name} 선수 계약이 끝나 무소속이 됐습니다. 재계약하거나 이적시키기 전까지 수수료가 없습니다.`);
     if (c.sat < TUNE.satLeave) removeClient(c, '불만이 쌓여 에이전시를 떠났습니다', 2);
   }
@@ -1768,7 +1859,7 @@ function serialize() {
 function deserialize(text) {
   const d = JSON.parse(text);
   const int = v => Number.isInteger(v);
-  if (!d || ![1, 2, 3, 4, 5, 6, 7, SAVE_VERSION].includes(d.version)) throw new Error('지원하지 않는 버전입니다');
+  if (!d || ![1, 2, 3, 4, 5, 6, 7, 8, SAVE_VERSION].includes(d.version)) throw new Error('지원하지 않는 버전입니다');
   if (d.slots !== SLOTS) throw new Error('세계 구성이 다른 세이브입니다');
   if (!int(d.seed) || !int(d.season) || d.season < 1 || !int(d.week) || d.week < 1 || d.week > WEEKS) throw new Error('날짜 정보가 올바르지 않습니다');
   if (!Number.isFinite(d.agencyCash) || !Number.isFinite(d.rep) || !Array.isArray(d.logs)) throw new Error('기본 정보가 올바르지 않습니다');
@@ -1842,7 +1933,9 @@ function deserialize(text) {
       memo: (Array.isArray(c.memo) ? c.memo : []).filter(m => m && int(m.w) && typeof m.t === 'string' && int(m.n)).slice(0, 3).map(m => ({ w: m.w, t: m.t.slice(0, 60), n: clamp(m.n, -20, 20) })),
       // 8단계: 함께한 관계 이야기 (아는 이야기만, 이야기마다 한 번)
       tales: (Array.isArray(c.tales) ? c.tales : []).filter((t, i, arr) => t && TALE_KEYS.includes(t.k) && int(t.w) && arr.findIndex(x => x && x.k === t.k) === i)
-        .map(t => ({ k: t.k, w: t.w, t: typeof t.t === 'string' ? t.t.slice(0, 60) : '' }))
+        .map(t => ({ k: t.k, w: t.w, t: typeof t.t === 'string' ? t.t.slice(0, 60) : '' })),
+      // 9단계: 이적 요청을 받아 새 구단을 알아보는 마감 주 (v8까지는 없음 = 0)
+      hunt: int(c.hunt) && c.hunt > 0 ? c.hunt : 0
     })),
     cooldowns, logs: d.logs.map(String).slice(0, 80), summary, moved, events, nextEventId,
     natCut: Object.keys(natCut).length ? natCut : null, stats, ui: cleanUi(d.ui), world
@@ -2162,8 +2255,10 @@ function newsCard(ev) {
     lab.append(el('span', 'tale-name', `이야기 · ${taleTitle(c, ev.type)}`), el('span', 'badge warm', `${bondName(c.bond)} ${c.bond}`));
     card.append(lab);
   }
+  if (ev.type === 'offer' && ev.d.late) card.append(el('p', 'news-tag', '이적 마감일 막판 제안'));
   card.append(el('p', 'news-text', type.text(p, ev.d, c)));
-  if (type.quote) card.append(el('p', 'quote', `"${type.quote(p, ev.d, c)}"`));
+  const quote = type.quote ? type.quote(p, ev.d, c) : '';
+  if (quote) card.append(el('p', 'quote', `"${quote}"`));
   if (c) card.append(el('p', 'news-bond', type.tale ? `인연: ${c.how} · ${togetherText(c)}` : `관계: ${bondName(c.bond)} · 유대 ${c.bond} · ${c.how}`));
   if (type.fit) {
     const fit = type.fit(p, ev.d);
@@ -2222,9 +2317,21 @@ function openScene() {
   dialog.showModal();
 }
 
+// 이적 시장 상태 한 줄: 열림(마감까지 n주)·마감일·닫힘(다음 기간까지 n주)
+function marketLine() {
+  const win = windowAt();
+  if (!win) {
+    const next = nextWindow();
+    return el('p', 'market', `이적 시장 닫힘 · ${next.win.name}까지 ${next.wait}주 · 무소속 선수는 언제든 계약할 수 있습니다`);
+  }
+  const left = windowLeft(win);
+  if (left === 0) return el('p', 'market deadline', `이적 마감일 · 이번 주가 지나면 ${win.name}이 닫힙니다`);
+  return el('p', 'market open', `${win.name} · 마감 ${weekLabel(windowEnd(win))}까지 ${left}주`);
+}
+
 function renderClients(root) {
   root.append(el('h1', 'title', '내 선수'),
-    el('p', 'sub', `${state.founded ? '' : '혼자 일하는 중 · '}${state.clients.length}/${clientLimit()}명 · 주간 수수료 ${cash(weeklyIncome())} · 지출 ${cash(weeklySpend())}`));
+    el('p', 'sub', `${state.founded ? '' : '혼자 일하는 중 · '}${state.clients.length}/${clientLimit()}명 · 주간 수수료 ${cash(weeklyIncome())} · 지출 ${cash(weeklySpend())}`), marketLine());
   if (!state.founded && !foundBlock()) root.append(el('p', 'note up', '회사 설립 조건을 모두 채웠습니다. 에이전시 탭에서 회사를 세울 수 있습니다.'));
   // 소식 카드를 못 그리면(잘못된 데이터) 그 소식만 버리고 화면은 계속 그림
   const cards = [];
@@ -2963,6 +3070,27 @@ function runSelfCheck() {
   check(done.cls === 'done' && done.meta.endsWith(`유대 +${wed[0].bond}`) && albumTile(tt, 'wedding').cls === 'done cold'
     && albumTile(tt, 'praise').cls === 'open' && albumTile({ ...tt, bond: 0 }, 'praise').cls === 'locked', '이야기 앨범 칸 상태');
   check(TUNE.alumniBond >= TUNE.farewellBond && TUNE.introBonus > 0 && TUNE.introWeeks > 0, '은퇴식·옛 선수·후배 소개 값');
+  // 9단계: 이적 기간은 여름(47~52주·1~6주)과 겨울(22~26주), 마감일은 6주·26주, 닫힌 주에는 계약 중인 선수에게 제안이 오지 않음
+  const openWeeks = Array.from({ length: WEEKS }, (_, i) => windowAt(i + 1)).filter(Boolean).length;
+  check(openWeeks === 17 && windowAt(47) === windowAt(6) && windowAt(26) && !windowAt(7) && !windowAt(27) && windowLeft(windowAt(6), 6) === 0
+    && windowLeft(windowAt(47), 47) === 11 && windowLeft(windowAt(26), 26) === 0 && nextWindow(7).wait === 15 && nextWindow(27).wait === 20, '이적 기간·마감일 계산');
+  const c0 = state.clients[0];
+  if (c0) {
+    const week0 = state.week;
+    const contracted = { ...c0, end: absWeek() + 200, hunt: 0 };
+    try {
+      state.week = 10;
+      const closed = EVENT_TYPES.offer.chance(contracted, getPlayer(c0.s));
+      const free = EVENT_TYPES.offer.chance({ ...contracted, end: absWeek() - 1 }, getPlayer(c0.s));
+      state.week = 25;
+      const open = EVENT_TYPES.offer.chance(contracted, getPlayer(c0.s));
+      state.week = 26;
+      const late = EVENT_TYPES.offer.chance(contracted, getPlayer(c0.s));
+      check(closed === 0 && free >= TUNE.offerFree && open > 0 && late > open, '닫힌 기간에는 무소속 선수만 제안, 마감 주에는 제안이 더 잦음');
+    } finally {
+      state.week = week0;
+    }
+  }
 }
 
 // 화면 그리기 실패: 위치를 처음으로 돌려 다시 그림 → 그래도 안 되면 지금 세이브를 백업하고 새 게임
