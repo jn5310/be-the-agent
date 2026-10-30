@@ -45,12 +45,20 @@ AI 코딩 도구가 이 리포를 이어서 작업할 때 읽는 문서입니다
 - 자동 저장, 파일 내보내기/불러오기, 새 게임(확인창)
 - 리그 탐색: 국가 → 부 → 구단 → 선수
 
+### 2단계 (완료)
+- 주급, 주간 정산(수수료 8% - 운영비), 상단 바에 AP 표시
+- 주 3 AP, 소속 한도 8명
+- 선수 상세 화면: 소속 선수는 계약 해지, 그 밖의 선수는 영입 제안(1 AP, 비용·성공 확률 표시)
+- 영입 실패 시 4주 동안 같은 선수에게 다시 제안 불가
+- 평판 변화(영입 성공, 시즌 말 몸값 변화, 자금 마이너스, 해지)
+- 자금 마이너스가 8주 이어지면 파산 → 새 게임
+- 시즌 말 능력 성장·하락 (잠재력이 의미를 가짐)
+- 1단계 세이브(v1)를 v2로 변환해서 이어 하기
+
 ### 다음 단계 후보
-- 주급과 주간 수수료·유지비로 자금 변동
-- 이적·재계약 협상, 영입 (기존 프로토타입 수식 재사용, 아래 6장)
-- 시즌 말 능력 성장·하락 (현재 능력은 고정이고 잠재력은 표시만 됨)
-- 경기·순위표·승강제, 이적시장 기간
-- 고교 시찰
+- 3단계: 재계약·이적 협상 (기존 프로토타입 수식 재사용, 아래 6장), 계약이 만료된 소속 선수 처리, 이적 제안
+- 4단계: 경기 결과·순위표·승강제, 이적시장 기간
+- 5단계: 고교 시찰, 법인 투자·개인 아이템, 에이전트 60세 은퇴
 
 ## 4. 코드 구조
 
@@ -65,11 +73,11 @@ AI 코딩 도구가 이 리포를 이어서 작업할 때 읽는 문서입니다
 | 1. 상수와 세계 데이터 | `COUNTRY_DATA`, `CLUB_SUFFIX`, `NAME_DATA`, `BLOCKED_NAMES`, `EXPORT_WEIGHTS` |
 | 2. 공용 도구 | `hash`, `rng`(mulberry32), `pick`, `randInt`, `clamp` |
 | 3. 세계 | `COUNTRIES`, `CLUBS`(고정 시드로 생성), `tierLevel`, `leagueName` |
-| 4. 선수 | `getPlayer(slot)`, `marketValue`, `nextForm`, `contractEnd`, `leaveChance` |
+| 4. 선수 | `coreStats`, `getPlayer(slot)`, `weeklyWage`, `growthStep`, `marketValue`, `nextForm`, `contractEnd`, `leaveChance` |
 | 5. 상태 | `newGame`, `newWorld`, `pickStartingClients`, `addLog` |
-| 6. 주간 진행 | `advanceWeek`, `endSeason` |
-| 7. 저장·불러오기 | `serialize`/`deserialize`(검증 포함), `saveState`, `loadState`, `exportSave`, `importSave` |
-| 8. 화면 | `render`, `renderClients`, `renderWorld`, `renderClub`, `renderLog`, `openSummary`, `bindEvents` |
+| 6. 주간 진행 | `advanceWeek`, `checkDebt`, `endSeason`, 영입·해지(`recruitChance`, `recruitCost`, `recruitBlock`, `recruit`, `release`) |
+| 7. 저장·불러오기 | `serialize`/`deserialize`(검증, v1 변환), `fillWages`, `saveState`, `loadState`, `exportSave`, `importSave` |
+| 8. 화면 | `render`, `renderClients`, `renderWorld`, `renderClub`, `renderPlayer`, `renderLog`, `openSummary`, `openGameOver`, `bindEvents` |
 | 9. 자가 검증 | `runSelfCheck`, `boot` |
 
 ## 5. 1단계 규칙과 수식
@@ -106,6 +114,33 @@ v = 25,000 × e^(0.165 × (능력 - 40))
 - 빠진 자리에는 같은 포지션의 새 선수(17~23세)가 들어옵니다(세대 +1).
 - 소속 선수는 33세 미만이면 빠지지 않습니다. 은퇴하면 소속 목록에서 빠지고 결산 창에 표시됩니다.
 
+### 시즌 말 성장·하락 (`growthStep`)
+- 능력 = 생성 능력 + `world.grow[슬롯]` (40~90). 잠재력은 바뀌지 않고, 성장은 잠재력을 넘지 않습니다.
+- 28세 이하: `(잠재력 - 능력) × 비율 × 폼 보정 × (0.6~1.4)` 만큼 오름. 비율은 20세 이하 0.3, 23세 이하 0.22, 그 위 0.12. 폼 보정은 시즌 평균 폼 1→0.7, 10→1.3.
+- 29~31세: 0 또는 -1. 32세 이상: -1~-2, 34세 이상 -1~-3.
+- 10시즌 시뮬레이션에서 세계 평균 능력은 57.96 → 58.25로 거의 그대로입니다.
+
+### 돈 (2단계)
+- 주급(`weeklyWage`): `210 × e^(0.16 × (능력 - 40))`. 능력 40 ≈ $210, 60 ≈ $5K, 80 ≈ $126K.
+- 소속 선수 주급은 계약할 때 정해져 `clients[].wage`에 저장되고, 협상 기능(3단계) 전까지 바뀌지 않습니다.
+- 주간 정산: 수입 = 소속 선수 주급 합 × 8%, 운영비 = $550 + 소속 선수 1명당 $50.
+- 시작 선수 5명은 주급 합이 $12K~16K가 되게 골라서, 아무것도 안 하면 주 +$170~470(시즌 약 +$20K)입니다.
+- 계약이 만료된 소속 선수도 3단계 전까지는 마지막 주급 기준으로 수수료가 들어옵니다.
+
+### 영입·해지
+- 영입 제안: 1 AP, 비용 `500 + 주급 1주치`(100 단위). 성공·실패와 관계없이 비용을 씁니다.
+- 성공 확률: `60 + 평판 - (능력 - 40) × 2`, 21세 이하 +10, 5~90%.
+- 막는 조건: 이미 소속, 한도 8명, AP 없음, 자금 마이너스, 자금 부족, 거절 후 4주 안(`cooldowns["슬롯-세대"]`).
+- 계약 해지: AP 없음, 확인창, 평판 -1.
+
+### 평판 (0~100)
+- 영입 성공: `+1 + floor((능력 - 40) / 15)`
+- 시즌 말: 남아 있는 소속 선수 몸값 합계 변화율 × 10 (반올림, -3~+3)
+- 자금이 마이너스인 주마다 -1, 계약 해지 -1
+
+### 파산
+- 정산 후 자금이 마이너스면 `debtWeeks + 1`, 0 이상이면 0으로 초기화. 8이 되면 `over = true`, 다음 주 버튼이 막히고 파산 창이 뜹니다.
+
 ## 6. 기존 프로토타입 수식 (다음 단계용)
 
 `prototype-v0` 태그에 있던 수식입니다. 협상·영입을 만들 때 그대로 쓰거나 다듬습니다.
@@ -123,23 +158,28 @@ v = 25,000 × e^(0.165 × (능력 - 40))
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "slots": 48048,
   "seed": 1239692193,
   "season": 1,
   "week": 1,
   "agencyCash": 25000,
   "rep": 12,
-  "clients": [{ "s": 34008, "g": 0, "end": 96 }],
+  "ap": 3,
+  "debtWeeks": 0,
+  "over": false,
+  "clients": [{ "s": 34008, "g": 0, "end": 96, "wage": 3200 }],
+  "cooldowns": { "33787-0": 5 },
   "logs": ["1시즌 1주 · ..."],
-  "summary": { "season": 1, "rows": [], "retired": 2228, "seen": true },
-  "ui": { "tab": "clients", "country": null, "tier": null, "club": null },
-  "world": { "form": "...", "delta": "...", "fsum": "...", "favg": "...", "gen": "...", "gseason": "..." }
+  "summary": { "season": 1, "rows": [], "retired": 2228, "repChange": 2, "seen": true },
+  "ui": { "tab": "clients", "country": null, "tier": null, "club": null, "player": null },
+  "world": { "form": "...", "delta": "...", "fsum": "...", "favg": "...", "gen": "...", "gseason": "...", "grow": "..." }
 }
 ```
 
-- `world`의 각 값은 슬롯 수만큼의 숫자를 36진수 고정폭 문자열로 이은 것입니다(`PACK` 참고). 전체 크기는 약 430KB입니다.
-- `version`이나 `slots`가 다르면 불러오지 않습니다. 국가·리그·팀 수를 바꾸면 `slots`가 바뀌므로 기존 세이브는 읽을 수 없게 됩니다. 이때는 `SAVE_VERSION`을 올리고 변환 코드를 추가하거나 새 게임으로 안내합니다.
+- `world`의 각 값은 슬롯 수만큼의 숫자를 36진수 고정폭 문자열로 이은 것입니다(`PACK` 참고). 전체 크기는 약 520KB입니다.
+- v1(1단계) 세이브는 읽을 때 v2로 바꿉니다: `grow`는 0, `ap`·`debtWeeks`·`cooldowns`는 기본값, 소속 선수 주급은 현재 능력으로 채움(`fillWages`).
+- `version`이 1·2가 아니거나 `slots`가 다르면 불러오지 않습니다. 국가·리그·팀 수를 바꾸면 `slots`가 바뀌므로 기존 세이브를 읽을 수 없게 됩니다. 이때는 `SAVE_VERSION`을 올리고 변환 코드를 추가하거나 새 게임으로 안내합니다.
 
 ## 8. 실행과 확인
 
