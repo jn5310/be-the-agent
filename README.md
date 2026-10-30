@@ -46,4 +46,4 @@
 
 모든 리그·구단·선수는 가상입니다. 실존 단체나 인물과 관계없습니다.
 
-글꼴은 [Pretendard](https://github.com/orioncactus/pretendard)(길형진, SIL Open Font License 1.1)의 공식 웹 글꼴 파일을 그대로 씁니다. 라이선스는 `fonts/LICENSE.txt`에 있습니다.
+화면은 밝은 회색 바탕에 흰 카드, 잔디색 상단 바입니다. 글꼴은 [Pretendard](https://github.com/orioncactus/pretendard)(길형진, SIL Open Font License 1.1)의 공식 웹 글꼴 파일을 그대로 씁니다. 라이선스는 `fonts/LICENSE.txt`에 있습니다.
