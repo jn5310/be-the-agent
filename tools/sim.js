@@ -55,7 +55,7 @@ function loadGame() {
       weeklyWage, commissionOf, clientIncome, clientLimit, recruit, recruitBlock, recruitChance, recruitCost, renew, renewBlock, renewTerms,
       meet, meetBlock, resolveEvent, offerFit, offerCut, counterChance, clientOf, absWeek,
       INVEST_KEYS, ITEMS, investSteps, investUpkeep, upkeepNow, weeklySpend, invest, downgrade, dividendRoom, afterTax, payDividend, inject, buyItem, netWorth,
-      potRange, scout, scoutBlock, toggleWatch, cooldownKey, foundBlock, foundAgency, windowAt, isFreeAgent };`);
+      potRange, scout, scoutBlock, toggleWatch, cooldownKey, foundBlock, foundAgency, windowAt, isFreeAgent, pitch, pitchBlock, CLUBS, clubLevel };`);
   return factory(...Object.values(stubs));
 }
 
@@ -212,6 +212,7 @@ function botWeek(G, bot, m) {
       m.offers += 1;
       m.consentSum += G.offerFit(G.getPlayer(ev.s), ev.d).consent;
       if (ev.d.late) m.lateOffers += 1;
+      if (ev.d.from === 'pitch') m.pitchOffers += 1;
       // 9단계 확인용: 이적 기간이 아닌데 계약 중인 선수에게 온 제안 (0이어야 함, 지난주에 온 제안이 남은 경우는 뺌)
       const c = G.clientOf(ev.s);
       if (c && !G.windowAt() && !G.isFreeAgent(c) && ev.until - G.TUNE.eventTtl === G.absWeek()) m.closedOffers += 1;
@@ -236,6 +237,17 @@ function botWeek(G, bot, m) {
       if (c.sat < 55 && !G.meetBlock(c)) {
         G.meet(c.s);
         acted = true;
+      }
+    }
+  }
+  // 10단계 추천: 성실·유망주·베테랑 봇은 남는 AP가 있으면, 맞는 보강 중 가장 수준 높은 구단에 내 선수를 추천 (하고 싶을 때 하는 일)
+  if (bot !== 'careless' && !workerData.noPitch) {
+    for (const c of [...st.clients]) {
+      if (st.ap < 1) break;
+      const best = st.needs.filter(n => !G.pitchBlock(c, n)).sort((a, b) => G.clubLevel(G.CLUBS[b.club]) - G.clubLevel(G.CLUBS[a.club]))[0];
+      if (best && (bot !== 'youth' || st.ap >= 2)) {
+        G.pitch(c.s, best.club);
+        m.pitches += 1;
       }
     }
   }
@@ -318,7 +330,7 @@ function playGame(G, bot, seasons) {
   const m = { weeks: 0, decisionWeeks: 0, news: 0, overload: 0, apUsed: 0, offers: 0, consentSum: 0, recruitTry: 0, firstTransfer: 0, bankrupt: 0,
     firstInvest: 0, investSpent: 0, upkeepPaid: 0, taxPaid: 0, itemSpent: 0, downgrades: 0, deficitWeeks: 0, buyWeek: {},
     scouts: 0, scoutWeeks: 0, busyWithScout: 0, youthTry: 0, youthPotSum: 0, youthMissSum: 0, foundWeek: 0, soloWeeks: 0, soloBusy: 0, apAvail: 0, tales: 0, juniors: 0, taleKinds: {},
-    lateOffers: 0, closedOffers: 0, asks: 0 };
+    lateOffers: 0, closedOffers: 0, asks: 0, pitches: 0, pitchOffers: 0, worldDeals: 0 };
   const signed0 = st.stats.signed;
   for (let w = 0; w < seasons * 52; w++) {
     const news = st.events.length;
@@ -345,6 +357,7 @@ function playGame(G, bot, seasons) {
     m.upkeepPaid += fixed;
     G.advanceWeek();
     m.weeks += 1;
+    m.worldDeals += st.news.filter(n => n.k === 'sign' && n.w === G.absWeek()).length;
     if (!m.firstTransfer && st.stats.transfers > transfers0) m.firstTransfer = m.weeks;
     if (st.over) {
       m.bankrupt = 1;
@@ -413,6 +426,9 @@ function playGame(G, bot, seasons) {
     lateShare: m.offers ? (m.lateOffers / m.offers) * 100 : null, // 9단계: 마감 주에 온 제안 비율
     closedOffers: m.closedOffers,
     asks: m.asks,
+    pitches: m.pitches,                                                     // 10단계: 게임당 추천 수
+    pitchOffers: m.pitchOffers,                                             // 추천한 구단에서 온 제안
+    worldDealsPerSeason: m.worldDeals / Math.max(1, m.weeks / 52),          // 세계 이적(뉴스) 시즌당
     cash: st.agencyCash,
     income: st.clients.reduce((n, c) => n + G.clientIncome(c), 0),
     clients: st.clients.length,
@@ -442,6 +458,7 @@ const tune = JSON.parse(arg('tune', '{}'));
 const bots = args.includes('--all') ? ['attentive', 'youth', 'veteran', 'careless', 'passive'] : [arg('bot', 'attentive')];
 const noMoney = args.includes('--no-money');           // 투자·배당·아이템을 하지 않는 봇과 비교
 const noScout = args.includes('--no-scout');           // 유망주 봇이 스카우트 없이 보이는 범위만 보고 영입
+const noPitch = args.includes('--no-pitch');           // 봇이 보강이 필요한 구단에 선수를 추천하지 않음 (추천의 값어치 비교)
 const order = arg('order', '') ? arg('order').split(',') : null; // 이 투자만, 이 순서로 (예: --order lawyer)
 const G0 = loadGame(); // 결과 표시용 (TUNE·아이템 목록)
 Object.assign(G0.TUNE, tune);
@@ -450,7 +467,7 @@ function runBot(bot) {
   const workers = Math.min(os.cpus().length, games);
   const per = Array.from({ length: workers }, (_, i) => Math.floor(games / workers) + (i < games % workers ? 1 : 0));
   return Promise.all(per.map(n => new Promise((resolve, reject) => {
-    const w = new Worker(__filename, { workerData: { games: n, bot, seasons, tune, noMoney, noScout, order } });
+    const w = new Worker(__filename, { workerData: { games: n, bot, seasons, tune, noMoney, noScout, noPitch, order } });
     w.on('message', resolve);
     w.on('error', reject);
   }))).then(parts => parts.flat());
@@ -500,6 +517,7 @@ const median = (rows, key) => {
     if (rows[0].scoutsPerSeason !== undefined) {
       console.log(`    스카우트: 시즌당 ${mean(rows, 'scoutsPerSeason').toFixed(1)}번, 스카우트까지 넣은 할 일 있는 주 ${mean(rows, 'busyWithScout').toFixed(1)}%, 영입하려 한 21세 이하 진짜 잠재력 평균 ${mean(rows, 'youthPot').toFixed(1)} (보이던 범위 가운데와 차이 ${mean(rows, 'youthMiss').toFixed(1)})`);
     }
+    if (bot !== 'passive') console.log(`    세계 뉴스: 세계 이적 시즌당 ${mean(rows, 'worldDealsPerSeason').toFixed(1)}건, 추천 게임당 ${mean(rows, 'pitches').toFixed(2)}번, 추천한 구단에서 온 제안 ${mean(rows, 'pitchOffers').toFixed(2)}건`);
     if (bot !== 'passive') console.log(`    이적 시장: 마감 주에 온 제안 ${mean(rows, 'lateShare').toFixed(1)}%, 닫힌 기간에 계약 중인 선수에게 온 제안 ${rows.reduce((n, r) => n + r.closedOffers, 0)}건(0이어야 함), 이적 요청 게임당 ${mean(rows, 'asks').toFixed(2)}건`);
     console.log(`    중앙값: 번 돈 $${Math.round(median(rows, 'earned')).toLocaleString()}, 법인 자금 $${Math.round(median(rows, 'cash')).toLocaleString()}, 개인 자산 $${Math.round(median(rows, 'netWorth')).toLocaleString()}, 주 수입 $${Math.round(median(rows, 'income')).toLocaleString()}`);
   }

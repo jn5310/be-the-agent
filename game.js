@@ -4,7 +4,7 @@
 // ===== 1. 상수와 세계 데이터 =====
 const SAVE_KEY = 'be-the-agent:save';
 const BACKUP_KEY = 'be-the-agent:save:backup'; // 읽지 못한 세이브를 지우지 않고 보관
-const SAVE_VERSION = 9;
+const SAVE_VERSION = 10;
 const WEEKS = 52;
 const SQUAD = 24;
 const WORLD_SEED = 20261030; // 구단 이름·전력은 모든 게임에서 같게 고정
@@ -392,6 +392,7 @@ function newGame() {
     version: SAVE_VERSION, seed, season: 1, week: 1,
     agencyCash: TUNE.soloCash, rep: START_REP, ap: TUNE.soloAp, debtWeeks: 0, over: false, founded: false,
     personalCash: 0, invest: newInvest(), items: [], scouted: {}, watch: [], alumni: [], intros: {},
+    news: [], needs: [], deals: newDeals(),
     clients: [], cooldowns: {}, logs: [], summary: null, moved: {}, events: [], nextEventId: 1,
     natCut: {}, stats: newCareerStats(),
     ui: { ...DEFAULT_UI },
@@ -401,8 +402,12 @@ function newGame() {
   state.clients = pickStartingClients();
   const who = state.clients.map(c => `${getPlayer(c.s).name}(${c.how})`).join(', ');
   addLog(`에이전트 자격을 따고 혼자 일을 시작했습니다. ${who}의 대리인이 됐습니다. 회사는 아직 없습니다.`);
+  // 1시즌 1주는 여름 이적 기간 중이라 구단들이 이미 보강을 찾고 있음
+  if (windowAt()) refreshNeeds(windowAt());
   saveState();
 }
+// 이번 이적 기간 결산: 이적 건수, 가장 비싼 이적(이름·이적료·데려간 구단)
+const newDeals = () => ({ n: 0, fee: 0, nm: '', to: -1 });
 
 // 시작 선수와의 인연: 혼자 시작하는 에이전트가 처음 맡는 두 사람은 아는 사이
 const START_TIES = ['고향 후배', '대학 은사의 제자', '동네 축구교실에서 가르친 아이', '친구의 동생', '단골 식당 사장님의 아들', '고등학교 축구부 후배'];
@@ -453,11 +458,11 @@ function pickStartingClients() {
 // 소속 선수 기록: 슬롯·세대·계약 만료·주급·만족·마지막 면담·재협상 가능 주·만료 알림 보낸 계약
 // st = 이번 구간 기록(시즌·구단별), hist = 지난 구간들, playRate = 최근 출전 비율, capped = 국가대표 경험
 // bond = 유대(0~100), since = 함께하기 시작한 절대 주차, how = 인연(만난 계기), memo = 유대가 바뀐 최근 일 [{ w, t, n }]
-// hunt = 이적 요청을 받아 새 구단을 알아보는 마감 절대 주차 (0 = 안 알아봄)
+// hunt = 이적 요청을 받아 새 구단을 알아보는 마감 절대 주차 (0 = 안 알아봄), pitch = 추천해 둔 구단 { club, until } (10단계)
 const newClient = (p, end, sat, bond, how) => ({
   s: p.s, g: p.g, end, wage: weeklyWage(p.ability), sat, met: 0, negUntil: 0, warned: 0,
   st: newStint(p.club, worldStats(p, state.season, state.week)), hist: [], playRate: 0.6, capped: false,
-  bond, since: absWeek(), how, memo: [], tales: [], hunt: 0
+  bond, since: absWeek(), how, memo: [], tales: [], hunt: 0, pitch: null
 });
 // 에이전시 커리어 통계 (기록 탭·시뮬레이션용)
 const newCareerStats = () => ({ lost: 0, transfers: 0, dream: 0, callups: 0, renewTry: 0, renewWin: 0, signed: 0 });
@@ -496,12 +501,19 @@ function advanceWeek() {
   for (const key of Object.keys(state.cooldowns)) if (state.cooldowns[key] <= now) delete state.cooldowns[key];
   for (const key of Object.keys(state.intros)) if (state.intros[key] <= now) delete state.intros[key];
   const week = weeklyClients();
+  const open = windowAt();
+  if (open && state.week === open.from) refreshNeeds(open);
+  if (open) worldSignings(open);
 
   addLog(week.lines.length ? `경기: ${week.lines.join(', ')}` : '이번 주 소속 선수 경기 없음');
   addLog(`정산 ${signedCash(income - upkeep - fixed)} (수수료 ${cash(income)}, 운영비 ${cash(upkeep)}${fixed ? `, 투자 유지비 ${cash(fixed)}` : ''})`);
   // 이적 시장 소식은 정산 다음에 남겨서 내 선수 탭 맨 위에 보이게
   const win = windowAt();
-  if (closing) addLog(`${closing.name}이 끝났습니다. 다음은 ${nextWindow().win.name}(${nextWindow().win.from}주부터)입니다. 그때까지는 무소속 선수 제안만 옵니다.`);
+  if (closing) {
+    addLog(`${closing.name}이 끝났습니다. 다음은 ${nextWindow().win.name}(${nextWindow().win.from}주부터)입니다. 그때까지는 무소속 선수 제안만 옵니다.`);
+    pushNews({ k: 'close', win: WINDOWS.indexOf(closing), n: state.deals.n, fee: state.deals.fee, nm: state.deals.nm, to: state.deals.to });
+    state.needs = [];
+  }
   if (win && state.week === win.from) addLog(`${win.name}이 열렸습니다. 마감은 ${weekLabel(windowEnd(win))}이고, 마감 주에는 막판 제안이 몰립니다.`);
   if (isDeadline()) addLog(`이적 마감일입니다. 이번 주가 지나면 ${win.name}이 닫힙니다. 막판 제안은 이번 주 안에 답해야 합니다.`);
   checkDebt();
@@ -700,7 +712,7 @@ const TUNE = {
   offerBase: 0.018, offerStar: 0.025, offerForm: 0.015, offerFree: 0.1, offerYouth: 0.02, offerFirst: 0.25, dreamChance: 0.02, dreamReach: 4, offerRespect: 0.5,
   consentBase: 50, consentStep: 12,
   // poachStar: 몸값 $300만 이상 스타를 노리는 다른 에이전시. 7단계에서 유대가 시험받는 순간을 늘리려고 0.002 → 0.004
-  playtimeChance: 0.09, raiseChance: 0.08, poachBase: 0.0015, poachStar: 0.004, poachLow: 0.04, sponsorChance: 0.05, snsChance: 0.008,
+  playtimeChance: 0.09, raiseChance: 0.08, poachBase: 0.0018, poachStar: 0.004, poachLow: 0.04, sponsorChance: 0.05, snsChance: 0.008,
   injuryChance: 0.008, interviewChance: 0.015, familyChance: 0.008, tipChance: 0.06,
   // 5단계 법인 투자: 단계별 [도입비, 주간 유지비]와 단계별 효과 (효과 배열의 0번 = 투자 안 함)
   lawyerLv: [[20000, 200], [150000, 800], [800000, 3500]], lawyerWage: [0, 0.05, 0.1, 0.15], lawyerCounter: [0, 5, 10, 15],
@@ -726,7 +738,12 @@ const TUNE = {
   // 9단계 이적 시장: 계약 중인 선수의 이적 제안은 이적 기간에만, 기간 안에는 windowBoost배, 마감 주는 deadlineBoost배 더(막판 제안)
   // 이적 요청: 지금 구단 조건 점수가 askFit 이하인 선수가 이적 기간에 askChance 확률로 새 구단을 찾아 달라고 함.
   // 알아봐 주면 마감까지 그 선수 제안이 huntBoost배, 마감까지 못 찾으면 만족 -huntMiss
-  windowBoost: 2.8, deadlineBoost: 2, askFit: -2, askChance: 0.04, huntBoost: 1.8, huntMiss: 3
+  windowBoost: 2.6, deadlineBoost: 2, askFit: -2, askChance: 0.04, huntBoost: 1.8, huntMiss: 3,
+  // 10단계 세계 뉴스: 이적 기간이 열리면 구단 needSample곳을 살펴, 주전 평균이 구단 수준보다 needGap 이상 낮은 포지션을 "보강 필요"로 (최대 needMax곳,
+  // 그중 needNews곳은 뉴스로). 이적 기간 매주 signWeek건(마감 주는 deadlineBoost배) 세계 이적이 실제로 일어남.
+  // 내 선수 제안이 보강이 필요한 구단에서 올 확률 needOffer, 추천(1 AP)하면 마감까지 그 선수 제안 pitchBoost배·그 구단에서 올 확률 pitchClub
+  // pitchBoost 1.5면 시즌당 이적 2.25건(목표 2건 이하)이라 1.2. 이적이 늘어 선수를 덜 잃어서 windowBoost 2.8 → 2.6, poachBase 0.0015 → 0.0018
+  needSample: 400, needGap: 2, needMax: 40, needNews: 6, signWeek: 3, needOffer: 0.5, pitchBoost: 1.2, pitchClub: 0.7, newsMax: 60
 };
 // 평판 오르는 양은 평판이 높을수록 줄어듦 (30시즌 커리어 동안 천천히 오르게). 소수점은 확률로 반올림
 function gainRep(n) {
@@ -1115,12 +1132,18 @@ function makeOffer(c, p) {
   const r = Math.random;
   const pref = prefsOf(p);
   const dream = CLUBS[pref.dream];
+  const lo = Math.max(clubLevel(p.club), p.ability - 8);
+  const hi = p.ability + 3;
+  // 10단계: 내가 추천해 둔 구단, 그 포지션 보강이 필요한 구단(수준이 맞을 때)이 먼저 제안함
+  const pitched = pitching(c) ? CLUBS[c.pitch.club] : null;
+  const needy = state.needs.map(n => CLUBS[n.club]).filter((x, i) => state.needs[i].pos === p.pos && x !== p.club && clubLevel(x) >= lo && clubLevel(x) <= hi);
   let club = null;
-  if (dream !== p.club && clubLevel(dream) <= p.ability + TUNE.dreamReach && r() < TUNE.dreamChance) club = dream;
+  let from = '';
+  if (pitched && pitched !== p.club && r() < TUNE.pitchClub) [club, from] = [pitched, 'pitch'];
+  else if (dream !== p.club && clubLevel(dream) <= p.ability + TUNE.dreamReach && r() < TUNE.dreamChance) club = dream;
+  else if (needy.length && r() < TUNE.needOffer) [club, from] = [needy[Math.floor(r() * needy.length)], 'need'];
   else {
     // 구단도 선수 성향을 알기 때문에 대부분(TUNE.offerRespect) 해외·국내 뜻에 맞는 곳에서 제안함
-    const lo = Math.max(clubLevel(p.club), p.ability - 8);
-    const hi = p.ability + 3;
     const respect = pref.abroad !== 'any' && r() < TUNE.offerRespect;
     const pool = CLUBS.filter(x => x !== p.club && clubLevel(x) >= lo && clubLevel(x) <= hi
       && (!respect || (pref.abroad === 'no' ? x.country === p.nat : x.country !== p.nat)));
@@ -1130,8 +1153,8 @@ function makeOffer(c, p) {
   const base = Math.max(c.wage, weeklyWage(Math.max(marketAbility(p), Math.round(clubLevel(club)))));
   const wage = Math.round((base * (1.1 + r() * 0.3)) / 50) * 50;
   const fee = isFreeAgent(c) ? 0 : Math.round((valueOf(p) * (0.8 + r() * 0.5)) / 5000) * 5000;
-  // late = 이적 마감일에 온 막판 제안 (그 주 안에 답해야 함)
-  return { club: club.id, wage, fee, years: 2 + Math.floor(r() * 3), late: isDeadline() };
+  // late = 이적 마감일에 온 막판 제안 (그 주 안에 답해야 함), from = 'pitch'(내가 추천한 구단)·'need'(보강이 필요한 구단)
+  return { club: club.id, wage, fee, years: 2 + Math.floor(r() * 3), late: isDeadline(), from };
 }
 
 // 여러 문장 중 하나를 고름: 같은 선수·같은 일에는 늘 같은 문장 (새로고침해도 바뀌지 않게)
@@ -1178,6 +1201,10 @@ function transfer(c, d) {
   c.wage = d.wage;
   c.end = absWeek() + WEEKS * (d.years || 3);
   c.hunt = 0; // 새 구단을 찾았으니 알아보기 끝
+  c.pitch = null;
+  state.needs = state.needs.filter(n => !(n.club === to.id && n.pos === p.pos));
+  if (windowAt()) countDeal(p.name, d.fee, to.id);
+  pushNews({ k: 'mine', s: c.s, g: c.g, nm: p.name, from: from.id, to: to.id, pos: p.pos, fee: d.fee, age: ageOf(p), ab: p.ability });
   addSat(c, clamp(5 + fit.score * 2, -10, 20));
   addBond(c, fit.score >= 1 ? 5 : 2, fit.score >= 1 ? `원하던 ${to.name} 이적을 성사시킴` : `${to.name} 이적을 성사시킴`);
   state.agencyCash += gain;
@@ -1231,12 +1258,12 @@ const EVENT_TYPES = {
       if (!win) return free;
       const base = TUNE.offerBase + (p.ability >= clubLevel(p.club) + 3 ? TUNE.offerStar : 0) + (state.world.form[c.s] >= 8 ? TUNE.offerForm : 0)
         + (ageOf(p) <= 21 && p.pot - p.ability >= 10 ? TUNE.offerYouth : 0);
-      const boost = TUNE.windowBoost * (windowLeft(win) === 0 ? TUNE.deadlineBoost : 1) * (c.hunt >= absWeek() ? TUNE.huntBoost : 1);
+      const boost = TUNE.windowBoost * (windowLeft(win) === 0 ? TUNE.deadlineBoost : 1) * (c.hunt >= absWeek() ? TUNE.huntBoost : 1) * (pitching(c) ? TUNE.pitchBoost : 1);
       const first = !state.stats.transfers && state.season === 1 && state.week >= 22 ? TUNE.offerFirst : 0;
       return base * boost + first + free;
     },
     make: makeOffer,
-    text: (p, d) => `${CLUBS[d.club].id === prefsOf(p).dream ? '꿈의 구단 ' : ''}${CLUBS[d.club].name}(${leagueName(CLUBS[d.club].country, CLUBS[d.club].t)})에서 ${p.name} 선수 영입을 제안했습니다. 주급 ${cash(d.wage)}, ${d.years || 3}시즌, ${d.fee ? `이적료 ${money(d.fee)}` : '자유 이적'}. 성사되면 내 수수료 ${cash(offerCut(d))}.`,
+    text: (p, d) => `${d.from === 'pitch' ? '추천해 둔 ' : d.from === 'need' ? `${POS_NAME[p.pos]} 보강이 필요한 ` : ''}${CLUBS[d.club].id === prefsOf(p).dream ? '꿈의 구단 ' : ''}${CLUBS[d.club].name}(${leagueName(CLUBS[d.club].country, CLUBS[d.club].t)})에서 ${p.name} 선수 영입을 제안했습니다. 주급 ${cash(d.wage)}, ${d.years || 3}시즌, ${d.fee ? `이적료 ${money(d.fee)}` : '자유 이적'}. 성사되면 내 수수료 ${cash(offerCut(d))}.`,
     // 마감일 막판 제안에는 선수의 말이 붙음 (제안마다 정해진 한 줄)
     quote: (p, d) => (d.late ? pickLine(LATE_LINES, p.s, d.club) : ''),
     fit: (p, d) => offerFit(p, d),
@@ -1529,7 +1556,10 @@ function playClientWeek(c, p, week) {
     c.capped = true;
     run('N', 2, natCutOf(p) + 2, true);
     addSat(c, first ? 6 : 3);
-    if (first) addBond(c, 5, '첫 국가대표 발탁을 함께 기뻐함');
+    if (first) {
+      addBond(c, 5, '첫 국가대표 발탁을 함께 기뻐함');
+      pushNews({ k: 'call', s: c.s, g: c.g, nm: p.name, nat: p.nat.id });
+    }
     const got = first ? gainRep(2) : 0;
     state.stats.callups += 1;
     call = first ? ` · 첫 국가대표 발탁! (평판 +${got})` : ' · 국가대표 소집';
@@ -1828,6 +1858,142 @@ function findProspects(maxAge, pos) {
   return out.slice(0, TUNE.findMax).map(x => x.s);
 }
 
+// ===== 6-5. 세계 뉴스 (10단계, 축구 감독 게임의 뉴스·구단 보강 정보에서 가져옴) =====
+// 이적 기간이 열리면 주전이 약한 포지션이 있는 구단을 찾아 "보강 필요"로 알리고, 기간 동안 그 구단들이 실제로 선수를 데려옴.
+// 뉴스는 글이 아니라 데이터로 저장하고(state.news) 화면에서 문장으로 만듦. 이름은 그때의 이름을 같이 저장(은퇴하면 슬롯 주인이 바뀌므로)
+const POS_NAME = { GK: '골키퍼', DF: '수비수', MF: '미드필더', FW: '공격수' };
+const STARTERS = { GK: 1, DF: 4, MF: 4, FW: 2 }; // 포지션별 주전 수
+// 조사: 끝 글자의 받침으로 고름. 숫자로 끝나면 읽는 소리로(1904 → "사", 56 → "육", 60 → "십"), 모르는 글자면 "이(가)"처럼 둘 다
+// 받침 번호: 0 = 없음, 8 = ㄹ, 그 밖 = 다른 받침, -1 = 모름
+const DIGIT_JONG = [21, 8, 0, 16, 0, 0, 1, 8, 8, 0]; // 영 일 이 삼 사 오 육 칠 팔 구
+const ZERO_JONG = [17, 1, 4, 4]; // 끝이 0이면 자리 이름: 십(ㅂ) 백(ㄱ) 천(ㄴ) 만(ㄴ)
+function lastJong(word) {
+  const ch = word.charCodeAt(word.length - 1);
+  if (ch >= 0xac00 && ch <= 0xd7a3) return (ch - 0xac00) % 28;
+  const digits = word.match(/\d+$/);
+  if (!digits) return -1;
+  const zeros = digits[0].length - digits[0].replace(/0+$/, '').length;
+  if (!zeros) return DIGIT_JONG[ch - 48];
+  return zeros === digits[0].length ? 21 : ZERO_JONG[Math.min(zeros, 4) - 1];
+}
+function josa(word, a, b) {
+  const j = lastJong(word);
+  if (a === '으로') return j < 0 ? '(으)로' : j === 0 || j === 8 ? '로' : '으로';
+  return j < 0 ? `${a}(${b})` : j ? a : b;
+}
+const named = (word, a, b) => word + josa(word, a, b); // "런던 크라운이", "뮌헨 1904가", "포르투로"
+
+// 구단 포지션별 주전 평균 능력과 구단 수준의 차이 (클수록 약함). 주전 수보다 선수가 적으면 빈자리는 능력 40으로 침
+function clubGaps(club) {
+  const by = { GK: [], DF: [], MF: [], FW: [] };
+  for (const s of clubSlots(club)) {
+    const p = getPlayer(s);
+    by[p.pos].push(p.ability);
+  }
+  return Object.entries(STARTERS).map(([pos, n]) => {
+    const top = by[pos].sort((a, b) => b - a);
+    const avg = Array.from({ length: n }, (_, i) => top[i] ?? 40).reduce((a, b) => a + b, 0) / n;
+    return { pos, avg: Math.round(avg), gap: Math.round(clubLevel(club) - avg) };
+  });
+}
+
+function pushNews(item) {
+  state.news.unshift({ w: absWeek(), ...item });
+  if (state.news.length > TUNE.newsMax) state.news.length = TUNE.newsMax;
+}
+
+// 이적 기간이 열릴 때: 구단을 골라(1부 우선) 약한 포지션을 찾고, 큰 구단부터 뉴스로
+function refreshNeeds(win) {
+  const until = windowEnd(win);
+  const picked = new Set();
+  for (let i = 0; i < TUNE.needSample * 3 && picked.size < TUNE.needSample; i++) {
+    const club = CLUBS[Math.floor(Math.random() * CLUBS.length)];
+    if (club.t === 0 || Math.random() < 0.45) picked.add(club);
+  }
+  const found = [];
+  for (const club of picked) {
+    const worst = clubGaps(club).sort((a, b) => b.gap - a.gap)[0];
+    if (worst.gap >= TUNE.needGap) found.push({ club: club.id, pos: worst.pos, gap: worst.gap, avg: worst.avg, until });
+  }
+  found.sort((a, b) => CLUBS[a.club].t - CLUBS[b.club].t || b.gap - a.gap);
+  state.needs = found.slice(0, TUNE.needMax);
+  state.deals = { n: 0, fee: 0, nm: '', to: -1 };
+  // 뉴스: 큰 구단 needNews곳 + 내 선수가 맞는 구단
+  state.needs.forEach((need, i) => {
+    if (i < TUNE.needNews || state.clients.some(c => !pitchFit(c, need))) pushNews({ k: 'need', club: need.club, pos: need.pos, gap: need.gap, avg: need.avg });
+  });
+}
+
+// 보강이 필요한 구단이 데려갈 만한 선수인지: 구단 수준 -1 ~ +5, 같거나 약한 구단 소속(조금 위까지), 32세 이하
+const fitsNeed = (p, club) => p.ability >= clubLevel(club) - 1 && p.ability <= clubLevel(club) + 5 && clubLevel(p.club) <= clubLevel(club) + 2 && ageOf(p) <= 32;
+
+// 이적 기간 매주: 보강이 필요한 구단이 다른 구단 선수를 실제로 데려옴 (내 선수는 빼고, 내 선수 이적은 제안으로만)
+function worldSignings(win) {
+  const n = Math.round(TUNE.signWeek * (windowLeft(win) === 0 ? TUNE.deadlineBoost : 1));
+  for (let i = 0; i < n && state.needs.length; i++) {
+    const need = state.needs[Math.floor(Math.random() * state.needs.length)];
+    const club = CLUBS[need.club];
+    let best = null;
+    for (let tries = 0; tries < 150; tries++) {
+      const p = getPlayer(Math.floor(Math.random() * SLOTS));
+      if (p.pos !== need.pos || p.club === club || clientOf(p.s) || !fitsNeed(p, club)) continue;
+      // 구단 수준 +2 근처의 젊은 선수를 좋아함
+      const score = -Math.abs(p.ability - clubLevel(club) - 2) - Math.max(0, ageOf(p) - 27) * 0.5;
+      if (!best || score > best.score) best = { p, score };
+    }
+    if (!best) continue;
+    const p = best.p;
+    const from = p.club;
+    const fee = Math.round((valueOf(p) * (0.9 + Math.random() * 0.5)) / 50000) * 50000;
+    if (club.id === Math.floor(p.s / SQUAD)) delete state.moved[p.s];
+    else state.moved[p.s] = club.id;
+    state.needs = state.needs.filter(x => x !== need);
+    countDeal(p.name, fee, club.id);
+    pushNews({ k: 'sign', s: p.s, g: p.g, nm: p.name, from: from.id, to: club.id, pos: p.pos, fee, age: ageOf(p), ab: p.ability, late: isDeadline() });
+  }
+}
+
+// 이번 이적 기간 결산용: 이적 건수와 가장 비싼 이적
+function countDeal(name, fee, to) {
+  state.deals.n += 1;
+  if (fee > state.deals.fee) Object.assign(state.deals, { fee, nm: name, to });
+}
+
+// 내 선수 추천: 보강이 필요한 구단에, 그 포지션의 내 선수를 1 AP로 추천. 마감까지 그 선수 제안이 잦아지고 그 구단에서 올 가능성이 높음
+// pitchFit = 이 선수가 이 구단에 맞는지 (빈 문자열이면 맞음), pitchBlock = 지금 추천할 수 있는지 (AP·이미 추천함까지)
+function pitchFit(c, need) {
+  const p = getPlayer(c.s);
+  const club = CLUBS[need.club];
+  if (p.pos !== need.pos) return '포지션이 맞지 않습니다';
+  if (p.club === club) return '이미 이 구단 선수입니다';
+  if (clubLevel(club) > p.ability + TUNE.dreamReach) return '이 구단에는 아직 능력이 모자랍니다';
+  if (clubLevel(club) < p.ability - 8 || (!isFreeAgent(c) && clubLevel(club) < clubLevel(p.club) - 2)) return '지금보다 낮은 수준의 구단입니다';
+  return '';
+}
+const pitching = c => Boolean(c.pitch && c.pitch.until >= absWeek());
+function pitchBlock(c, need) {
+  const fit = pitchFit(c, need);
+  if (fit) return fit;
+  if (need.until < absWeek()) return '이적 기간이 끝났습니다';
+  if (pitching(c)) return c.pitch.club === need.club ? '이미 이 구단에 추천했습니다' : `이미 ${CLUBS[c.pitch.club].name}에 추천했습니다`;
+  if (state.ap < 1) return '이번 주 행동력(AP)을 다 썼습니다';
+  return '';
+}
+
+function pitch(s, clubId) {
+  const c = clientOf(s);
+  const need = state.needs.find(n => n.club === clubId);
+  if (!c || !need) return toast('이 구단은 더 이상 보강을 찾지 않습니다');
+  const block = pitchBlock(c, need);
+  if (block) return toast(block);
+  state.ap -= 1;
+  c.pitch = { club: clubId, until: need.until };
+  const p = getPlayer(s);
+  addLog(`${CLUBS[clubId].name}에 ${named(p.name, '을', '를')} 추천했습니다. 마감까지 이 구단에서 제안이 올 가능성이 높아집니다.`);
+  toast(`${p.name} 선수를 추천했습니다`);
+  saveState();
+}
+
 // ===== 7. 저장·불러오기 =====
 // 세계 배열은 36진수 고정폭 문자열로 압축 저장 [키, 폭, 형식, 보정값]
 const PACK = [['form', 1, Uint8Array, 0], ['delta', 1, Int8Array, 1], ['fsum', 2, Uint16Array, 0],
@@ -1859,7 +2025,7 @@ function serialize() {
 function deserialize(text) {
   const d = JSON.parse(text);
   const int = v => Number.isInteger(v);
-  if (!d || ![1, 2, 3, 4, 5, 6, 7, 8, SAVE_VERSION].includes(d.version)) throw new Error('지원하지 않는 버전입니다');
+  if (!d || ![1, 2, 3, 4, 5, 6, 7, 8, 9, SAVE_VERSION].includes(d.version)) throw new Error('지원하지 않는 버전입니다');
   if (d.slots !== SLOTS) throw new Error('세계 구성이 다른 세이브입니다');
   if (!int(d.seed) || !int(d.season) || d.season < 1 || !int(d.week) || d.week < 1 || d.week > WEEKS) throw new Error('날짜 정보가 올바르지 않습니다');
   if (!Number.isFinite(d.agencyCash) || !Number.isFinite(d.rep) || !Array.isArray(d.logs)) throw new Error('기본 정보가 올바르지 않습니다');
@@ -1914,6 +2080,22 @@ function deserialize(text) {
     .slice(0, TUNE.alumniMax).map(a => ({ name: a.name.slice(0, 20), nat: a.nat, season: a.season }));
   const intros = {};
   if (d.intros && typeof d.intros === 'object') for (const [key, until] of Object.entries(d.intros).slice(-100)) if (keyOk(key) && int(until)) intros[key] = until;
+  // 10단계 세계 뉴스: 아는 종류만, 구단·슬롯 번호가 맞는 것만. 보강 필요는 v9까지 없음(null = 불러온 뒤 다시 계산)
+  const clubOk = v => int(v) && v >= 0 && v < CLUBS.length;
+  const NEWS_KINDS = { need: n => clubOk(n.club) && STARTERS[n.pos], sign: n => clubOk(n.from) && clubOk(n.to) && int(n.s), mine: n => clubOk(n.from) && clubOk(n.to) && int(n.s),
+    close: n => int(n.win) && WINDOWS[n.win], call: n => int(n.s) && COUNTRY_BY_ID[n.nat] };
+  const NEWS_NUMS = ['w', 'club', 'gap', 'avg', 's', 'g', 'from', 'to', 'fee', 'age', 'ab', 'win', 'n'];
+  const news = (Array.isArray(d.news) ? d.news : []).filter(n => n && int(n.w) && NEWS_KINDS[n.k] && NEWS_KINDS[n.k](n)).slice(0, TUNE.newsMax).map(n => {
+    const out = { k: n.k, nm: typeof n.nm === 'string' ? n.nm.slice(0, 30) : '' };
+    for (const key of NEWS_NUMS) if (Number.isFinite(n[key])) out[key] = n[key];
+    if (STARTERS[n.pos]) out.pos = n.pos;
+    if (COUNTRY_BY_ID[n.nat]) out.nat = n.nat;
+    if (n.late === true) out.late = true;
+    return out;
+  });
+  const needs = Array.isArray(d.needs) ? d.needs.filter(n => n && clubOk(n.club) && STARTERS[n.pos] && int(n.until)).slice(0, TUNE.needMax)
+    .map(n => ({ club: n.club, pos: n.pos, gap: int(n.gap) ? n.gap : 0, avg: int(n.avg) ? n.avg : 0, until: n.until })) : null;
+  const deals = d.deals && int(d.deals.n) ? { n: d.deals.n, fee: Number.isFinite(d.deals.fee) ? d.deals.fee : 0, nm: typeof d.deals.nm === 'string' ? d.deals.nm.slice(0, 30) : '', to: clubOk(d.deals.to) ? d.deals.to : -1 } : newDeals();
   // 알려진 필드만 옮김 (모르는 값이 상태에 섞이지 않게)
   return {
     version: SAVE_VERSION, seed: d.seed, season: d.season, week: d.week,
@@ -1921,7 +2103,7 @@ function deserialize(text) {
     ap: int(d.ap) ? clamp(d.ap, 0, d.founded === false ? TUNE.soloAp : TUNE.ap) : d.founded === false ? TUNE.soloAp : TUNE.ap,
     debtWeeks: int(d.debtWeeks) ? clamp(d.debtWeeks, 0, DEBT_LIMIT) : 0,
     over: d.over === true, founded: d.founded !== false,
-    personalCash: Number.isFinite(d.personalCash) ? Math.max(0, d.personalCash) : 0, invest, items, scouted, watch, alumni, intros,
+    personalCash: Number.isFinite(d.personalCash) ? Math.max(0, d.personalCash) : 0, invest, items, scouted, watch, alumni, intros, news, needs, deals,
     clients: d.clients.map(c => ({
       s: c.s, g: c.g, end: c.end, wage: Number.isFinite(c.wage) ? c.wage : null,
       sat: Number.isFinite(c.sat) ? clamp(Math.round(c.sat), 0, 100) : TUNE.satStart, met: intOr(c.met, 0), negUntil: intOr(c.negUntil, 0), warned: intOr(c.warned, 0),
@@ -1935,7 +2117,9 @@ function deserialize(text) {
       tales: (Array.isArray(c.tales) ? c.tales : []).filter((t, i, arr) => t && TALE_KEYS.includes(t.k) && int(t.w) && arr.findIndex(x => x && x.k === t.k) === i)
         .map(t => ({ k: t.k, w: t.w, t: typeof t.t === 'string' ? t.t.slice(0, 60) : '' })),
       // 9단계: 이적 요청을 받아 새 구단을 알아보는 마감 주 (v8까지는 없음 = 0)
-      hunt: int(c.hunt) && c.hunt > 0 ? c.hunt : 0
+      hunt: int(c.hunt) && c.hunt > 0 ? c.hunt : 0,
+      // 10단계: 추천해 둔 구단 (v9까지는 없음)
+      pitch: c.pitch && int(c.pitch.club) && c.pitch.club >= 0 && c.pitch.club < CLUBS.length && int(c.pitch.until) ? { club: c.pitch.club, until: c.pitch.until } : null
     })),
     cooldowns, logs: d.logs.map(String).slice(0, 80), summary, moved, events, nextEventId,
     natCut: Object.keys(natCut).length ? natCut : null, stats, ui: cleanUi(d.ui), world
@@ -1946,7 +2130,7 @@ function deserialize(text) {
 function cleanUi(raw) {
   const u = raw && typeof raw === 'object' ? raw : {};
   const index = (v, n) => (Number.isInteger(v) && v >= 0 && v < n ? v : null);
-  const tab = ['clients', 'world', 'agency', 'log'].includes(u.tab) ? u.tab : 'clients';
+  const tab = ['clients', 'world', 'agency', 'log', 'news'].includes(u.tab) ? u.tab : 'clients';
   const country = index(u.country, COUNTRIES.length);
   const tier = country === null ? null : index(u.tier, COUNTRIES[country].tiers.length);
   const club = tier === null ? null : COUNTRIES[country].clubs[tier].some(c => c.id === u.club) ? u.club : null;
@@ -1973,6 +2157,11 @@ function readBackup() {
 // 예전 세이브에 없던 값 채우기: 주급(v1), 국가대표 기준·이번 시즌 기록(v1~v3), 함께하기 시작한 주(v1~v6: 가장 오래된 기록 시즌의 첫 주)
 function fillWages() {
   if (!state.natCut) state.natCut = computeNatCut();
+  // v9까지 세이브: 이적 기간 중이면 보강이 필요한 구단을 지금 찾음
+  if (state.needs === null) {
+    state.needs = [];
+    if (windowAt()) refreshNeeds(windowAt());
+  }
   for (const c of state.clients) {
     const p = getPlayer(c.s);
     if (c.wage === null) c.wage = weeklyWage(p.ability);
@@ -2329,9 +2518,124 @@ function marketLine() {
   return el('p', 'market open', `${win.name} · 마감 ${weekLabel(windowEnd(win))}까지 ${left}주`);
 }
 
+// --- 세계 뉴스 화면 (10단계): 저장된 뉴스 데이터로 문장을 만듦. 같은 종류도 뉴스마다 정해진 여러 문장 중 하나 ---
+const NEWS_TAG = { need: '보강 필요', sign: '영입', mine: '내 선수 이적', close: '이적 시장 결산', call: '국가대표' };
+// 뉴스 속 선수 이름: 지금도 같은 선수면 지금 이름, 은퇴해 슬롯 주인이 바뀌었으면 저장해 둔 이름
+const newsName = n => (state.world.gen[n.s] === n.g ? getPlayer(n.s).name : n.nm);
+const clubLabel = id => `${CLUBS[id].name}(${leagueName(CLUBS[id].country, CLUBS[id].t)})`;
+const clubFull = id => `${leagueName(CLUBS[id].country, CLUBS[id].t)} ${CLUBS[id].name}`; // "잉글랜드 1부 런던 크라운" (조사는 구단 이름에 붙음)
+
+// 문장 틀: 구단 이름(to·from·club)은 리그를 앞에 붙인 이름, 조사는 josa로. 같은 뉴스는 늘 같은 문장(pickLine)
+const NEWS_LINES = {
+  need: [
+    (club, pos, n) => `${named(club, '이', '가')} ${pos} 보강에 나섰습니다. 주전 ${pos} 평균 능력이 ${named(String(n.avg), '으로')}, 구단 수준보다 ${n.gap} 낮습니다.`,
+    (club, pos, n) => `${club} 감독이 "${pos} 자리가 가장 고민"이라고 털어놓았습니다. 지금 주전 평균 능력은 ${n.avg}입니다.`,
+    (club, pos, n) => `${named(club, '이', '가')} 이번 이적 기간에 ${named(pos, '을', '를')} 찾고 있다는 소식입니다. 주전 평균 능력 ${named(String(n.avg), '으로')}는 모자라다는 판단입니다.`,
+    (club, pos) => `${club} 스카우트들이 ${pos} 후보를 찾아 여러 경기장을 돌고 있습니다. 구단은 이번 기간 안에 데려오고 싶어 합니다.`,
+    (club, pos, n) => `"${pos} 한 명이면 순위가 달라진다." ${club} 주장이 공개적으로 보강을 요청했습니다 (주전 평균 능력 ${n.avg}).`
+  ],
+  sign: [
+    (to, from, name, n) => `${named(to, '이', '가')} ${from}의 ${POS_NAME[n.pos]} ${name}(${n.age}세, 능력 ${n.ab})${josa(name, '을', '를')} 이적료 ${money(n.fee)}에 영입했습니다.`,
+    (to, from, name, n) => `${name}(${n.age}세 ${POS_NAME[n.pos]})${josa(name, '이', '가')} ${named(from, '을', '를')} 떠나 ${to} 유니폼을 입습니다. 이적료는 ${money(n.fee)}입니다.`,
+    (to, from, name, n) => `${named(to, '이', '가')} ${POS_NAME[n.pos]} 보강을 마쳤습니다. ${from}에서 능력 ${n.ab}의 ${named(name, '을', '를')} 데려왔습니다 (${money(n.fee)}).`,
+    (to, from, name, n) => `${to} 팬들이 반길 소식입니다. ${from}의 ${named(name, '이', '가')} 합류했습니다. 구단이 쓴 이적료는 ${money(n.fee)}입니다.`,
+    (to, from, name, n) => `${n.late ? '마감일 막판에 ' : ''}${named(to, '이', '가')} 움직였습니다. ${from}의 ${POS_NAME[n.pos]} ${named(name, '을', '를')} ${money(n.fee)}에 데려갑니다.`
+  ],
+  mine: [
+    (to, from, name, n) => `내 선수 ${named(name, '이', '가')} ${from}에서 ${named(to, '으로')} 이적했습니다${n.fee ? ` (이적료 ${money(n.fee)})` : ' (자유 이적)'}. 기사에 에이전시 이름도 함께 실렸습니다.`,
+    (to, from, name, n) => `${named(to, '이', '가')} 내 선수 ${named(name, '을', '를')} 영입했다고 발표했습니다. ${n.fee ? `이적료는 ${money(n.fee)}입니다.` : '자유 이적입니다.'}`,
+    (to, from, name) => `"새 팀에서 다시 시작합니다." ${to}에 입단한 내 선수 ${name}의 소감이 기사 제목이 됐습니다.`
+  ],
+  call: [
+    (nat, name) => `${nat} 국가대표 명단이 발표됐습니다. 내 선수 ${named(name, '이', '가')} 처음으로 이름을 올렸습니다.`,
+    (nat, name) => `${name}, 생애 첫 ${nat} 국가대표 발탁. 감독은 "꾸준함을 높이 샀다"고 말했습니다.`
+  ]
+};
+
+// 뉴스 한 건: { tag, text, go: 누르면 갈 곳 [행동, 값] }
+function newsText(n) {
+  const pick = lines => pickLine(lines, n.w, n.club ?? n.to ?? 0, n.s ?? 0);
+  if (n.k === 'need') return { tag: NEWS_TAG.need, text: pick(NEWS_LINES.need)(clubFull(n.club), POS_NAME[n.pos], n), go: ['clubAt', n.club] };
+  if (n.k === 'sign' || n.k === 'mine') {
+    const go = state.world.gen[n.s] === n.g ? ['player', n.s] : ['clubAt', n.to];
+    return { tag: NEWS_TAG[n.k], text: pick(NEWS_LINES[n.k])(clubFull(n.to), clubFull(n.from), newsName(n), n), go };
+  }
+  if (n.k === 'call') return { tag: NEWS_TAG.call, text: pick(NEWS_LINES.call)(COUNTRY_BY_ID[n.nat].name, newsName(n)), go: state.world.gen[n.s] === n.g ? ['player', n.s] : null };
+  const win = WINDOWS[n.win];
+  const top = n.n && n.to >= 0 ? ` 가장 비싼 이적은 ${named(CLUBS[n.to].name, '으로')} 간 ${n.nm}(${money(n.fee)})입니다.` : '';
+  return { tag: NEWS_TAG.close, text: `${named(win.name, '이', '가')} 끝났습니다. 이번 기간 세계에서 이적 ${n.n}건이 있었습니다.${top}`, go: null };
+}
+
+// 뉴스 한 줄. 보강 필요 뉴스에는 맞는 내 선수를 추천하는 버튼
+function newsRow(n) {
+  const t = newsText(n);
+  const box = el('div', `nitem nitem-${n.k}`);
+  const body = t.go ? actButton('nbody', t.go[0], t.go[1]) : el('div', 'nbody');
+  body.append(el('span', `ntag ntag-${n.k}`, t.tag), el('span', 'ntext', t.text), el('small', 'nmeta', weekLabel(n.w)));
+  box.append(body);
+  if (n.k === 'need') {
+    const need = state.needs.find(x => x.club === n.club && x.pos === n.pos);
+    if (need) box.append(...pitchButtons(need));
+    else box.append(el('p', 'nmeta', '보강을 마쳤거나 이적 기간이 끝났습니다.'));
+  }
+  return box;
+}
+
+// 이 보강에 맞는 내 선수마다 "추천" 버튼 (막히면 이유 표시)
+function pitchButtons(need) {
+  const out = [];
+  for (const c of state.clients) {
+    if (pitchFit(c, need)) continue;
+    const p = getPlayer(c.s);
+    const block = pitchBlock(c, need);
+    const b = actButton('btn wide option', 'pitch', c.s);
+    b.dataset.o = String(need.club);
+    b.append(el('span', 'opt-title', `내 선수 ${p.name}(${p.pos}, 능력 ${p.ability}) 추천하기 (1 AP)`),
+      el('span', 'opt-sub', block || `마감 ${weekLabel(need.until)}까지 이 선수 제안이 잦아지고 이 구단에서 올 가능성이 높아집니다`));
+    b.disabled = Boolean(block);
+    out.push(b);
+  }
+  return out;
+}
+
+// 내 선수 탭의 뉴스 상자 3건: 추천할 기회 1건 → 내 선수 소식 → 나머지는 최근 순 (추천 기회만으로 채우지 않게)
+function newsBox() {
+  if (!state.news.length) return null;
+  const chance = n => n.k === 'need' && state.needs.some(x => x.club === n.club && x.pos === n.pos) && state.clients.some(c => !pitchFit(c, n));
+  const first = state.news.find(chance);
+  const mine = state.news.filter(n => n !== first && (n.k === 'mine' || n.k === 'call'));
+  const rest = state.news.filter(n => n !== first && !mine.includes(n) && !chance(n));
+  const top = [first, ...mine, ...rest].filter(Boolean).slice(0, 3);
+  const box = el('section', 'panel news-box');
+  const head = el('div', 'panel-head');
+  head.append(el('strong', '', '세계 뉴스'), actButton('link', 'news', undefined, `전체 ${state.news.length}건 보기 →`));
+  box.append(head, ...top.map(newsRow));
+  return box;
+}
+
+function renderNews(root) {
+  root.append(actButton('back', 'up', undefined, '← 돌아가기'), el('h1', 'title', '세계 뉴스'), marketLine());
+  if (windowAt()) {
+    root.append(el('h2', 'section', `보강이 필요한 구단 ${state.needs.length}곳`));
+    if (!state.needs.length) root.append(el('p', 'empty', '이번 이적 기간에 보강을 찾던 구단들이 모두 선수를 구했습니다.'));
+    for (const need of state.needs) {
+      const box = el('div', 'nitem nitem-need');
+      const body = actButton('nbody', 'clubAt', need.club);
+      body.append(el('span', 'ntag ntag-need', POS_NAME[need.pos]), el('span', 'ntext', `${clubLabel(need.club)} · 주전 평균 능력 ${need.avg} (구단 수준보다 ${need.gap} 낮음)`));
+      box.append(body, ...pitchButtons(need));
+      root.append(box);
+    }
+  } else root.append(el('p', 'sub', '이적 기간이 열리면 구단들이 보강할 포지션을 알리고, 기간 동안 실제로 선수를 데려옵니다.'));
+  root.append(el('h2', 'section', `최근 뉴스 ${state.news.length}건`));
+  if (!state.news.length) root.append(el('p', 'empty', '아직 뉴스가 없습니다.'));
+  state.news.forEach(n => root.append(newsRow(n)));
+}
+
 function renderClients(root) {
   root.append(el('h1', 'title', '내 선수'),
     el('p', 'sub', `${state.founded ? '' : '혼자 일하는 중 · '}${state.clients.length}/${clientLimit()}명 · 주간 수수료 ${cash(weeklyIncome())} · 지출 ${cash(weeklySpend())}`), marketLine());
+  const nbox = newsBox();
+  if (nbox) root.append(nbox);
   if (!state.founded && !foundBlock()) root.append(el('p', 'note up', '회사 설립 조건을 모두 채웠습니다. 에이전시 탭에서 회사를 세울 수 있습니다.'));
   // 소식 카드를 못 그리면(잘못된 데이터) 그 소식만 버리고 화면은 계속 그림
   const cards = [];
@@ -2372,6 +2676,7 @@ function renderWorld(root) {
   const ui = state.ui;
   if (ui.country === null) {
     root.append(el('h1', 'title', '리그'), el('p', 'sub', `${COUNTRIES.length}개국 · ${LEAGUE_COUNT}개 리그 · 구단 ${CLUBS.length.toLocaleString('ko-KR')}개 · 선수 ${SLOTS.toLocaleString('ko-KR')}명`));
+    root.append(rowButton('news', undefined, '세계 뉴스', windowAt() ? `보강이 필요한 구단 ${state.needs.length}곳 · 이번 이적 기간 이적 ${state.deals.n}건` : `최근 뉴스 ${state.news.length}건 · 이적 시장 닫힘`));
     renderScouting(root);
     for (const region of REGIONS) {
       const list = el('div', 'list');
@@ -2413,6 +2718,12 @@ function renderClub(root, club) {
   const slots = clubSlots(club);
   root.append(actButton('back', 'up', undefined, `← ${leagueName(club.country, club.t)}`), el('h1', 'title', club.name),
     el('p', 'sub', `${leagueName(club.country, club.t)} · 선수 ${slots.length}명 · 평균 능력 ${clubAverage(club).toFixed(0)} · 선수를 누르면 상세`));
+  const need = state.needs.find(n => n.club === club.id);
+  if (need) {
+    const box = el('div', 'panel need-panel');
+    box.append(el('strong', '', `${POS_NAME[need.pos]} 보강을 찾는 중`), el('p', 'sub', `주전 ${POS_NAME[need.pos]} 평균 능력 ${need.avg} (구단 수준보다 ${need.gap} 낮음) · 마감 ${weekLabel(need.until)}`), ...pitchButtons(need));
+    root.append(box);
+  }
   const now = absWeek();
   const players = slots.map(getPlayer).sort((a, b) => POS_ORDER[a.pos] - POS_ORDER[b.pos] || b.ability - a.ability);
   const list = el('div', 'list');
@@ -2784,6 +3095,7 @@ function render() {
   else if (state.ui.tab === 'world') renderWorld(root);
   else if (state.ui.tab === 'agency') renderAgency(root);
   else if (state.ui.tab === 'log') renderLog(root);
+  else if (state.ui.tab === 'news') renderNews(root);
   else renderClients(root);
 }
 
@@ -2921,6 +3233,9 @@ function onAction(act, v, o) {
     renewYears = 0;
     return navigate({ player: v });
   }
+  if (act === 'news') return navigate({ tab: 'news', player: null });
+  if (act === 'clubAt') return navigate({ tab: 'world', player: null, country: CLUBS[v].country.i, tier: CLUBS[v].t, club: v });
+  if (act === 'pitch') return stay(() => pitch(v, o));
   if (act === 'country') return navigate({ country: v, tier: null, club: null });
   if (act === 'tier') return navigate({ tier: v, club: null });
   if (act === 'club') return navigate({ club: v });
