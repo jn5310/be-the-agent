@@ -3,6 +3,7 @@
 
 // ===== 1. 상수와 세계 데이터 =====
 const SAVE_KEY = 'be-the-agent:save';
+const BACKUP_KEY = 'be-the-agent:save:backup'; // 읽지 못한 세이브를 지우지 않고 보관
 const SAVE_VERSION = 2;
 const WEEKS = 52;
 const SQUAD = 24;
@@ -649,15 +650,49 @@ function deserialize(text) {
     if (typeof str !== 'string' || str.length !== SLOTS * width) throw new Error('세계 정보가 손상되었습니다');
     world[key] = unpackArray(str, width, Type, bias);
   }
-  const cooldowns = d.cooldowns && typeof d.cooldowns === 'object' ? d.cooldowns : {};
+  const cooldowns = {};
+  if (d.cooldowns && typeof d.cooldowns === 'object') {
+    for (const [key, until] of Object.entries(d.cooldowns)) if (int(until)) cooldowns[key] = until;
+  }
+  const summary = d.summary && typeof d.summary === 'object' && Array.isArray(d.summary.rows) ? d.summary : null;
+  // 알려진 필드만 옮김 (모르는 값이 상태에 섞이지 않게)
   return {
-    ...d, version: SAVE_VERSION, logs: d.logs.map(String), world, cooldowns,
+    version: SAVE_VERSION, seed: d.seed, season: d.season, week: d.week,
+    agencyCash: d.agencyCash, rep: clamp(Math.round(d.rep), 0, 100),
     ap: int(d.ap) ? clamp(d.ap, 0, AP_PER_WEEK) : AP_PER_WEEK,
-    debtWeeks: int(d.debtWeeks) ? d.debtWeeks : 0,
+    debtWeeks: int(d.debtWeeks) ? clamp(d.debtWeeks, 0, DEBT_LIMIT) : 0,
     over: d.over === true,
     clients: d.clients.map(c => ({ s: c.s, g: c.g, end: c.end, wage: Number.isFinite(c.wage) ? c.wage : null })),
-    ui: { ...DEFAULT_UI, ...d.ui }
+    cooldowns, logs: d.logs.map(String).slice(0, 80), summary, ui: cleanUi(d.ui), world
   };
+}
+
+// 화면 위치 값 검사: 범위를 벗어나면 그 단계부터 기본값
+function cleanUi(raw) {
+  const u = raw && typeof raw === 'object' ? raw : {};
+  const index = (v, n) => (Number.isInteger(v) && v >= 0 && v < n ? v : null);
+  const tab = ['clients', 'world', 'log'].includes(u.tab) ? u.tab : 'clients';
+  const country = index(u.country, COUNTRIES.length);
+  const tier = country === null ? null : index(u.tier, COUNTRIES[country].tiers.length);
+  const club = tier === null ? null : COUNTRIES[country].clubs[tier].some(c => c.id === u.club) ? u.club : null;
+  return { tab, country, tier, club, player: index(u.player, SLOTS) };
+}
+
+// 읽지 못한 세이브는 새 게임으로 덮기 전에 백업 칸으로 옮김
+function backupSave(raw) {
+  try {
+    if (raw) localStorage.setItem(BACKUP_KEY, raw);
+  } catch (e) {
+    console.warn('세이브 백업 실패:', e.message);
+  }
+}
+
+function readBackup() {
+  try {
+    return localStorage.getItem(BACKUP_KEY);
+  } catch (e) {
+    return null;
+  }
 }
 
 // 주급이 없는 소속 선수(v1 세이브)는 지금 능력 기준으로 채움
@@ -688,21 +723,34 @@ function loadState() {
     return 'ok';
   } catch (e) {
     console.warn('세이브 불러오기 실패:', e.message);
+    backupSave(raw);
     return 'broken';
   }
 }
 
-function exportSave() {
+function downloadText(text, filename) {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([serialize()], { type: 'application/json' }));
-  a.download = `be-the-agent-${state.season}시즌-${state.week}주.json`;
+  a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  a.download = filename;
   document.body.append(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function exportSave() {
+  downloadText(serialize(), `be-the-agent-${state.season}시즌-${state.week}주.json`);
   toast('저장 파일을 내보냈습니다.');
 }
 
+function exportBackup() {
+  const raw = readBackup();
+  if (!raw) return;
+  downloadText(raw, 'be-the-agent-backup.json');
+  toast('백업 파일을 내보냈습니다.');
+}
+
+// 불러온 세이브는 화면이 정상으로 그려진 뒤에만 저장
 function importSave(file) {
   const reader = new FileReader();
   reader.onload = () => {
@@ -710,13 +758,15 @@ function importSave(file) {
     try {
       state = deserialize(String(reader.result));
       fillWages();
+      render();
     } catch (e) {
       state = previous;
+      render();
       toast(`불러오지 못했습니다: ${e.message}`);
       return;
     }
     saveState();
-    render();
+    resetHistory();
     toast('저장 파일을 불러왔습니다.');
   };
   reader.readAsText(file);
@@ -726,7 +776,9 @@ function importSave(file) {
 const $ = id => document.getElementById(id);
 const REGIONS = [...new Set(COUNTRIES.map(c => c.region))];
 const LEAGUE_COUNT = COUNTRIES.reduce((n, c) => n + c.tiers.length, 0);
-let listScroll = 0; // 선수 상세에서 돌아올 때 목록 위치 복원
+// index.html에 꼭 있어야 하는 요소 (배포 직후 옛 HTML이 캐시에 남아 있는지 확인용)
+const REQUIRED_IDS = ['hdr-date', 'hdr-cash', 'hdr-rep', 'hdr-ap', 'view', 'btn-next', 'summary', 'summary-title', 'summary-body',
+  'summary-close', 'gameover', 'gameover-body', 'gameover-new', 'gameover-close', 'toast', 'import-file'];
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -949,6 +1001,10 @@ function renderLog(root) {
   const actions = el('div', 'actions');
   actions.append(actButton('btn', 'export', undefined, '파일로 내보내기'), actButton('btn', 'import', undefined, '파일 불러오기'), actButton('btn danger', 'new', undefined, '새 게임'));
   root.append(actions);
+  if (readBackup()) {
+    root.append(el('p', 'sub', '읽지 못했던 이전 세이브가 백업되어 있습니다. 파일로 받아 두면 나중에 복구를 시도할 수 있습니다.'),
+      actButton('btn', 'backup', undefined, '이전 세이브 백업 내보내기'));
+  }
 }
 
 function render() {
@@ -994,43 +1050,76 @@ function openGameOver() {
 
 function startNewGame() {
   newGame();
+  resetHistory();
   render();
   window.scrollTo(0, 0);
   toast('새 게임을 시작했습니다.');
 }
 
-function onAction(act, v) {
+// ===== 화면 이동: 브라우저(안드로이드) 뒤로가기와 연결 =====
+const historyDepth = () => (history.state && Number.isInteger(history.state.depth) ? history.state.depth : 0);
+
+function resetHistory() {
+  history.replaceState({ ui: { ...state.ui }, depth: 0, scroll: 0 }, '');
+}
+
+// 앞으로 이동: 지금 위치의 스크롤을 기록해 두고 새 위치를 쌓음
+function navigate(changes) {
+  history.replaceState({ ...history.state, ui: { ...state.ui }, scroll: window.scrollY }, '');
+  Object.assign(state.ui, changes);
+  history.pushState({ ui: { ...state.ui }, depth: historyDepth() + 1, scroll: 0 }, '');
+  render();
+  window.scrollTo(0, 0);
+}
+
+// 위로 이동: 쌓인 기록이 있으면 뒤로가기와 똑같이, 없으면(새로고침 직후 등) 한 단계 위로
+function goUp() {
+  if (historyDepth() > 0) {
+    history.back();
+    return;
+  }
   const ui = state.ui;
+  if (ui.player !== null) ui.player = null;
+  else if (ui.club !== null) ui.club = null;
+  else if (ui.tier !== null) ui.tier = null;
+  else ui.country = null;
+  resetHistory();
+  render();
+  window.scrollTo(0, 0);
+}
+
+function onPopState(e) {
+  if (!e.state || !e.state.ui) return;
+  state.ui = cleanUi(e.state.ui);
+  render();
+  window.scrollTo(0, e.state.scroll || 0);
+}
+
+function onAction(act, v) {
   if (act === 'export') return exportSave();
+  if (act === 'backup') return exportBackup();
   if (act === 'import') return $('import-file').click();
   if (act === 'summary') return openSummary();
   if (act === 'new') {
     if (confirm('진행 중인 게임을 지우고 새로 시작할까요? 되돌릴 수 없습니다.')) startNewGame();
     return;
   }
-  let scroll = 0;
-  if (act === 'player') {
-    listScroll = window.scrollY;
-    ui.player = v;
-  } else if (act === 'recruit') {
+  if (act === 'recruit') {
+    const y = window.scrollY;
     recruit(v);
-    scroll = window.scrollY;
-  } else if (act === 'release') {
-    if (!release(v)) return;
-    ui.player = null;
-  } else if (act === 'country') Object.assign(ui, { country: v, tier: null, club: null });
-  else if (act === 'tier') Object.assign(ui, { tier: v, club: null });
-  else if (act === 'club') ui.club = v;
-  else if (act === 'up') {
-    if (ui.player !== null) {
-      ui.player = null;
-      scroll = listScroll;
-    } else if (ui.club !== null) ui.club = null;
-    else if (ui.tier !== null) ui.tier = null;
-    else ui.country = null;
+    render();
+    window.scrollTo(0, y);
+    return;
   }
-  render();
-  window.scrollTo(0, scroll);
+  if (act === 'release') {
+    if (release(v)) goUp();
+    return;
+  }
+  if (act === 'up') return goUp();
+  if (act === 'player') return navigate({ player: v });
+  if (act === 'country') return navigate({ country: v, tier: null, club: null });
+  if (act === 'tier') return navigate({ tier: v, club: null });
+  if (act === 'club') return navigate({ club: v });
 }
 
 function bindEvents() {
@@ -1041,10 +1130,13 @@ function bindEvents() {
     else if (state.summary && !state.summary.seen) openSummary();
   });
   document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => {
-    Object.assign(state.ui, { tab: b.dataset.tab, player: null });
-    render();
-    window.scrollTo(0, 0);
+    if (state.ui.tab === b.dataset.tab && state.ui.player === null) {
+      window.scrollTo(0, 0);
+      return;
+    }
+    navigate({ tab: b.dataset.tab, player: null });
   }));
+  window.addEventListener('popstate', onPopState);
   $('view').addEventListener('click', e => {
     const b = e.target.closest('[data-act]');
     if (b && !b.disabled) onAction(b.dataset.act, b.dataset.v === undefined ? undefined : Number(b.dataset.v));
@@ -1093,21 +1185,55 @@ function runSelfCheck() {
   check(growthStep(19, 50, 80, 9, 0.5) >= growthStep(19, 50, 80, 2, 0.5), '폼이 좋으면 더 크게 성장');
   const grow = new Int8Array([-60, 0, 60]);
   check(unpackArray(packArray(grow, 2, 128), 2, Int8Array, 128).join() === '-60,0,60', '성장치 저장 왕복');
+  const badUi = cleanUi({ tab: 'x', country: 999, tier: 0, club: 5, player: -1 });
+  check(badUi.tab === 'clients' && badUi.country === null && badUi.tier === null && badUi.club === null && badUi.player === null, '잘못된 화면 위치는 기본값으로');
+  const okUi = cleanUi({ tab: 'world', country: 0, tier: 3, club: CLUBS[0].id, player: 10 });
+  check(okUi.country === 0 && okUi.tier === 3 && okUi.club === null && okUi.player === 10, '다른 부의 구단 번호는 버림');
+}
+
+// 화면 그리기 실패: 위치를 처음으로 돌려 다시 그림 → 그래도 안 되면 지금 세이브를 백업하고 새 게임
+function safeRender() {
+  try {
+    render();
+    return true;
+  } catch (e) {
+    console.error(e);
+  }
+  state.ui = { ...DEFAULT_UI };
+  try {
+    render();
+    return true;
+  } catch (e) {
+    console.error(e);
+  }
+  try {
+    backupSave(serialize());
+  } catch (e) {
+    console.warn('백업용 직렬화 실패:', e.message);
+  }
+  newGame();
+  render();
+  return false;
 }
 
 function boot() {
+  // 배포 직후 옛 index.html이 캐시에 남아 있으면 아무것도 저장하지 않고 안내만 함
+  const missing = REQUIRED_IDS.filter(id => !$(id));
+  if (missing.length) {
+    console.warn('화면 요소가 없습니다:', missing.join(', '));
+    const note = el('p', '', '새 버전을 적용하는 중입니다. 1~2분 뒤 새로고침해 주세요. 저장된 진행 상황은 그대로입니다.');
+    note.style.cssText = 'position:fixed;left:16px;right:16px;top:40%;z-index:99;padding:16px;border:1px solid #34d399;border-radius:12px;background:#111a2e;color:#e2e8f0;text-align:center';
+    document.body.append(note);
+    return;
+  }
   const loaded = loadState();
   if (loaded !== 'ok') newGame();
   bindEvents();
-  try {
-    render();
-  } catch (e) {
-    console.error(e);
-    newGame();
-    render();
-    toast('화면을 그리지 못해 새 게임으로 시작했습니다.');
-  }
-  if (loaded === 'broken') toast('저장 데이터를 읽지 못해 새 게임으로 시작했습니다.');
+  const rendered = safeRender();
+  resetHistory();
+  const backupNote = '이전 저장은 기록 탭에서 백업 파일로 받을 수 있습니다.';
+  if (!rendered) toast(`화면을 그리지 못해 새 게임으로 시작했습니다. ${backupNote}`);
+  else if (loaded === 'broken') toast(`저장 데이터를 읽지 못해 새 게임으로 시작했습니다. ${backupNote}`);
   if (state.over) openGameOver();
   else if (state.summary && !state.summary.seen) openSummary();
   runSelfCheck();
