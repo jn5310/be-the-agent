@@ -1027,7 +1027,7 @@ function pickStartingClients() {
 const newClient = (p, end, sat, bond, how) => ({
   s: p.s, g: p.g, end, wage: weeklyWage(p.ability), sat, met: 0, negUntil: 0, warned: 0,
   st: newStint(p.club, worldStats(p, state.week)), hist: [], playRate: 0.6, capped: false,
-  bond, since: absWeek(), how, memo: [], tales: [], hunt: 0, pitch: null, out: null
+  bond, since: absWeek(), how, memo: [], tales: [], hunt: 0, pitch: null, out: null, lw: null
 });
 // 에이전시 커리어 통계 (기록 탭·시뮬레이션용)
 const newCareerStats = () => ({ lost: 0, transfers: 0, dream: 0, callups: 0, renewTry: 0, renewWin: 0, signed: 0 });
@@ -2799,10 +2799,20 @@ function resultWord(res) {
   return L(`${score} 무`, `D ${score}`);
 }
 const COMP_SHORT = { L: ['리그', 'league'], C: ['컵', 'cup'], K: ['대륙', 'continental'] };
+// 팀 결과 묶음 " [리그 2-1 승 · 컵 1-0 승]" (결과가 없으면 빈 문자열). results = [{ key, f, a, pk }]
+function teamText(results) {
+  const parts = Object.entries(COMP_SHORT).map(([key, name]) => {
+    const list = results.filter(r => r.key === key);
+    return list.length ? `${L(...name)} ${list.map(resultWord).join(', ')}` : '';
+  }).filter(Boolean);
+  return parts.length ? ` [${parts.join(' · ')}]` : '';
+}
 
 // 소속 선수 한 주 경기: 구단 경기 결과에 맞춰 출전·골·평점을 기록하고 요약 문구를 돌려줌
 // "김민수 7.4(1골) [리그 2-1 승 · 컵 1-1 무(승부차기 승)]". away = 부상('inj')·휴가('fam')면 경기도 A매치도 없이 그 사실만. 무소속이면 구단 경기 없음
+// 14단계: 지난주 경기를 숫자로 남겨(c.lw) 카드에 지금 언어로 보여 줌 { w: 경기한 절대 주차, n: 경기 수, p: 뛴 경기, r: 평균 평점×10, g: 골, t: [[대회, 득점, 실점, 승부차기]], a: 결장 이유 }
 function playClientWeek(c, p, week, away) {
+  c.lw = { w: absWeek() - 1, n: 0, p: 0, r: 0, g: 0, t: [], a: away || '' };
   if (away) return away === 'inj' ? L(`${p.name} 부상으로 결장`, `${p.name} out injured`) : L(`${p.name} 휴가로 결장`, `${p.name} away on leave`);
   const results = isFreeAgent(c) ? [] : weekResults(p.club, week);
   const level = clubLevel(p.club);
@@ -2838,13 +2848,10 @@ function playClientWeek(c, p, week, away) {
     state.stats.callups += 1;
     call = first ? L(` · 첫 국가대표 발탁! (평판 +${got})`, ` · first national team call-up! (reputation +${got})`) : L(' · 국가대표 소집', ' · on national team duty');
   }
+  Object.assign(c.lw, { n: games, p: played, r: played ? Math.round((sum / played) * 10) : 0, g: goals, t: results.map(r => [r.key, r.f, r.a, r.pk]) });
   if (!games && !call) return '';
   const goalText = goals ? L(`(${goals}골)`, ` (${pl(goals, 'goal')})`) : '';
-  const team = Object.entries(COMP_SHORT).map(([key, name]) => {
-    const list = results.filter(r => r.key === key);
-    return list.length ? `${L(...name)} ${list.map(resultWord).join(', ')}` : '';
-  }).filter(Boolean);
-  return `${p.name} ${played ? `${(sum / played).toFixed(1)}${goalText}` : games ? L('결장', "didn't play") : ''}${team.length ? ` [${team.join(' · ')}]` : ''}${call}`;
+  return `${p.name} ${played ? `${(sum / played).toFixed(1)}${goalText}` : games ? L('결장', "didn't play") : ''}${teamText(results)}${call}`;
 }
 
 // 주말 처리: 경기, 만족도 변화(성향 반영), 무소속 전환, 이탈, 답 없는 소식 정리, 새 소식
@@ -3577,7 +3584,11 @@ function deserialize(text) {
       // 10단계: 추천해 둔 구단 (v9까지는 없음)
       pitch: c.pitch && int(c.pitch.club) && c.pitch.club >= 0 && c.pitch.club < CLUBS.length && int(c.pitch.until) ? { club: c.pitch.club, until: c.pitch.until } : null,
       // 13단계: 부상·휴가 (다시 뛸 수 있는 절대 주차)
-      out: c.out && int(c.out.w) && (c.out.k === 'inj' || c.out.k === 'fam') ? { w: c.out.w, k: c.out.k } : null
+      out: c.out && int(c.out.w) && (c.out.k === 'inj' || c.out.k === 'fam') ? { w: c.out.w, k: c.out.k } : null,
+      // 14단계: 지난주 경기 (모양이 맞을 때만)
+      lw: c.lw && ['w', 'n', 'p', 'r', 'g'].every(k => int(c.lw[k]) && c.lw[k] >= 0) && Array.isArray(c.lw.t) && c.lw.t.length <= 8
+        && c.lw.t.every(r => Array.isArray(r) && ['L', 'C', 'K'].includes(r[0]) && [1, 2, 3].every(i => int(r[i]) && r[i] >= 0))
+        ? { w: c.lw.w, n: c.lw.n, p: c.lw.p, r: c.lw.r, g: c.lw.g, t: c.lw.t.map(r => r.slice(0, 4)), a: c.lw.a === 'inj' || c.lw.a === 'fam' ? c.lw.a : '' } : null
     })),
     cooldowns, logs: d.logs.map(String).slice(0, 80), summary, moved, events, nextEventId,
     natCut: Object.keys(natCut).length ? natCut : null, stats, ui: cleanUi(d.ui, tierOf), world
@@ -3884,7 +3895,10 @@ function clientCard(c) {
   const foot = el('span', 'card-foot');
   foot.append(satNode(c), ' · ', bondNode(c), isFreeAgent(c) ? L(' · 무소속: 수수료 없음', ' · Free agent: no commission') : L(` · 주급 ${cash(c.wage)} · 내 수수료 주 ${cash(commissionOf(c.wage))}`, ` · wage ${cash(c.wage)} · your cut ${cash(commissionOf(c.wage))}/wk`));
   card.append(top, el('span', 'meta', `${L(`${ageOf(p)}세`, `${ageOf(p)}`)} · ${p.nat.name} · ${clubLine(c, p)}`),
-    abilityBar(p.ability), stats, el('span', 'card-line', statLine(c.st)), foot);
+    abilityBar(p.ability), stats, el('span', 'card-line', statLine(c.st)));
+  const last = lastWeekText(c);
+  if (last) card.append(el('span', 'card-last', last));
+  card.append(foot);
   return card;
 }
 
@@ -4189,14 +4203,47 @@ function renderNews(root) {
   state.news.forEach(n => root.append(newsRow(n)));
 }
 
+// 14단계 처음 화면 (시안 A "할 일 먼저"): 상태 한 줄 → 이번 주 할 일(답할 소식 → 해 볼 만한 일) → 지난주 → 소속 선수 → 세계 뉴스
+// 이번 주에 해 볼 만한 일: 소식 말고 지금 할 수 있는 일 (누르면 그 화면으로, 최대 4개)
+function todoList() {
+  const out = [];
+  const now = absWeek();
+  if (state.over) return out;
+  if (!state.founded && !foundBlock()) out.push({ act: 'goTab', v: 2, text: L('회사를 세울 수 있습니다', 'You can found your company'), sub: L(`에이전시 탭 · AP ${TUNE.ap}, 소속 한도 ${TUNE.limitBase}명`, `Agency tab · ${TUNE.ap} AP, room for ${TUNE.limitBase} players`) });
+  for (const c of state.clients) {
+    const p = getPlayer(c.s);
+    const left = c.end - now;
+    if (left <= TUNE.renewWindow && c.negUntil <= now) {
+      out.push({ act: 'player', v: c.s, text: L(`${p.name} 재계약 협상`, `Renew ${p.name}'s contract`), sub: isFreeAgent(c) ? L('무소속이라 수수료가 없습니다 · 1 AP', 'Free agent, so no commission · 1 AP') : L(`계약 만료까지 ${left}주 · 1 AP`, `${pl(left, 'week')} left on his deal · 1 AP`) });
+    } else if (c.sat < 50 && !(c.met && now - c.met < TUNE.meetGap)) {
+      out.push({ act: 'player', v: c.s, text: L(`${p.name} 면담`, `Meet ${p.name}`), sub: L(`만족 ${c.sat} · 면담하면 +${TUNE.meetGain} · 1 AP`, `Morale ${c.sat} · a meeting adds ${TUNE.meetGain} · 1 AP`) });
+    }
+  }
+  const pitchable = state.needs.filter(n => state.clients.some(c => !pitchFit(c, n) && !pitching(c))).length;
+  if (pitchable) out.push({ act: 'news', text: L(`내 선수를 추천할 수 있는 구단 ${pitchable}곳`, `Clubs you could pitch a player to: ${pitchable}`), sub: L('보강이 필요한 구단 · 세계 뉴스 · 1 AP', 'Clubs looking to strengthen · World news · 1 AP') });
+  const room = clientLimit() - state.clients.length;
+  if (room > 0) out.push({ act: 'goTab', v: 1, text: L(`소속 자리가 ${room}명 남았습니다`, `Room for ${pl(room, 'more player')}`), sub: L('리그 탭에서 유망주 찾기 · 영입 제안 1 AP', 'Leagues tab · find prospects · an offer costs 1 AP') });
+  return out.slice(0, 4);
+}
+
+// 카드의 지난주 한 줄: "지난주 7.4(1골) [리그 2-1 승]" (지난주에 경기가 없었으면 빈 문자열)
+function lastWeekText(c) {
+  const lw = c.lw;
+  if (!lw || lw.w !== absWeek() - 1) return '';
+  if (lw.a) return lw.a === 'inj' ? L('지난주 부상으로 결장', 'Last week: out injured') : L('지난주 휴가로 결장', 'Last week: on leave');
+  if (!lw.n) return '';
+  const perf = lw.p ? `${(lw.r / 10).toFixed(1)}${lw.g ? L(`(${lw.g}골)`, ` (${pl(lw.g, 'goal')})`) : ''}` : L('결장', "didn't play");
+  return `${L('지난주', 'Last week:')} ${perf}${teamText(lw.t.map(([key, f, a, pk]) => ({ key, f, a, pk })))}`;
+}
+
 function renderClients(root) {
-  root.append(el('h1', 'title', L('내 선수', 'My players')),
-    el('p', 'sub', L(`${state.founded ? '' : '혼자 일하는 중 · '}${state.clients.length}/${clientLimit()}명 · 주간 수수료 ${cash(weeklyIncome())} · 지출 ${cash(weeklySpend())}`,
-      `${state.founded ? '' : 'Working solo · '}${state.clients.length}/${clientLimit()} players · commission ${cash(weeklyIncome())}/wk · costs ${cash(weeklySpend())}`)), marketLine());
-  const nbox = newsBox();
-  if (nbox) root.append(nbox);
-  if (!state.founded && !foundBlock()) root.append(el('p', 'note up', L('회사 설립 조건을 모두 채웠습니다. 에이전시 탭에서 회사를 세울 수 있습니다.', 'You meet every condition to found a company. Head to the Agency tab.')));
-  // 소식 카드를 못 그리면(잘못된 데이터) 그 소식만 버리고 화면은 계속 그림
+  const head = el('div', 'home-head');
+  head.append(el('h1', 'title', L('내 선수', 'My players')), el('span', 'badge', L(`${state.founded ? '' : '혼자 · '}${state.clients.length}/${clientLimit()}명`, `${state.founded ? '' : 'Solo · '}${state.clients.length}/${clientLimit()}`)));
+  const net = weeklyIncome() - weeklySpend();
+  const money = el('p', 'sub', L(`주간 수수료 ${cash(weeklyIncome())} · 지출 ${cash(weeklySpend())} · 수지 `, `Commission ${cash(weeklyIncome())}/wk · costs ${cash(weeklySpend())} · net `));
+  money.append(el('span', net < 0 ? 'down' : 'up', signedCash(net)));
+  root.append(head, marketLine(), money);
+  // 1) 이번 주 할 일: 답할 소식 카드, 그다음 해 볼 만한 일. 소식 카드를 못 그리면(잘못된 데이터) 그 소식만 버리고 화면은 계속 그림
   const cards = [];
   for (const ev of [...state.events]) {
     try {
@@ -4206,13 +4253,30 @@ function renderClients(root) {
       state.events = state.events.filter(x => x !== ev);
     }
   }
-  if (cards.length) root.append(el('h2', 'section', L(`이번 주 소식 ${cards.length}건`, `This week's news (${cards.length})`)), ...cards);
-  const latest = el('div', 'latest');
-  state.logs.slice(0, 2).forEach(line => latest.append(el('span', '', line)));
-  if (state.logs.length) root.append(latest);
+  const todos = todoList();
+  root.append(el('h2', 'section', cards.length ? L(`이번 주 할 일 · 답할 소식 ${cards.length}건`, `This week · ${pl(cards.length, 'story', 'stories')} to answer`) : L('이번 주 할 일', 'This week')));
+  // 새 게임 첫 3주: 한 주에 하는 일을 한 줄로 안내
+  if (state.season === 1 && state.week <= 3) root.append(el('p', 'guide', L('한 주는 이렇게 보냅니다: ① 소식에 답하고 ② 선수를 돌보고(면담·재계약·영입) ③ 다음 주 ▶를 누릅니다.', 'Each week: ① answer your news, ② look after your players (meetings, renewals, signings), ③ tap Next ▶.')));
+  root.append(...cards);
+  if (todos.length) {
+    const list = el('div', 'list todo');
+    for (const t of todos) list.append(rowButton(t.act, t.v, t.text, t.sub));
+    root.append(list);
+  }
+  if (!cards.length && !todos.length) root.append(el('p', 'empty', state.over ? GAME_OVER() : L('이번 주에 답할 소식이 없습니다. 다음 주 ▶로 넘기세요.', 'Nothing needs an answer this week. Tap Next ▶.')));
+  // 2) 지난주: 정산·경기 기록 최근 2줄 (전체는 기록 탭)
+  if (state.logs.length) {
+    const latest = el('div', 'latest');
+    state.logs.slice(0, 2).forEach(line => latest.append(el('span', '', line)));
+    root.append(el('h2', 'section', L('지난주', 'Last week')), latest);
+  }
+  // 3) 소속 선수 카드
+  root.append(el('h2', 'section', L(`소속 선수 ${state.clients.length}/${clientLimit()}명`, `Your players ${state.clients.length}/${clientLimit()}`)));
   if (!state.clients.length) root.append(el('p', 'empty', L('소속 선수가 없습니다.', 'You have no players.')));
   state.clients.forEach(c => root.append(clientCard(c)));
-  if (state.clients.length < clientLimit() && !state.over) root.append(el('p', 'sub', L('리그 탭에서 선수를 누르면 영입 제안을 할 수 있습니다 (1 AP).', 'Tap a player in the Leagues tab to make him an offer (1 AP).')));
+  // 4) 세계 뉴스는 맨 아래 (추천 기회 → 내 선수 소식 → 최근 순)
+  const nbox = newsBox();
+  if (nbox) root.append(nbox);
 }
 
 // 리그: 국가 → 부 → 구단 → 선수
@@ -4943,6 +5007,8 @@ function onAction(act, v, o) {
     return navigate({ player: v });
   }
   if (act === 'news') return navigate({ tab: 'news', player: null });
+  // 14단계 할 일 줄: 탭으로 이동 (리그 탭은 맨 위부터)
+  if (act === 'goTab') return navigate(v === 1 ? { tab: 'world', player: null, country: null, tier: null, club: null } : { tab: ['clients', 'world', 'agency', 'log'][v] || 'clients', player: null });
   if (act === 'lang') return stay(() => setLang(v === 1 ? 'en' : 'ko'));
   if (act === 'clubAt') return navigate({ tab: 'world', player: null, country: CLUBS[v].country.i, tier: CLUBS[v].t, club: v });
   if (act === 'pitch') return stay(() => pitch(v, o));
@@ -5163,6 +5229,10 @@ function runSelfCheck() {
     state.week = week1;
   }
   check(playScore(80, 60, 0, rng(3)).every(g => g >= 0 && g <= 9) && resultWord({ f: 1, a: 1, pk: 1 }) === L('1-1 무(승부차기 승)', 'D 1-1, won on pens'), '경기 점수와 결과 글');
+  // 14단계 처음 화면: 할 일 줄은 4개까지, 지난주 줄은 바로 지난주 경기만
+  const lw0 = { lw: { w: absWeek() - 1, n: 1, p: 1, r: 74, g: 1, t: [['L', 2, 1, 0]], a: '' } };
+  check(todoList().length <= 4 && todoList().every(t => t.act && t.text) && lastWeekText(lw0) === L('지난주 7.4(1골) [리그 2-1 승]', 'Last week: 7.4 (1 goal) [league W 2-1]')
+    && lastWeekText({ lw: { ...lw0.lw, w: absWeek() - 3 } }) === '', '처음 화면: 할 일 4개까지, 지난주 줄');
 }
 
 // 화면 그리기 실패: 위치를 처음으로 돌려 다시 그림 → 그래도 안 되면 지금 세이브를 백업하고 새 게임
