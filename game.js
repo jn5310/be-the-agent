@@ -5002,6 +5002,11 @@ function renderLog(root) {
   const langs = el('div', 'segment');
   langs.append(segButton('lang', 0, '한국어', LANG === 'ko'), segButton('lang', 1, 'English', LANG === 'en'));
   root.append(langs, el('p', 'sub', L('기록 목록은 그때의 언어로 남습니다. 선수 이름·구단·뉴스·인연은 바로 바뀝니다.', 'Past log entries stay in the language they were written in. Names, clubs, news and stories switch right away.')));
+  // 16단계 움직임 설정 (기기 설정이라 세이브와 따로)
+  const moves = el('div', 'segment');
+  moves.append(segButton('motion', 0, L('켜기', 'On'), motionPref === 'on'), segButton('motion', 1, L('줄이기', 'Reduced'), motionPref === 'reduce'));
+  root.append(el('h2', 'section', L('움직임', 'Motion')), moves, el('p', 'sub', systemCalm() ? L('기기 설정에서 동작 줄이기가 켜져 있어 움직임을 줄입니다.', 'Your device asks for reduced motion, so animations are kept to a minimum.')
+    : L('화면이 바뀔 때 밀려 들어오고, 다음 주에 날짜와 자금이 움직이고, 우승 같은 순간에 축하 띠가 내려옵니다.', 'Screens slide in, the date and cash move when you advance a week, and big moments like trophies drop in a banner.')));
   root.append(el('h2', 'section', L('저장', 'Saving')));
   root.append(el('p', 'sub', L('진행 상황은 이 브라우저에 자동으로 저장됩니다. iPhone Safari는 7일 동안 이 사이트를 쓰지 않으면 저장을 지울 수 있으니, 홈 화면에 추가하거나 파일로 내보내 두세요.',
     "Progress saves automatically in this browser. iPhone Safari may clear it if you don't visit for 7 days, so add the game to your home screen or export a file.")));
@@ -5033,8 +5038,175 @@ function applyStaticText() {
   if (next) next.setAttribute('aria-label', L('다음 주', 'Next week'));
 }
 
+// ===== 8-1. 움직임 (16단계, 시안 B "경기 하이라이트") =====
+// 화면 이동은 짧게 밀려 들어옴(앞으로 → 오른쪽에서, 뒤로 → 왼쪽에서, 탭 → 아래에서 살짝)과 목록 줄줄이, 막대는 차오르고 하트는 하나씩.
+// 다음 주를 누르면 버튼에 빛이 지나가고 날짜가 넘어가며 자금이 숫자로 움직이고 바뀐 만큼이 떠오름. 내 선수 우승·승격·첫 국가대표 같은 순간은
+// 위에서 내려오는 축하 띠(강등은 차분한 띠). 답한 소식 카드는 옆으로 빠짐. 하단 탭은 선택 표시가 미끄러짐.
+// transform·opacity만 움직여 폰에서 가볍게. 기기 "동작 줄이기"나 기록 탭 "움직임 줄이기"면 모두 멈춤(문서에 calm 클래스)
+const MOTION_KEY = 'be-the-agent:motion';
+let motionPref = 'on'; // 'on' | 'reduce' (기기 설정이라 세이브와 따로)
+const EASE = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
+const systemCalm = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+const motionOn = () => motionPref === 'on' && !systemCalm() && typeof document !== 'undefined' && typeof document.documentElement.animate === 'function';
+function initMotion() {
+  try {
+    const v = localStorage.getItem(MOTION_KEY);
+    if (v === 'on' || v === 'reduce') motionPref = v;
+  } catch (e) {
+    // 저장소를 못 쓰면 켬
+  }
+  document.documentElement.classList.toggle('calm', !motionOn());
+}
+function setMotion(v) {
+  motionPref = v;
+  try {
+    localStorage.setItem(MOTION_KEY, v);
+  } catch (e) {
+    // 이번 방문 동안만
+  }
+  document.documentElement.classList.toggle('calm', !motionOn());
+}
+
+let nextMotion = '';     // 다음 render()의 화면 움직임: 'forward' · 'back' · 'tab' · 'boot' · 'week' (빈 문자열 = 그 자리에서 다시 그림)
+let shown = null;        // 상단 바에 마지막으로 보여 준 값 { cash, rep, ap, date }
+let lastDepth = 0;       // 브라우저 기록 깊이 (뒤로가기인지 앞으로가기인지)
+const hdrAnims = [];     // 상단 바 숫자 움직임 (다시 그리면 멈춤)
+const counters = new Set();
+
+// 화면이 바뀔 때: 화면 전체가 밀려 들어오고, 위쪽 10개 줄은 줄줄이, 막대는 왼쪽부터 차오르고 켜진 하트는 하나씩
+function playScreen(root, kind) {
+  const from = { forward: 'translateX(28px)', back: 'translateX(-28px)', tab: 'translateY(10px)', boot: 'translateY(6px)', week: 'none' }[kind] || 'none';
+  if (from !== 'none') root.animate([{ opacity: 0, transform: from }, { opacity: 1, transform: 'none' }], { duration: kind === 'back' ? 200 : 240, easing: EASE });
+  const items = [...root.children].filter(n => !n.matches('.back, .title, h1, .home-head, .market, p.sub'))
+    .flatMap(n => (n.matches('.list, .ltable') ? [...n.children] : [n])).slice(0, kind === 'week' ? 6 : 10);
+  items.forEach((n, i) => n.animate([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: 220, delay: (kind === 'week' ? 20 : 60) + i * 30, easing: EASE, fill: 'backwards' }));
+  if (kind === 'week') return;
+  root.querySelectorAll('.bar > i').forEach(i => i.animate([{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }], { duration: 520, delay: 120, easing: EASE, fill: 'backwards' }));
+  root.querySelectorAll('.hearts .on').forEach((h, i) => h.animate([{ opacity: 0, transform: 'scale(0.4)' }, { opacity: 1, transform: 'scale(1.15)', offset: 0.7 }, { transform: 'scale(1)' }],
+    { duration: 360, delay: 220 + i * 90, easing: EASE, fill: 'backwards' }));
+}
+
+// 자금 숫자가 from → to로 움직임 (끝으로 갈수록 느려짐). 진행은 보이지 않는 움직임의 시간으로 정해서 멈춰 찍을 수 있음(window.__motionTick)
+function countUp(node, from, to, ms) {
+  const anim = node.animate([{ opacity: 1 }, { opacity: 1 }], { duration: ms });
+  hdrAnims.push(anim);
+  const step = () => {
+    const p = anim.effect.getComputedTiming().progress;
+    node.textContent = cash(p === null ? to : from + (to - from) * (1 - (1 - p) ** 3));
+    if (anim.playState === 'running') requestAnimationFrame(step);
+  };
+  counters.add(step);
+  const done = () => counters.delete(step);
+  anim.finished.then(() => ((node.textContent = cash(to)), done()), done);
+  step();
+}
+if (typeof window !== 'undefined') window.__motionTick = () => counters.forEach(f => f());
+
+// 바뀐 자금이 자금 아래에서 떠올랐다 사라짐 (+는 초록, -는 빨강)
+function floatDelta(node, delta) {
+  const bar = node.closest('.topbar');
+  if (!bar) return;
+  const r = node.getBoundingClientRect();
+  const br = bar.getBoundingClientRect();
+  const chip = el('span', `float-delta ${delta < 0 ? 'down' : 'up'}`, signedCash(delta));
+  chip.setAttribute('aria-hidden', 'true');
+  chip.style.left = `${r.left - br.left + r.width / 2}px`;
+  chip.style.top = `${r.bottom - br.top}px`;
+  bar.append(chip);
+  const a = chip.animate([{ opacity: 0, transform: 'translate(-50%, 0)' }, { opacity: 1, transform: 'translate(-50%, 8px)', offset: 0.2 }, { opacity: 1, transform: 'translate(-50%, 12px)', offset: 0.7 }, { opacity: 0, transform: 'translate(-50%, 22px)' }],
+    { duration: 1300, easing: 'ease-out' });
+  hdrAnims.push(a);
+  a.finished.then(() => chip.remove(), () => chip.remove());
+}
+const pulse = node => hdrAnims.push(node.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.28)' }, { transform: 'scale(1)' }], { duration: 340, easing: EASE }));
+const flipIn = node => hdrAnims.push(node.animate([{ opacity: 0, transform: 'translateY(70%)' }, { opacity: 1, transform: 'none' }], { duration: 280, easing: EASE }));
+
+// 상단 바 숫자가 바뀌었으면 움직임 (첫 화면과 움직임을 줄였을 때는 바로)
+function headerMotion(week) {
+  for (const a of hdrAnims.splice(0)) a.cancel();
+  document.querySelectorAll('.topbar .float-delta').forEach(x => x.remove());
+  const now = { cash: state.agencyCash, rep: state.rep, ap: state.ap, date: state.season * 100 + state.week };
+  if (shown && motionOn()) {
+    if (now.cash !== shown.cash) {
+      countUp($('hdr-cash'), shown.cash, now.cash, week ? 700 : 360);
+      floatDelta($('hdr-cash'), now.cash - shown.cash);
+    }
+    if (now.rep !== shown.rep) pulse($('hdr-rep'));
+    if (now.ap !== shown.ap) pulse($('hdr-ap'));
+    if (now.date !== shown.date) flipIn($('hdr-date'));
+  }
+  shown = now;
+}
+
+// 하단 탭 선택 표시: 고른 탭 뒤 둥근 바탕이 미끄러져 옴 (뉴스 화면처럼 탭이 없는 화면에서는 숨김)
+function placePill() {
+  const pill = document.querySelector('.tab-pill');
+  if (!pill) return;
+  const tab = document.querySelector('.tab[aria-current="page"]');
+  pill.style.opacity = tab ? '1' : '0';
+  if (!tab) return;
+  pill.style.width = `${tab.offsetWidth}px`;
+  pill.style.height = `${tab.offsetHeight}px`;
+  pill.style.transform = `translate(${tab.offsetLeft}px, ${tab.offsetTop}px)`;
+}
+
+// 다음 주 버튼에 빛이 한 번 지나감
+function sweepNext() {
+  if (motionOn()) $('btn-next').animate([{ backgroundPosition: '150% 0' }, { backgroundPosition: '-50% 0' }], { duration: 520, easing: 'ease-out' });
+}
+
+// 내 선수의 큰 순간: 위에서 내려오는 띠 (축하는 색종이와 함께, 강등은 차분하게). 누르면 닫히고, 3.4초 뒤 저절로 닫힘
+const MOMENT_KINDS = { cont: ['대륙 정상!', 'Continental champions!'], champ: ['리그 우승!', 'League champions!'], cup: ['컵 우승!', 'Cup winners!'],
+  up: ['승격!', 'Promoted!'], call: ['첫 국가대표!', 'First call-up!'], down: ['강등', 'Relegated'] };
+function pickMoment(fresh) {
+  for (const k of Object.keys(MOMENT_KINDS)) {
+    const n = fresh.find(x => x.k === k && (x.my || k === 'call'));
+    if (n) return n;
+  }
+  return null;
+}
+function showMoment(n) {
+  document.querySelectorAll('.moment').forEach(x => x.remove());
+  const box = el('div', `moment${n.k === 'down' ? ' bad' : ''}`);
+  box.setAttribute('role', 'status');
+  box.append(el('strong', 'moment-title', L(...MOMENT_KINDS[n.k])), el('span', 'moment-text', newsText(n).text));
+  document.body.append(box);
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    if (!motionOn()) return box.remove();
+    box.animate([{ opacity: 1 }, { opacity: 0, transform: 'translate(-50%, -10px)' }], { duration: 200, easing: 'ease-in', fill: 'forwards' }).finished.then(() => box.remove(), () => box.remove());
+  };
+  box.addEventListener('click', close);
+  setTimeout(close, 3400);
+  if (!motionOn()) return;
+  box.animate([{ opacity: 0, transform: 'translate(-50%, -18px) scale(0.96)' }, { opacity: 1, transform: 'translate(-50%, 0) scale(1)' }], { duration: 300, easing: EASE });
+  if (n.k === 'down') return;
+  const colors = ['var(--accent)', 'var(--warn)', 'var(--warm)', 'var(--pos-MF)'];
+  for (let i = 0; i < 16; i++) {
+    const dot = el('span', 'confetti');
+    dot.style.background = colors[i % colors.length];
+    box.append(dot);
+    const a = (i / 16) * Math.PI * 2;
+    const d = 70 + (i % 3) * 26;
+    dot.animate([{ opacity: 1, transform: 'translate(-50%, -50%) scale(0.5)' }, { opacity: 0, transform: `translate(calc(-50% + ${Math.round(Math.cos(a) * d)}px), calc(-50% + ${Math.round(Math.sin(a) * d * 0.55)}px)) rotate(${i * 45}deg) scale(1)` }],
+      { duration: 950, delay: 120, easing: 'cubic-bezier(0.1, 0.7, 0.3, 1)', fill: 'backwards' }).finished.then(() => dot.remove(), () => dot.remove());
+  }
+}
+
+// 답한 소식 카드는 옆으로 빠진 뒤 처리 (그동안 다른 버튼은 막음)
+let motionBusy = false;
+function dismissThen(card, run) {
+  motionBusy = true;
+  card.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateX(28px) scale(0.98)' }], { duration: 180, easing: 'ease-in', fill: 'forwards' })
+    .finished.then(run, run).finally(() => (motionBusy = false));
+}
+
 function render() {
   renderHeader();
+  const week = nextMotion === 'week';
+  headerMotion(week);
   const root = $('view');
   root.replaceChildren();
   document.querySelectorAll('.tab').forEach(b => b.setAttribute('aria-current', b.dataset.tab === state.ui.tab ? 'page' : 'false'));
@@ -5044,12 +5216,15 @@ function render() {
   clientsTab.textContent = L('내 선수', 'Players');
   clientsTab.setAttribute('aria-label', state.events.length ? L(`내 선수, 소식 ${state.events.length}건`, `Players, ${pl(state.events.length, 'news item')}`) : L('내 선수', 'Players'));
   if (state.events.length) clientsTab.append(el('span', 'count', String(state.events.length)));
+  placePill();
   if (state.ui.player !== null) renderPlayer(root, state.ui.player);
   else if (state.ui.tab === 'world') renderWorld(root);
   else if (state.ui.tab === 'agency') renderAgency(root);
   else if (state.ui.tab === 'log') renderLog(root);
   else if (state.ui.tab === 'news') renderNews(root);
   else renderClients(root);
+  if (nextMotion && motionOn()) playScreen(root, nextMotion);
+  nextMotion = '';
 }
 
 // 13단계 결산 창 한 줄: "잉글랜드 2부 우승 · 1부 승격 · 컵 우승" (예전 세이브나 리그에서 못 뛴 선수는 빈 문자열)
@@ -5123,6 +5298,7 @@ function openGameOver() {
 function startNewGame() {
   newGame();
   resetHistory();
+  nextMotion = 'boot';
   render();
   window.scrollTo(0, 0);
   toast(L('새 게임을 시작했습니다.', 'A new game has started.'));
@@ -5133,13 +5309,16 @@ const historyDepth = () => (history.state && Number.isInteger(history.state.dept
 
 function resetHistory() {
   history.replaceState({ ui: { ...state.ui }, depth: 0, scroll: 0 }, '');
+  lastDepth = 0;
 }
 
 // 앞으로 이동: 지금 위치의 스크롤을 기록해 두고 새 위치를 쌓음
 function navigate(changes) {
   history.replaceState({ ...history.state, ui: { ...state.ui }, scroll: window.scrollY }, '');
+  nextMotion = changes.tab !== undefined && changes.tab !== state.ui.tab ? 'tab' : 'forward';
   Object.assign(state.ui, changes);
-  history.pushState({ ui: { ...state.ui }, depth: historyDepth() + 1, scroll: 0 }, '');
+  lastDepth = historyDepth() + 1;
+  history.pushState({ ui: { ...state.ui }, depth: lastDepth, scroll: 0 }, '');
   render();
   window.scrollTo(0, 0);
 }
@@ -5156,6 +5335,7 @@ function goUp() {
   else if (ui.tier !== null) ui.tier = null;
   else ui.country = null;
   resetHistory();
+  nextMotion = 'back';
   render();
   window.scrollTo(0, 0);
 }
@@ -5163,6 +5343,9 @@ function goUp() {
 function onPopState(e) {
   if (!e.state || !e.state.ui) return;
   state.ui = cleanUi(e.state.ui);
+  const depth = Number.isInteger(e.state.depth) ? e.state.depth : 0;
+  nextMotion = depth < lastDepth ? 'back' : 'forward';
+  lastDepth = depth;
   render();
   window.scrollTo(0, e.state.scroll || 0);
 }
@@ -5218,6 +5401,7 @@ function onAction(act, v, o) {
   // 14단계 할 일 줄: 탭으로 이동 (리그 탭은 맨 위부터)
   if (act === 'goTab') return navigate(v === 1 ? { tab: 'world', player: null, country: null, tier: null, club: null } : { tab: ['clients', 'world', 'agency', 'log'][v] || 'clients', player: null });
   if (act === 'lang') return stay(() => setLang(v === 1 ? 'en' : 'ko'));
+  if (act === 'motion') return stay(() => setMotion(v === 1 ? 'reduce' : 'on'));
   if (act === 'clubAt') return navigate({ tab: 'world', player: null, country: CLUBS[v].country.i, tier: CLUBS[v].t, club: v });
   if (act === 'pitch') return stay(() => pitch(v, o));
   if (act === 'loan') return stay(() => loan(v, o));
@@ -5230,14 +5414,27 @@ function onAction(act, v, o) {
 function bindEvents() {
   $('btn-next').addEventListener('click', () => {
     const first = state.nextEventId;
+    const newsTop = state.news[0];
+    sweepNext();
     const news = advanceWeek();
+    nextMotion = 'week';
     render();
+    // 16단계: 이번 주에 생긴 내 선수의 큰 순간 (결산·장면·파산 창이 뜨는 주에는 띠 대신 창)
+    const fresh = [];
+    for (const n of state.news) {
+      if (n === newsTop) break;
+      fresh.push(n);
+    }
+    const moment = pickMoment(fresh);
     // 이번 주에 새로 찾아온 관계 이야기는 장면 시트로 보여 줌 (결산 창이 뜨면 닫은 뒤에)
     sceneQueue = state.events.filter(e => e.id >= first && EVENT_TYPES[e.type].tale).map(e => e.id);
     if (state.over) openGameOver();
     else if (state.summary && !state.summary.seen) openSummary();
     else if (sceneQueue.length) openScene();
-    else if (news) toast(L(`새 소식 ${news}건이 있습니다. 내 선수 탭에서 답해 주세요.`, `${pl(news, 'new story', 'new stories')}. Answer them in the Players tab.`));
+    else {
+      if (moment) showMoment(moment);
+      if (news) toast(L(`새 소식 ${news}건이 있습니다. 내 선수 탭에서 답해 주세요.`, `${pl(news, 'new story', 'new stories')}. Answer them in the Players tab.`));
+    }
   });
   document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => {
     if (state.ui.tab === b.dataset.tab && state.ui.player === null) {
@@ -5249,11 +5446,14 @@ function bindEvents() {
   window.addEventListener('popstate', onPopState);
   $('view').addEventListener('click', e => {
     const b = e.target.closest('[data-act]');
-    if (b && !b.disabled) {
-      if (b.dataset.y) renewYears = Number(b.dataset.y);
-      onAction(b.dataset.act, b.dataset.v === undefined ? undefined : Number(b.dataset.v), Number(b.dataset.o));
-    }
+    if (!b || b.disabled || motionBusy) return;
+    if (b.dataset.y) renewYears = Number(b.dataset.y);
+    const run = () => onAction(b.dataset.act, b.dataset.v === undefined ? undefined : Number(b.dataset.v), Number(b.dataset.o));
+    const card = b.dataset.act === 'event' && motionOn() ? b.closest('.news') : null;
+    if (card) dismissThen(card, run);
+    else run();
   });
+  window.addEventListener('resize', placePill);
   $('summary-close').addEventListener('click', () => $('summary').close());
   $('summary').addEventListener('close', () => {
     if (state.summary && !state.summary.seen) {
@@ -5501,8 +5701,14 @@ function boot() {
   }
   const loaded = loadState();
   if (loaded !== 'ok') newGame();
+  initMotion();
+  const nav = document.querySelector('.bottombar');
+  if (nav && !nav.querySelector('.tab-pill')) nav.prepend(el('span', 'tab-pill'));
   bindEvents();
+  nextMotion = 'boot';
   const rendered = safeRender();
+  // 첫 위치를 잡은 뒤부터 탭 표시가 미끄러짐
+  requestAnimationFrame(() => document.querySelector('.tab-pill') && document.querySelector('.tab-pill').classList.add('ready'));
   resetHistory();
   const backupNote = L('이전 저장은 기록 탭에서 백업 파일로 받을 수 있습니다.', 'You can download the old save as a backup from the Log tab.');
   if (!rendered) toast(L(`화면을 그리지 못해 새 게임으로 시작했습니다. ${backupNote}`, `The screen couldn't be drawn, so a new game was started. ${backupNote}`));

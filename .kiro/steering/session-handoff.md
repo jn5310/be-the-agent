@@ -39,6 +39,7 @@ inclusion: always
 - 글꼴에 어떤 글자가 있는지는 `fc-query --format='%{charset}' 파일.woff2`로 봅니다(woff2도 읽음). pip·npm 설치는 막혀 있어서 fontTools 같은 도구로 글꼴을 고칠 수 없고, 고치면 예약 이름 때문에 이름도 바꿔야 하니 공식 파일만 씁니다(AGENTS.md 1장 1번).
 - 이미지를 확인하는 도구는 같은 경로를 다시 읽으면 예전 이미지를 돌려줄 수 있습니다. 다시 그린 이미지는 새 이름으로 복사해서 확인합니다. 그림을 만드는 명령과 그 그림을 읽는 도구를 한 번에 부르면 병렬로 돌아 파일이 없다고 나옵니다. 따로 부릅니다.
 - `<dialog>` 시트는 올라오는 애니메이션(0.25초)이 있어서, 위치를 잴 때는 400ms쯤 기다립니다.
+- 16단계부터 화면 이동·다음 주에 움직임이 있습니다. 넘침·크기를 잴 때는 `await Promise.all(document.getAnimations().map(a => a.finished.catch(() => {})))`로 끝나기를 기다리고, 움직임과 관계없는 화면 확인은 `browser.newContext({ reducedMotion: 'reduce' })`로 엽니다. 움직임 프레임을 찍을 때는 동작 직후 `document.getAnimations().forEach(a => a.pause())`, 프레임마다 `a.currentTime = t`와 `window.__motionTick()`(자금 숫자)을 부른 뒤 찍습니다. 답한 소식 카드는 0.18초 뒤에 처리되니, 누른 뒤 결과를 볼 때는 300ms쯤 기다립니다.
 - 언어(11단계): 언어 설정이 없으면 게임이 브라우저 언어를 따릅니다. 헤드리스 Chromium은 `en-US`라서, 한국어로 확인할 때는 `browser.newContext({ locale: 'ko-KR' })`, 영어는 `locale: 'en-US'`로 엽니다.
 - 영어 화면 점검: 열린 화면·창의 글자 노드와 `aria-label`을 훑어 `[가-힣]`이 남았는지 봅니다(언어 버튼 "한국어", "Language · 언어"는 예외). 소식은 `d.v`를 0~59로 바꿔 가며 상황 글·선수의 말 변형을 모두 그려 봅니다. 한 줄이어야 하는 버튼(하단 탭)은 글자 노드의 `getClientRects()` 줄 수로 두 줄이 됐는지 봅니다(`scrollWidth`로는 줄바꿈을 못 잡음).
 - 코드에서 짝 없는 한국어 글 찾기: eslint에 들어 있는 acorn(`$(npm root -g)/eslint/node_modules/acorn`)으로 `game.js`를 읽어, `L()`·`M()`·`SAY()`의 첫 인자가 아닌 곳에 한글이 있는 문자열을 찾습니다. 주석·`console`·자가 검증 메시지·조사 도구·세계 데이터는 빼고 봅니다.
