@@ -6,8 +6,8 @@
   <meta name="theme-color" content="#0b1120">
   <title>Be The Agent</title>
   <!-- 배포할 때마다 ?v= 숫자를 올림 (GitHub Pages 10분 캐시에 옛 파일이 섞이지 않게) -->
-  <link rel="stylesheet" href="style.css?v=5">
-  <script src="game.js?v=5" defer></script>
+  <link rel="stylesheet" href="style.css?v=6">
+  <script src="game.js?v=6" defer></script>
 </head>
 <body>
   <!-- 상단: 시즌·주차, 자금, 평판, 행동력 -->
@@ -20,10 +20,11 @@
 
   <main id="view" class="view"></main>
 
-  <!-- 하단: 탭 3개와 다음 주 버튼 -->
+  <!-- 하단: 탭 4개와 다음 주 버튼 -->
   <nav class="bottombar" aria-label="메뉴">
     <button type="button" class="tab" data-tab="clients">내 선수</button>
     <button type="button" class="tab" data-tab="world">리그</button>
+    <button type="button" id="tab-agency" class="tab" data-tab="agency">에이전시</button>
     <button type="button" class="tab" data-tab="log">기록</button>
     <button type="button" id="btn-next" class="next">다음 주 ▶</button>
   </nav>

@@ -7,7 +7,7 @@ inclusion: always
 ## 시작할 때
 1. `AGENTS.md` 0장(지금 상태·다음에 할 일)을 먼저 읽습니다. 규칙은 1장, 수식은 5장, 재미 지표는 8장입니다.
 2. PR 상태를 확인합니다: `gh api "repos/jn5310/be-the-agent/pulls?state=all&per_page=5" --jq '.[] | "#\(.number) \(.state) \(.head.ref)"'`
-3. 열린 PR이 없고 `main`이 최신이면 `main`에서 새 브랜치(`phaseN-...` 또는 `fix-...`)를 만듭니다. `main`에 바로 커밋하지 않습니다.
+3. 열린 PR이 없고 `main`이 최신이면 `main`에서 새 브랜치(`phaseN-...` 또는 `fix-...`)를 만듭니다. `main`에 바로 커밋하지 않습니다. 머지 안 된 PR 위에서 일할 때는 그 브랜치에서 새 브랜치를 따고, PR `base`는 `main`으로 둡니다(이 리포는 머지 후 브랜치를 지우지 않아서, 쌓은 PR의 base가 자동으로 바뀌지 않음).
 
 ## 사용자와 일하는 방식
 - 항상 한국어로 답합니다.
@@ -15,7 +15,8 @@ inclusion: always
 - 세부 수치는 추천안으로 진행한 뒤 보고합니다.
 - 보고 순서: PR 링크 → 들어간 것 → 숫자로 확인한 것 → 남은 문제·사용자가 볼 점. 짧게 씁니다.
 - GitHub 설정처럼 사용자가 직접 해야 하는 일은 클릭 경로로 안내합니다. Pages 설정 API는 이 환경에서 403이 납니다.
-- 밸런스는 직접 느낌만으로 정하지 않습니다. `node tools/sim.js --games 1000 --all`(약 3분)로 수천 판을 돌려 지표로 판단하고, 결과를 PR에 적습니다.
+- 밸런스는 직접 느낌만으로 정하지 않습니다. `node tools/sim.js --games 1000 --all`(약 2분 20초)로 수천 판을 돌려 지표로 판단하고, 결과를 PR에 적습니다.
+- 5단계 이후에는 다른 게임의 요소를 하나씩 가져와 넣습니다. 새 작업을 시작할 때 후보를 "선택지 | 추천" 표로 먼저 드립니다 (`game-design.md` "기능을 넣는 방식").
 
 ## 작업 순서 (매 단계)
 1. 코드 수정 → `node --check game.js` → 쓰지 않는 함수가 없는지 확인
@@ -28,6 +29,8 @@ inclusion: always
 ## 이 샌드박스에서 확인하는 요령
 - Playwright는 `file://`를 막고, 파이썬 서버 같은 백그라운드 서버도 막힙니다. `page.route('http://bta.local/**', ...)`로 리포 파일을 직접 돌려주고 `http://bta.local/`을 엽니다.
 - 헤드리스 브라우저에 한글 글꼴이 없어 스크린샷에는 한글이 네모로 나옵니다. 화면 내용은 `innerText`로 확인합니다.
+- 대신 쓰는 글꼴의 한글 폭이 실제의 60%쯤이라 줄바꿈 검사가 실제보다 후하게 나옵니다. 좁은 곳(하단 탭 등)은 한글을 `W`로 바꿔 폭을 재면 실제와 비슷합니다.
+- Playwright 위치: `$(npm root -g)/@playwright/mcp/node_modules/playwright`, 브라우저는 `PLAYWRIGHT_BROWSERS_PATH=/inner_container/opt/playwright`로 지정합니다.
 - 샌드박스는 인터넷이 안 돼서 실제 사이트를 열 수 없습니다. 배포는 `gh api repos/jn5310/be-the-agent/pages/builds/latest`로 확인합니다.
 - 파일 쓰기 도구의 `/tmp`와 셸의 `/tmp`는 서로 다릅니다. 임시 파일은 리포 밖 `/projects/sandbox/_scratch`에 두고 끝나면 지웁니다.
 - 따옴표·백틱이 많은 `node -e` 한 줄은 깨지기 쉽습니다. 스크립트 파일로 만들어 실행합니다.
