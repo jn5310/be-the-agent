@@ -4,7 +4,7 @@
 // ===== 1. 상수와 세계 데이터 =====
 const SAVE_KEY = 'be-the-agent:save';
 const BACKUP_KEY = 'be-the-agent:save:backup'; // 읽지 못한 세이브를 지우지 않고 보관
-const SAVE_VERSION = 7;
+const SAVE_VERSION = 8;
 const WEEKS = 52;
 const SQUAD = 24;
 const WORLD_SEED = 20261030; // 구단 이름·전력은 모든 게임에서 같게 고정
@@ -391,7 +391,7 @@ function newGame() {
   state = {
     version: SAVE_VERSION, seed, season: 1, week: 1,
     agencyCash: TUNE.soloCash, rep: START_REP, ap: TUNE.soloAp, debtWeeks: 0, over: false, founded: false,
-    personalCash: 0, invest: newInvest(), items: [], scouted: {}, watch: [],
+    personalCash: 0, invest: newInvest(), items: [], scouted: {}, watch: [], alumni: [], intros: {},
     clients: [], cooldowns: {}, logs: [], summary: null, moved: {}, events: [], nextEventId: 1,
     natCut: {}, stats: newCareerStats(),
     ui: { ...DEFAULT_UI },
@@ -456,7 +456,7 @@ function pickStartingClients() {
 const newClient = (p, end, sat, bond, how) => ({
   s: p.s, g: p.g, end, wage: weeklyWage(p.ability), sat, met: 0, negUntil: 0, warned: 0,
   st: newStint(p.club, worldStats(p, state.season, state.week)), hist: [], playRate: 0.6, capped: false,
-  bond, since: absWeek(), how, memo: []
+  bond, since: absWeek(), how, memo: [], tales: []
 });
 // 에이전시 커리어 통계 (기록 탭·시뮬레이션용)
 const newCareerStats = () => ({ lost: 0, transfers: 0, dream: 0, callups: 0, renewTry: 0, renewWin: 0, signed: 0 });
@@ -492,6 +492,7 @@ function advanceWeek() {
   state.ap = weeklyAp();
   const now = absWeek();
   for (const key of Object.keys(state.cooldowns)) if (state.cooldowns[key] <= now) delete state.cooldowns[key];
+  for (const key of Object.keys(state.intros)) if (state.intros[key] <= now) delete state.intros[key];
   const week = weeklyClients();
 
   addLog(week.lines.length ? `경기: ${week.lines.join(', ')}` : '이번 주 소속 선수 경기 없음');
@@ -523,7 +524,7 @@ function endSeason() {
   const before = state.clients.map(c => {
     const p = getPlayer(c.s);
     const L = c.st.L;
-    return { name: p.name, age: ageOf(p), ability: p.ability, value: valueOf(p), apps: L[0], goals: L[1], rating: L[0] ? L[3] / L[0] / 10 : 0, caps: c.st.N[0] };
+    return { name: p.name, age: ageOf(p), ability: p.ability, value: valueOf(p), apps: L[0], goals: L[1], rating: L[0] ? L[3] / L[0] / 10 : 0, caps: c.st.N[0], nat: p.nat.id };
   });
   for (const c of state.clients) archiveStint(c);
   for (let s = 0; s < SLOTS; s++) {
@@ -582,7 +583,13 @@ function endSeason() {
   let valueTo = 0;
   state.clients = state.clients.filter((c, i) => {
     if (w.gen[c.s] !== c.g) {
-      rows.push({ name: before[i].name, ageFrom: before[i].age, retired: true });
+      // 은퇴식: 오래 함께했거나 유대가 깊으면 고마움을 전하고(평판), 아주 깊으면 은퇴 후 그 나라 스카우트로 합류
+      const seasons = Math.floor((absWeek() - c.since) / WEEKS); // 시즌이 막 넘어간 때라 지금 주 - 시작 주 = 함께한 주
+      const farewell = c.bond >= TUNE.farewellBond || seasons >= 2;
+      const scout = farewell && c.bond >= TUNE.alumniBond && state.alumni.length < TUNE.alumniMax;
+      const rep = farewell ? gainRep(1) : 0;
+      if (scout) state.alumni.push({ name: before[i].name, nat: before[i].nat, season: state.season - 1 });
+      rows.push({ name: before[i].name, ageFrom: before[i].age, retired: true, farewell, scout, seasons, bond: c.bond, rep, nat: before[i].nat });
       return false;
     }
     const p = getPlayer(c.s);
@@ -607,8 +614,8 @@ function endSeason() {
 // ===== 영입·해지 =====
 const recruitCost = p => Math.round((500 + weeklyWage(p.ability)) / 100) * 100;
 
-// 성공 확률: 평판이 선수 수준((능력-40)×2)보다 높을수록 오름, 21세 이하 +10, 스카우트망 보너스, 5~90%
-const recruitChance = p => clamp(Math.round(60 + state.rep - (p.ability - 40) * 2 + (ageOf(p) <= 21 ? 10 : 0) + TUNE.scoutRecruit[state.invest.scout]), 5, 90);
+// 성공 확률: 평판이 선수 수준((능력-40)×2)보다 높을수록 오름, 21세 이하 +10, 스카우트망 보너스, 내 선수가 소개한 후배 +, 5~90%
+const recruitChance = p => clamp(Math.round(60 + state.rep - (p.ability - 40) * 2 + (ageOf(p) <= 21 ? 10 : 0) + TUNE.scoutRecruit[state.invest.scout] + (introActive(p) ? TUNE.introBonus : 0)), 5, 90);
 
 // 영입을 막는 이유 (없으면 빈 문자열)
 function recruitBlock(p) {
@@ -703,7 +710,11 @@ const TUNE = {
   // 선수와의 유대(0~100): 시작 값(시작 선수, 혼자일 때 영입, 회사 세운 뒤 영입), 함께 지낸 몇 주마다 +1, 회사 세울 때 +, 면담 +
   // 효과는 유대 bondFrom을 넘는 만큼: 붙잡을 확률 + (유대 - bondFrom) × bondKeep, 이적 동의 + (유대 - bondFrom) × bondConsent(%p)
   // 유대 bondCalm 이상이면 만족이 격주로만 떨어짐
-  bondStart: 60, bondSolo: 35, bondNew: 20, bondTime: 13, bondFound: 5, bondMeet: 1, bondFrom: 40, bondKeep: 0.002, bondConsent: 0.15, bondCalm: 70
+  bondStart: 60, bondSolo: 35, bondNew: 20, bondTime: 13, bondFound: 5, bondMeet: 1, bondFrom: 40, bondKeep: 0.002, bondConsent: 0.15, bondCalm: 70,
+  // 8단계 관계 이야기: 조건(TALES)을 채운 선수에게 매주 taleChance 확률로 찾아옴(선수마다 이야기마다 한 번)
+  // 후배 소개: 영입 확률 +introBonus%p가 introWeeks주 동안. 은퇴식: 유대 farewellBond 이상이거나 2시즌 이상 함께했으면 평판 +1,
+  // 유대 alumniBond 이상이면 은퇴 후 그 나라 스카우트로 합류(그 나라 유망주 스카우트 +1번, 최대 alumniMax명)
+  taleChance: 0.05, introBonus: 15, introWeeks: 26, farewellBond: 60, alumniBond: 70, alumniMax: 5
 };
 // 평판 오르는 양은 평판이 높을수록 줄어듦 (30시즌 커리어 동안 천천히 오르게). 소수점은 확률로 반올림
 function gainRep(n) {
@@ -938,6 +949,41 @@ function togetherText(c) {
   const seasons = Math.floor(weeks / WEEKS);
   return `함께한 지 ${seasons ? `${seasons}시즌 ` : ''}${weeks % WEEKS}주`;
 }
+
+// --- 관계 이야기 (8단계): 유대가 깊어진 선수에게 한 번씩 찾아오는 이야기. c.tales = [{ k, w: 시작 주, t: 고른 답 }] ---
+const TALE_KEYS = ['call', 'wedding', 'junior', 'praise']; // 필요한 유대가 낮은 순
+const FAMILY = ['누나', '형', '사촌 누나', '여동생'];
+const taleSeen = (c, key) => c.tales.some(t => t.k === key);
+// 조건: 아직 안 본 이야기, 유대가 need 이상, 함께한 지 weeks주 이상 (이야기는 시간과 함께 찾아옴)
+const taleOpen = (c, key) => c.bond >= EVENT_TYPES[key].tale.need && absWeek() - c.since >= EVENT_TYPES[key].tale.weeks;
+const taleReady = (c, key) => !taleSeen(c, key) && taleOpen(c, key);
+const startTale = (c, key) => c.tales.push({ k: key, w: absWeek(), t: '' });
+// 다음 이야기 안내: 조건을 채운 이야기가 있으면 곧 찾아온다고, 아니면 필요한 유대
+function nextTaleText(c) {
+  const left = TALE_KEYS.filter(k => !taleSeen(c, k));
+  if (!left.length) return '이 선수와의 이야기를 모두 함께했습니다.';
+  if (left.some(k => taleOpen(c, k))) return '유대가 충분히 깊어져 새 이야기가 찾아올 수 있습니다.';
+  const next = EVENT_TYPES[left[0]].tale;
+  const time = next.weeks >= WEEKS ? `${next.weeks / WEEKS}시즌` : `${next.weeks}주`;
+  return `다음 이야기는 유대 ${next.need} 이상, 함께한 지 ${time}부터 열립니다 (지금 유대 ${c.bond}, ${togetherText(c)}).`;
+}
+
+// 후배 소개: 같은 나라 구단에서 20세 이하·잠재력 여유 10 이상·영입 확률 20% 이상, 아직 내 선수가 아닌 선수 중 잠재력이 가장 높은 선수
+function findJunior(p) {
+  let best = null;
+  for (const club of p.nat.clubs.flat()) {
+    for (const s of clubSlots(club)) {
+      const j = getPlayer(s);
+      if (j.nat !== p.nat || ageOf(j) > 20 || j.pot - j.ability < 10 || clientOf(s) || recruitChance(j) < 20) continue;
+      if (!best || j.pot > best.pot) best = j;
+    }
+  }
+  return best ? best.s : null;
+}
+
+// 은퇴 후 스카우트로 합류한 옛 선수: 그 나라 유망주는 스카우트를 한 번 더 보낸 것처럼 보임
+const alumniKnow = p => (state.alumni.some(a => a.nat === p.nat.id) ? 1 : 0);
+const introActive = p => (state.intros[cooldownKey(p)] || 0) > absWeek();
 
 function removeClient(c, reason, repLoss) {
   state.clients = state.clients.filter(x => x !== c);
@@ -1224,6 +1270,70 @@ const EVENT_TYPES = {
     ],
     def: 1
   },
+  // --- 8단계 관계 이야기: 유대가 깊어진 선수에게 선수마다 한 번씩 (make에서 시작한 것으로 기록) ---
+  // tale = { title, need: 필요한 유대, weeks: 함께한 주 }, quote = 선수의 말
+  call: {
+    tale: { title: '밤 11시의 전화', need: 45, weeks: 8 },
+    chance: c => (taleReady(c, 'call') && c.sat < 65 ? TUNE.taleChance : 0),
+    make: c => (startTale(c, 'call'), {}),
+    text: p => `밤 11시, ${p.name} 선수에게서 전화가 왔습니다.`,
+    quote: () => '요즘 경기가 너무 안 풀려서요… 그냥 에이전트님 목소리 듣고 싶었어요.',
+    options: [
+      { label: () => '지금 만나러 간다', ap: 1, bond: 4, memo: '힘들 때 밤늦게 만나러 와 줌', run: (c, p) => ((c.met = absWeek()), addSat(c, 8), `${p.name} 선수를 밤늦게 만나 이야기를 들었습니다 (만족 +8).`) },
+      { label: () => '오래 통화하며 들어 준다', bond: 2, memo: '밤늦은 전화를 오래 들어 줌', run: (c, p) => (addSat(c, 4), `${p.name} 선수와 오래 통화했습니다 (만족 +4).`) },
+      { label: () => '내일 얘기하자고 한다', bond: -2, memo: '밤늦은 전화를 끊음', run: (c, p) => `${p.name} 선수에게 내일 얘기하자고 했습니다.` }
+    ],
+    def: 2
+  },
+  wedding: {
+    tale: { title: '가족 결혼식', need: 60, weeks: 26 },
+    chance: c => (taleReady(c, 'wedding') ? TUNE.taleChance : 0),
+    make: c => (startTale(c, 'wedding'), { who: FAMILY[hash(state.seed, c.s, c.g, 61) % FAMILY.length] }),
+    text: (p, d) => `${p.name} 선수가 ${d.who} 결혼식에 초대했습니다.`,
+    quote: () => '에이전트님이 와 주시면 가족들이 정말 좋아할 거예요. 저 무명일 때부터 챙겨 주신 분이라고 늘 얘기했거든요.',
+    options: [
+      { label: () => '직접 참석한다', ap: 1, cost: () => 500, bond: 5, memo: '가족 결혼식에 직접 와 줌', run: (c, p) => (addSat(c, 6), `${p.name} 선수 가족 결혼식에 참석했습니다 (만족 +6).`) },
+      { label: () => '선물만 보낸다', cost: () => 1000, bond: 2, memo: '가족 결혼식에 선물을 보냄', run: (c, p) => (addSat(c, 2), `${p.name} 선수 가족에게 결혼 선물을 보냈습니다 (만족 +2).`) },
+      { label: () => '바빠서 못 간다', bond: -2, memo: '가족 결혼식에 오지 못함', run: (c, p) => `${p.name} 선수 가족 결혼식에 가지 못했습니다.` }
+    ],
+    def: 2
+  },
+  junior: {
+    // 이야기를 하나 이상 함께한 선수가 같은 나라 후배 유망주를 소개: 잘 아는 후배라 잠재력 범위가 좁고, 한동안 영입 확률이 오름
+    tale: { title: '후배 소개', need: 70, weeks: 52 },
+    chance: c => (taleReady(c, 'junior') && c.tales.length >= 1 ? TUNE.taleChance : 0),
+    make: (c, p) => {
+      const s = findJunior(p);
+      if (s === null) return null;
+      startTale(c, 'junior');
+      const key = cooldownKey(getPlayer(s));
+      state.scouted[key] = Math.max(state.scouted[key] || 0, 2);
+      state.intros[key] = absWeek() + TUNE.introWeeks;
+      return { junior: s };
+    },
+    text: (p, d) => {
+      const j = getPlayer(d.junior);
+      return `${p.name} 선수가 후배 ${j.name}(${ageOf(j)}세 ${j.pos}, ${j.club.name}, 잠재력 ${potText(j)})을(를) 소개했습니다. ${TUNE.introWeeks}주 동안 영입 확률 +${TUNE.introBonus}%p.`;
+    },
+    quote: () => '제가 제일 믿는 에이전트라고 말해 뒀어요. 한번 만나 봐 주세요.',
+    options: [
+      { label: () => '만나러 간다', go: 'junior', bond: 2, memo: '소개해 준 후배를 만나 줌', run: (c, p, d) => `${p.name} 선수가 소개한 ${getPlayer(d.junior).name} 선수를 보러 갑니다.` },
+      { label: () => '지금은 어렵다고 말한다', run: (c, p) => `${p.name} 선수의 소개를 정중히 미뤘습니다.` }
+    ],
+    def: 1
+  },
+  praise: {
+    tale: { title: '인터뷰의 고마움', need: 85, weeks: 104 },
+    chance: c => (taleReady(c, 'praise') ? TUNE.taleChance : 0),
+    make: c => (startTale(c, 'praise'), {}),
+    text: p => `${p.name} 선수가 방송 인터뷰에서 에이전트 이야기를 꺼냈습니다.`,
+    quote: () => '제 커리어의 절반은 에이전트님 덕분이에요. 아무도 저를 모를 때 먼저 손을 내밀어 준 사람이에요.',
+    options: [
+      { label: () => '식사 자리를 만든다', ap: 1, cost: () => 300, bond: 3, memo: '인터뷰 뒤 함께 식사함', run: (c, p) => (addSat(c, 5), `${p.name} 선수와 식사했습니다 (평판 +${gainRep(2)}, 만족 +5).`) },
+      { label: () => '고맙다고 문자를 보낸다', bond: 1, memo: '인터뷰에 고맙다고 답함', run: (c, p) => `${p.name} 선수의 인터뷰가 화제가 됐습니다 (평판 +${gainRep(2)}).` }
+    ],
+    def: 1
+  },
   tip: {
     text: p => `${state.invest.scout ? '스카우트망이' : '아는 스카우트가'} ${p.club.name}의 ${ageOf(p)}세 ${p.pos} ${p.name}(능력 ${p.ability}, 잠재력 ${potText(p)})를 추천했습니다. 보고서가 함께 와서 범위가 한 단계 좁습니다.`,
     options: [
@@ -1276,8 +1386,12 @@ function resolveEvent(id, index, auto = false) {
   const result = opt.run(c, p, ev.d);
   // 답하지 않고 넘어간 것도 선수는 기억함
   if (opt.bond && c && clientOf(ev.s)) addBond(c, opt.bond, auto ? `(답하지 않음) ${opt.memo}` : opt.memo);
+  // 관계 이야기는 고른 답을 이야기 기록에 남김
+  const tale = type.tale && c ? c.tales.find(t => t.k === ev.type) : null;
+  if (tale) tale.t = `${auto ? '(답하지 않음) ' : ''}${opt.memo || opt.label(p, ev.d, c)}`;
   if (result) addLog(`${auto ? '(답하지 않아 기본 처리) ' : ''}${result}${opt.bond && c ? ` 유대 ${opt.bond > 0 ? '+' : ''}${opt.bond}.` : ''}`);
-  return opt.go ? ev.s : null;
+  // go = true면 이 선수 상세로, 문자열이면 소식에 담긴 다른 선수(예: 소개받은 후배)로 이동
+  return opt.go ? (opt.go === true ? ev.s : ev.d[opt.go]) : null;
 }
 
 // 소속 선수 한 주 경기: 이번 주 경기와 A매치를 기록하고 요약 문구를 돌려줌
@@ -1519,7 +1633,7 @@ function buyItem(i) {
 
 // ===== 6-4. 유망주 찾기: 잠재력 범위·스카우트·관심 목록 (6단계) =====
 // 스카우트 횟수: 직접 보낸 횟수 + 스카우트망 단계만큼 이미 본 것으로 침
-const scoutCount = p => (state.scouted[cooldownKey(p)] || 0) + TUNE.scoutKnow[state.invest.scout];
+const scoutCount = p => (state.scouted[cooldownKey(p)] || 0) + TUNE.scoutKnow[state.invest.scout] + alumniKnow(p);
 
 // 잠재력 범위 [아래, 위]. 소속 선수와 다 자란 선수(TUNE.potAgeMax 초과)는 정확히 보임
 // 진짜 잠재력이 범위 어디쯤인지는 선수마다 시드로 정해져 다시 봐도 같고, 스카우트할 때마다 이전 범위 안에서 좁아짐
@@ -1635,7 +1749,7 @@ function serialize() {
 function deserialize(text) {
   const d = JSON.parse(text);
   const int = v => Number.isInteger(v);
-  if (!d || ![1, 2, 3, 4, 5, 6, SAVE_VERSION].includes(d.version)) throw new Error('지원하지 않는 버전입니다');
+  if (!d || ![1, 2, 3, 4, 5, 6, 7, SAVE_VERSION].includes(d.version)) throw new Error('지원하지 않는 버전입니다');
   if (d.slots !== SLOTS) throw new Error('세계 구성이 다른 세이브입니다');
   if (!int(d.seed) || !int(d.season) || d.season < 1 || !int(d.week) || d.week < 1 || d.week > WEEKS) throw new Error('날짜 정보가 올바르지 않습니다');
   if (!Number.isFinite(d.agencyCash) || !Number.isFinite(d.rep) || !Array.isArray(d.logs)) throw new Error('기본 정보가 올바르지 않습니다');
@@ -1663,7 +1777,8 @@ function deserialize(text) {
   }
   const events = (Array.isArray(d.events) ? d.events : []).filter(e => e && int(e.id) && EVENT_TYPES[e.type] && int(e.s) && e.s >= 0 && e.s < SLOTS && int(e.until))
     .map(e => ({ id: e.id, type: e.type, s: e.s, g: int(e.g) ? e.g : 0, until: e.until, d: e.d && typeof e.d === 'object' ? e.d : {} }))
-    .filter(e => e.type !== 'offer' || (int(e.d.club) && e.d.club >= 0 && e.d.club < CLUBS.length && Number.isFinite(e.d.wage) && Number.isFinite(e.d.fee)));
+    .filter(e => e.type !== 'offer' || (int(e.d.club) && e.d.club >= 0 && e.d.club < CLUBS.length && Number.isFinite(e.d.wage) && Number.isFinite(e.d.fee)))
+    .filter(e => (e.type !== 'junior' || (int(e.d.junior) && e.d.junior >= 0 && e.d.junior < SLOTS)) && (e.type !== 'wedding' || FAMILY.includes(e.d.who)));
   const nextEventId = Math.max(int(d.nextEventId) ? d.nextEventId : 1, ...events.map(e => e.id + 1));
   const intOr = (v, fallback) => (int(v) ? v : fallback);
   // 기록 한 구간: { season, club, L/C/K/N: [출전, 골, 도움, 평점합×10] }
@@ -1684,6 +1799,11 @@ function deserialize(text) {
     for (const [key, n] of Object.entries(d.scouted).slice(-TUNE.scoutMax)) if (keyOk(key) && int(n) && n > 0) scouted[key] = Math.min(n, TUNE.potWidth.length);
   }
   const watch = Array.isArray(d.watch) ? [...new Set(d.watch.filter(keyOk))].slice(0, TUNE.watchMax) : [];
+  // 8단계: 옛 선수 스카우트 [{ name, nat, season }], 후배 소개 영입 보너스 {"슬롯-세대": 끝나는 주}
+  const alumni = (Array.isArray(d.alumni) ? d.alumni : []).filter(a => a && typeof a.name === 'string' && COUNTRY_BY_ID[a.nat] && int(a.season))
+    .slice(0, TUNE.alumniMax).map(a => ({ name: a.name.slice(0, 20), nat: a.nat, season: a.season }));
+  const intros = {};
+  if (d.intros && typeof d.intros === 'object') for (const [key, until] of Object.entries(d.intros).slice(-100)) if (keyOk(key) && int(until)) intros[key] = until;
   // 알려진 필드만 옮김 (모르는 값이 상태에 섞이지 않게)
   return {
     version: SAVE_VERSION, seed: d.seed, season: d.season, week: d.week,
@@ -1691,7 +1811,7 @@ function deserialize(text) {
     ap: int(d.ap) ? clamp(d.ap, 0, d.founded === false ? TUNE.soloAp : TUNE.ap) : d.founded === false ? TUNE.soloAp : TUNE.ap,
     debtWeeks: int(d.debtWeeks) ? clamp(d.debtWeeks, 0, DEBT_LIMIT) : 0,
     over: d.over === true, founded: d.founded !== false,
-    personalCash: Number.isFinite(d.personalCash) ? Math.max(0, d.personalCash) : 0, invest, items, scouted, watch,
+    personalCash: Number.isFinite(d.personalCash) ? Math.max(0, d.personalCash) : 0, invest, items, scouted, watch, alumni, intros,
     clients: d.clients.map(c => ({
       s: c.s, g: c.g, end: c.end, wage: Number.isFinite(c.wage) ? c.wage : null,
       sat: Number.isFinite(c.sat) ? clamp(Math.round(c.sat), 0, 100) : TUNE.satStart, met: intOr(c.met, 0), negUntil: intOr(c.negUntil, 0), warned: intOr(c.warned, 0),
@@ -1700,7 +1820,10 @@ function deserialize(text) {
       // 7단계: 유대·함께한 시작 주·인연·기억 (예전 세이브는 유대 40, 시작 주는 불러온 뒤 기록으로 추정)
       bond: int(c.bond) ? clamp(c.bond, 0, 100) : 40, since: int(c.since) && c.since >= 1 ? c.since : null,
       how: typeof c.how === 'string' && c.how ? c.how.slice(0, 40) : '예전부터 함께한 선수',
-      memo: (Array.isArray(c.memo) ? c.memo : []).filter(m => m && int(m.w) && typeof m.t === 'string' && int(m.n)).slice(0, 3).map(m => ({ w: m.w, t: m.t.slice(0, 60), n: clamp(m.n, -20, 20) }))
+      memo: (Array.isArray(c.memo) ? c.memo : []).filter(m => m && int(m.w) && typeof m.t === 'string' && int(m.n)).slice(0, 3).map(m => ({ w: m.w, t: m.t.slice(0, 60), n: clamp(m.n, -20, 20) })),
+      // 8단계: 함께한 관계 이야기 (아는 이야기만, 이야기마다 한 번)
+      tales: (Array.isArray(c.tales) ? c.tales : []).filter((t, i, arr) => t && TALE_KEYS.includes(t.k) && int(t.w) && arr.findIndex(x => x && x.k === t.k) === i)
+        .map(t => ({ k: t.k, w: t.w, t: typeof t.t === 'string' ? t.t.slice(0, 60) : '' }))
     })),
     cooldowns, logs: d.logs.map(String).slice(0, 80), summary, moved, events, nextEventId,
     natCut: Object.keys(natCut).length ? natCut : null, stats, ui: cleanUi(d.ui), world
@@ -1927,10 +2050,23 @@ function bondBlock(c) {
     ? `유대 효과: 다른 에이전시가 와도 붙잡을 확률 +${Math.round(bondKeepBonus(c) * 100)}%p · 이적을 권하면 동의 +${bondConsentBonus(c)}%p · ${calm}`
     : `유대가 ${TUNE.bondFrom}을 넘으면 다른 에이전시가 와도 붙잡기 쉬워지고, 이적을 권하면 잘 따라옵니다.`;
   box.append(head, bar, el('p', 'panel-line', `인연: ${c.how}`), el('p', 'sub', effect));
-  if (c.memo.length) {
-    box.append(el('h3', 'mini', '선수가 기억하는 일'));
-    for (const m of c.memo) box.append(el('p', m.n > 0 ? 'check ok' : 'check no', `${weekLabel(m.w)} · ${m.t} (유대 ${m.n > 0 ? '+' : ''}${m.n})`));
+  // 함께한 일: 관계 이야기(강조)와 선수가 기억하는 최근 일을 시간 순 한 줄로 (이야기와 같은 기억은 한 번만)
+  const told = c.tales.filter(t => t.t);
+  const items = [
+    ...told.map(t => ({ w: t.w, text: t.t, tale: true })),
+    ...c.memo.filter(m => !told.some(t => t.t === m.t)).map(m => ({ w: m.w, text: `${m.t} (유대 ${m.n > 0 ? '+' : ''}${m.n})`, bad: m.n < 0 }))
+  ].sort((a, b) => b.w - a.w);
+  box.append(el('h3', 'mini', `함께한 이야기 ${told.length}/${TALE_KEYS.length}`));
+  if (items.length) {
+    const line = el('div', 'timeline');
+    for (const it of items) {
+      const row = el('p', it.tale ? 'tl tale' : it.bad ? 'tl bad' : 'tl', it.text);
+      row.append(el('small', '', ` · ${weekLabel(it.w)}`));
+      line.append(row);
+    }
+    box.append(line);
   } else box.append(el('p', 'sub', '함께 시간을 보내고 어려울 때 곁에 있어 주면 유대가 쌓입니다. 외면하면 줄어듭니다.'));
+  box.append(el('p', 'tale-next', nextTaleText(c)));
   return box;
 }
 
@@ -1972,9 +2108,16 @@ function newsCard(ev) {
   const type = EVENT_TYPES[ev.type];
   const p = getPlayer(ev.s);
   const c = clientOf(ev.s);
-  const card = el('article', 'news');
+  // 관계 이야기는 따뜻한 색 카드에 이야기 이름·선수의 말을 크게 (디자인 시안 A)
+  const card = el('article', type.tale ? 'news tale' : 'news');
+  if (type.tale && c) {
+    const lab = el('div', 'tale-lab');
+    lab.append(el('span', 'tale-name', `이야기 · ${type.tale.title}`), el('span', 'badge warm', `${bondName(c.bond)} ${c.bond}`));
+    card.append(lab);
+  }
   card.append(el('p', 'news-text', type.text(p, ev.d, c)));
-  if (c) card.append(el('p', 'news-bond', `관계: ${bondName(c.bond)} · 유대 ${c.bond} · ${c.how}`));
+  if (type.quote) card.append(el('p', 'quote', `"${type.quote(p, ev.d, c)}"`));
+  if (c) card.append(el('p', 'news-bond', type.tale ? `인연: ${c.how} · ${togetherText(c)}` : `관계: ${bondName(c.bond)} · 유대 ${c.bond} · ${c.how}`));
   if (type.fit) {
     const fit = type.fit(p, ev.d);
     card.append(checkList(fit.checks, fit.score, `이적 동의 ${fit.consent}%${fit.bond ? ` (유대 +${fit.bond}%p 포함)` : ''}`));
@@ -2261,7 +2404,8 @@ function scoutActions(box, p) {
     b.append(el('span', 'opt-title', '스카우트 보내기 (1 AP)'), el('span', 'opt-sub', `지금 ${lo}~${hi} · ${left}번 더 보내면 정확히 압니다`));
     const block = scoutBlock(p);
     b.disabled = Boolean(block);
-    box.append(el('p', 'sub', '잠재력은 범위로만 보입니다. 스카우트를 보낼수록 좁아지고, 영입하면 정확히 압니다.'), b);
+    const alumni = alumniKnow(p) ? ` ${p.nat.name}에서 스카우트로 일하는 옛 선수 덕분에 한 번 더 본 것처럼 보입니다.` : '';
+    box.append(el('p', 'sub', `잠재력은 범위로만 보입니다. 스카우트를 보낼수록 좁아지고, 영입하면 정확히 압니다.${alumni}`), b);
     if (block) box.append(el('p', 'note', block));
   }
   const watched = state.watch.includes(cooldownKey(p));
@@ -2295,8 +2439,8 @@ function renderPlayer(root, s) {
     const block = recruitBlock(p);
     const b = actButton('btn primary', 'recruit', s, '영입 제안 (1 AP)');
     b.disabled = Boolean(block);
-    const scout = state.invest.scout ? ` (스카우트망 +${TUNE.scoutRecruit[state.invest.scout]}%p 포함)` : '';
-    box.append(el('p', 'sub', `영입 비용 ${cash(recruitCost(p))} · 성공 확률 ${recruitChance(p)}%${scout} · 계약하면 수수료 주 ${cash(commissionOf(wage))}`), b);
+    const plus = [state.invest.scout ? `스카우트망 +${TUNE.scoutRecruit[state.invest.scout]}%p` : '', introActive(p) ? `내 선수의 소개 +${TUNE.introBonus}%p` : ''].filter(Boolean).join(', ');
+    box.append(el('p', 'sub', `영입 비용 ${cash(recruitCost(p))} · 성공 확률 ${recruitChance(p)}%${plus ? ` (${plus} 포함)` : ''} · 계약하면 수수료 주 ${cash(commissionOf(wage))}`), b);
     if (block) box.append(el('p', 'note', block));
   }
   root.append(box);
@@ -2383,6 +2527,17 @@ function renderSolo(root) {
   box.append(checks, b);
   root.append(flow, box, el('h2', 'section', '개인 아이템'),
     el('p', 'sub', '지금은 내 돈으로 바로 삽니다. 살 때 평판이 오르고, 평판이 높을수록 덜 오릅니다. 설립 조건의 평판을 채우는 데도 씁니다.'), itemList());
+  appendAlumni(root);
+}
+
+// 은퇴 후 스카우트로 합류한 옛 선수 (있을 때만)
+function appendAlumni(root) {
+  if (!state.alumni.length) return;
+  const box = el('div', 'panel');
+  box.append(el('strong', '', `옛 선수 스카우트 ${state.alumni.length}/${TUNE.alumniMax}명`),
+    el('p', 'sub', '은퇴한 뒤 고향에서 스카우트로 일하며, 그 나라 유망주를 한 번 더 봐 줍니다.'));
+  for (const a of state.alumni) box.append(el('p', 'panel-line', `${a.name} · ${COUNTRY_BY_ID[a.nat]?.name ?? ''} · ${a.season}시즌에 은퇴`));
+  root.append(el('h2', 'section', '옛 선수'), box);
 }
 
 function renderAgency(root) {
@@ -2402,6 +2557,7 @@ function renderAgency(root) {
   INVEST_KEYS.forEach((key, i) => root.append(investCard(key, i)));
   root.append(el('h2', 'section', '자금 옮기기'), moneyPanel(), el('h2', 'section', '개인 아이템'),
     el('p', 'sub', '개인 자금으로 삽니다. 살 때 평판이 오르고, 평판이 높을수록 덜 오릅니다.'), itemList());
+  appendAlumni(root);
 }
 
 function renderLog(root) {
@@ -2448,7 +2604,15 @@ function openSummary() {
   for (const row of sm.rows) {
     const li = el('li');
     li.append(el('strong', '', row.name));
-    if (row.retired) li.append(el('span', 'down', ` ${row.ageFrom}세에 은퇴`));
+    if (row.retired) {
+      li.append(el('span', 'down', ` ${row.ageFrom}세에 은퇴`));
+      // 은퇴식: 오래 함께한 선수가 고마움을 전하고, 유대가 아주 깊으면 스카우트로 합류
+      if (row.farewell) {
+        const nat = COUNTRY_BY_ID[row.nat];
+        li.append(el('span', 'summary-stats warmt', `${row.seasons ? `${row.seasons}시즌을 함께한 ` : ''}${row.name} 선수가 은퇴식에서 "처음부터 곁에 있어 준 에이전트에게 고맙다"고 말했습니다${row.rep ? ` (평판 +${row.rep})` : ''}.`));
+        if (row.scout && nat) li.append(el('span', 'summary-stats up', `은퇴 후 ${nat.name} 스카우트로 합류합니다. 이제 ${nat.name} 유망주는 스카우트를 한 번 더 보낸 것처럼 보입니다.`));
+      }
+    }
     else {
       const diff = row.valueTo - row.valueFrom;
       const ability = row.abilityFrom === undefined ? '' : ` · 능력 ${row.abilityFrom}→${row.abilityTo}`;
@@ -2685,6 +2849,14 @@ function runSelfCheck() {
   check(BOND_TIERS.every(([lo], i) => i === 0 || lo < BOND_TIERS[i - 1][0]) && bondName(0) === '서먹함' && bondName(100) === '가족 같음', '유대 단계 이름');
   check(foundChecks().length === 3 && TUNE.foundCash > TUNE.foundCost && TUNE.soloLimit < TUNE.limitBase, '회사 설립: 조건 3개, 자금 조건은 설립비보다 큼, 혼자일 때 한도가 더 작음');
   check(Object.values(EVENT_TYPES).every(t => t.options.every(o => !o.bond || (typeof o.memo === 'string' && Math.abs(o.bond) <= 10))), '소식 선택지의 유대 변화에는 기억 문구가 있어야 함');
+  // 8단계: 관계 이야기는 필요한 유대가 낮은 순, 선수의 말과 기본 선택이 있고, 한 번 시작하면 다시 오지 않음
+  check(TALE_KEYS.every((k, i) => EVENT_TYPES[k] && EVENT_TYPES[k].tale && typeof EVENT_TYPES[k].quote === 'function' && EVENT_TYPES[k].tale.need <= 100
+    && (i === 0 || EVENT_TYPES[k].tale.need > EVENT_TYPES[TALE_KEYS[i - 1]].tale.need)), '관계 이야기: 필요한 유대 순서, 선수의 말');
+  const tt = { bond: 100, sat: 50, tales: [], since: absWeek() - 4 * WEEKS };
+  const readyBefore = taleReady(tt, 'wedding');
+  startTale(tt, 'wedding');
+  check(readyBefore && !taleReady(tt, 'wedding') && typeof nextTaleText(tt) === 'string', '관계 이야기는 선수마다 한 번만');
+  check(TUNE.alumniBond >= TUNE.farewellBond && TUNE.introBonus > 0 && TUNE.introWeeks > 0, '은퇴식·옛 선수·후배 소개 값');
 }
 
 // 화면 그리기 실패: 위치를 처음으로 돌려 다시 그림 → 그래도 안 되면 지금 세이브를 백업하고 새 게임

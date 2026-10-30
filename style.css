@@ -8,6 +8,7 @@
   --accent: #34d399;
   --warn: #fbbf24;
   --bad: #f87171;
+  --warm: #f59e0b; /* 관계 이야기 */
   --bar-h: 60px;
   color-scheme: dark;
 }
@@ -69,8 +70,24 @@ button { font: inherit; color: inherit; }
 .news-text { margin: 0 0 4px; font-size: 14px; }
 .news-due { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
 .news-bond { margin: 0 0 6px; color: var(--muted); font-size: 12px; }
+
+/* 관계 이야기 (디자인 시안 A): 따뜻한 색 카드, 선수의 말, 함께한 이야기 줄 */
+.news.tale { border-color: var(--warm); background: linear-gradient(180deg, rgba(245, 158, 11, 0.1), var(--panel) 55%); }
+.tale-lab { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; color: var(--warm); font-size: 12px; font-weight: 700; }
+.tale-name::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--warm); box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.25); vertical-align: 1px; }
+.quote { margin: 0 0 8px; padding: 2px 0 2px 10px; border-left: 3px solid var(--warm); color: #fde7c2; font-size: 14px; line-height: 1.6; }
+.badge.warm { color: var(--warm); border-color: var(--warm); }
+.timeline { position: relative; margin: 4px 0 8px; padding-left: 16px; }
+.timeline::before { content: ''; position: absolute; left: 5px; top: 4px; bottom: 4px; width: 2px; background: var(--line); }
+.tl { position: relative; margin: 0 0 6px; font-size: 13px; }
+.tl::before { content: ''; position: absolute; left: -15px; top: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.tl.bad::before { background: var(--bad); }
+.tl.tale { color: #fde7c2; }
+.tl.tale::before { background: var(--warm); box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.25); }
+.tl small { color: var(--muted); }
+.tale-next { margin: 4px 0 0; padding: 8px 10px; border: 1px dashed var(--line); border-radius: 10px; color: var(--muted); font-size: 13px; }
 .bond-bar { margin: 8px 0; }
-.bond-bar > i { background: var(--warn); }
+.bar.bond-bar > i { background: var(--warn); } /* .bar > i(초록)보다 뒤에 있지 않아서 선택자를 더 구체적으로 */
 .news-actions { display: grid; gap: 6px; }
 .news-actions .btn { width: 100%; text-align: left; }
 
@@ -292,3 +309,6 @@ button { font: inherit; color: inherit; }
   .toast { transition: none; }
   .next:active { transform: none; }
 }
+
+/* 결산 창의 은퇴식 문구 (summary-stats보다 뒤에 둬서 색이 이김) */
+.warmt { color: var(--warm); }

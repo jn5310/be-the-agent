@@ -2,10 +2,12 @@
 inclusion: always
 ---
 
-# 새 세션에서 이어 하기
+# 새 세션에서 이어 하기 (인수인계)
+
+인수인계 문서: `AGENTS.md` 0장(지금 상태·사용자 결정 대기·다음에 할 일·주의) + 이 파일(절차) + `game-design.md`(설계 원칙).
 
 ## 시작할 때
-1. `AGENTS.md` 0장(지금 상태·다음에 할 일)을 먼저 읽습니다. 규칙은 1장, 수식은 5장, 재미 지표는 8장입니다.
+1. `AGENTS.md` 0장(지금 상태·다음에 할 일)을 먼저 읽습니다. 규칙은 1장, 수식은 5장, 재미 지표는 8장입니다. 0장의 "사용자 결정 대기"가 있으면 그것부터 확인합니다.
 2. PR 상태를 확인합니다: `gh api "repos/jn5310/be-the-agent/pulls?state=all&per_page=5" --jq '.[] | "#\(.number) \(.state) \(.head.ref)"'`
 3. 열린 PR이 없고 `main`이 최신이면 `main`에서 새 브랜치(`phaseN-...` 또는 `fix-...`)를 만듭니다. `main`에 바로 커밋하지 않습니다. 머지 안 된 PR 위에서 일할 때는 그 브랜치에서 새 브랜치를 따고, PR `base`는 `main`으로 둡니다(이 리포는 머지 후 브랜치를 지우지 않아서, 쌓은 PR의 base가 자동으로 바뀌지 않음).
 
@@ -17,6 +19,7 @@ inclusion: always
 - GitHub 설정처럼 사용자가 직접 해야 하는 일은 클릭 경로로 안내합니다. Pages 설정 API는 이 환경에서 403이 납니다.
 - 밸런스는 직접 느낌만으로 정하지 않습니다. `node tools/sim.js --games 1000 --all`(약 2분 20초)로 수천 판을 돌려 지표로 판단하고, 결과를 PR에 적습니다.
 - 5단계 이후에는 다른 게임의 요소를 하나씩 가져와 넣습니다. 새 작업을 시작할 때 후보를 "선택지 | 추천" 표로 먼저 드립니다 (`game-design.md` "기능을 넣는 방식").
+- 화면을 새로 만들거나 크게 바꿀 때는 디자인 시안 2~3개를 이미지로 만들어 PR에 보여 주고 사용자가 고르게 합니다(8단계부터). 기능은 가장 작은 시안으로 먼저 넣고, 고르면 그 시안으로 바꿉니다.
 
 ## 작업 순서 (매 단계)
 1. 코드 수정 → `node --check game.js` → 쓰지 않는 함수가 없는지 확인
@@ -29,6 +32,10 @@ inclusion: always
 ## 이 샌드박스에서 확인하는 요령
 - Playwright는 `file://`를 막고, 파이썬 서버 같은 백그라운드 서버도 막힙니다. `page.route('http://bta.local/**', ...)`로 리포 파일을 직접 돌려주고 `http://bta.local/`을 엽니다.
 - 헤드리스 브라우저에 한글 글꼴이 없어 스크린샷에는 한글이 네모로 나옵니다. 화면 내용은 `innerText`로 확인합니다.
+- 한글이 보이는 스크린샷(디자인 시안 등)이 필요하면 GitHub API로 OFL 글꼴을 받아 `@font-face`로 씁니다. 홈 폴더는 읽기 전용이라 `_scratch/fonts`에 둡니다. 게임 자체에는 웹 글꼴을 넣지 않습니다(1장 1번).
+  `gh api -H "Accept: application/vnd.github.raw" "repos/google/fonts/contents/ofl/nanumgothic/NanumGothic-Regular.ttf" > _scratch/fonts/NanumGothic-Regular.ttf` (Bold·ExtraBold도 같은 방식)
+  그다음 `page.route`로 `/fonts/*.ttf`를 돌려주고 `page.addStyleTag`로 `font-family`를 덮어씁니다. 시안 이미지는 `docs/design/`에 PNG로 넣고 PR 본문에 `raw.githubusercontent.com` 주소로 보여 줍니다.
+- 이미지를 확인하는 도구는 같은 경로를 다시 읽으면 예전 이미지를 돌려줄 수 있습니다. 다시 그린 이미지는 새 이름으로 복사해서 확인합니다.
 - 대신 쓰는 글꼴의 한글 폭이 실제의 60%쯤이라 줄바꿈 검사가 실제보다 후하게 나옵니다. 좁은 곳(하단 탭 등)은 한글을 `W`로 바꿔 폭을 재면 실제와 비슷합니다.
 - Playwright 위치: `$(npm root -g)/@playwright/mcp/node_modules/playwright`, 브라우저는 `PLAYWRIGHT_BROWSERS_PATH=/inner_container/opt/playwright`로 지정합니다.
 - 샌드박스는 인터넷이 안 돼서 실제 사이트를 열 수 없습니다. 배포는 `gh api repos/jn5310/be-the-agent/pages/builds/latest`로 확인합니다.
