@@ -1,3 +1,13 @@
+/* 글꼴: Pretendard (OFL 1.1, fonts/LICENSE.txt). 공식 배포 파일 그대로 씀(자주 쓰는 한글 2,780자 부분 세트).
+   굵기 600은 파일을 줄이려고 700으로 보이고, 불러오지 못하거나 없는 글자는 폰 기본 글꼴로 보임 */
+@font-face { font-family: 'Pretendard'; font-weight: 400; font-display: swap; src: local('Pretendard Regular'), url('fonts/Pretendard-Regular.subset.woff2') format('woff2'); }
+@font-face { font-family: 'Pretendard'; font-weight: 700; font-display: swap; src: local('Pretendard Bold'), url('fonts/Pretendard-Bold.subset.woff2') format('woff2'); }
+@font-face { font-family: 'Pretendard'; font-weight: 800; font-display: swap; src: local('Pretendard ExtraBold'), url('fonts/Pretendard-ExtraBold.subset.woff2') format('woff2'); }
+/* 부분 세트에 없는 폼 화살표 ▲▼(굵게)와 다음 주 ▶: 공식 조각 파일에서 그 글자만 씀 (글자가 화면에 있을 때만 받음) */
+@font-face { font-family: 'Pretendard'; font-weight: 700; font-display: swap; unicode-range: U+25B2; src: url('fonts/Pretendard-Bold.subset.85.woff2') format('woff2'); }
+@font-face { font-family: 'Pretendard'; font-weight: 700; font-display: swap; unicode-range: U+25BC; src: url('fonts/Pretendard-Bold.subset.82.woff2') format('woff2'); }
+@font-face { font-family: 'Pretendard'; font-weight: 800; font-display: swap; unicode-range: U+25B6; src: url('fonts/Pretendard-ExtraBold.subset.85.woff2') format('woff2'); }
+
 /* 기본: 어두운 배경, 강조색 하나(초록), 폰 세로 화면 기준 */
 :root {
   --bg: #0b1120;
@@ -21,7 +31,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 15px/1.45 system-ui, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+  font: 15px/1.45 'Pretendard', system-ui, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
   font-variant-numeric: tabular-nums;
   -webkit-tap-highlight-color: transparent;
 }
@@ -82,11 +92,60 @@ button { font: inherit; color: inherit; }
 .tl { position: relative; margin: 0 0 6px; font-size: 13px; }
 .tl::before { content: ''; position: absolute; left: -15px; top: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
 .tl.bad::before { background: var(--bad); }
-.tl.tale { color: #fde7c2; }
-.tl.tale::before { background: var(--warm); box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.25); }
 .tl small { color: var(--muted); }
-.tale-next { margin: 4px 0 0; padding: 8px 10px; border: 1px dashed var(--line); border-radius: 10px; color: var(--muted); font-size: 13px; }
 .bond-bar { margin: 8px 0; }
+
+/* 관계 단계 하트와 이야기 앨범 (디자인 시안 B) */
+.bond-name { display: grid; gap: 4px; }
+.hearts { display: flex; gap: 4px; color: #334155; font-size: 18px; line-height: 1; }
+.hearts .on { color: var(--warm); }
+.album { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 8px; }
+.tile { display: grid; align-content: start; gap: 2px; min-height: 92px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; font-size: 13px; overflow-wrap: anywhere; }
+.tile-title { font-size: 15px; }
+.tile-meta { color: var(--muted); font-size: 11px; }
+.tile.done, .tile.now, .tile.open { border-color: rgba(245, 158, 11, 0.55); background: linear-gradient(180deg, rgba(245, 158, 11, 0.13), transparent 75%); }
+.tile.done .tile-title { color: #fde7c2; }
+.tile.now { border-color: var(--warm); }
+.tile.cold { border-color: var(--line); background: none; }
+.tile.cold .tile-title { color: var(--text); }
+.tile.cold .tile-sub { color: var(--muted); }
+.tile.locked { border-style: dashed; color: var(--muted); }
+
+/* 관계 이야기 장면: 아래에서 올라오는 시트, 선수 얼굴(이름 첫 글자), 큰 대사 (디자인 시안 B) */
+.sheet.scene {
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  max-height: 90dvh;
+  margin: auto auto 0;
+  padding: 8px 16px calc(16px + env(safe-area-inset-bottom));
+  border: 0;
+  border-top: 2px solid var(--warm);
+  border-radius: 20px 20px 0 0;
+  overflow-y: auto;
+}
+.scene[open] { animation: scene-up 0.25s ease-out; }
+@keyframes scene-up { from { transform: translateY(40px); opacity: 0; } }
+.grip { display: block; width: 40px; height: 4px; margin: 0 auto 14px; border-radius: 2px; background: #334155; }
+.scene-who { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.face { flex: none; display: grid; place-items: center; width: 60px; height: 60px; border: 3px solid var(--muted); border-radius: 50%; background: var(--bg); font-size: 26px; font-weight: 800; }
+.face-FW { border-color: #fca5a5; }
+.face-MF { border-color: #93c5fd; }
+.face-DF { border-color: #86efac; }
+.face-GK { border-color: #fde68a; }
+.scene-info { display: grid; justify-items: start; gap: 2px; min-width: 0; }
+.scene-name { font-size: 18px; }
+.scene-meta { color: var(--muted); font-size: 13px; }
+.scene-title { margin: 0 0 6px; color: var(--warm); font-size: 15px; }
+.scene-title:focus { outline: none; } /* 누를 수 없는 제목이라 초점 테두리를 그리지 않음 */
+.scene-quote { margin: 0 0 8px; font-size: 20px; font-weight: 700; line-height: 1.5; }
+.scene-ctx { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
+.scene-opt { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 52px; padding: 8px 16px; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; text-align: left; cursor: pointer; }
+.scene-opt.warm { border-color: var(--warm); }
+.scene-opt:disabled { opacity: 0.45; cursor: not-allowed; }
+.opt-label { font-weight: 700; }
+.opt-tags { color: var(--muted); font-size: 12px; text-align: right; }
+.scene .news-due { margin: 10px 0 0; }
 .bar.bond-bar > i { background: var(--warn); } /* .bar > i(초록)보다 뒤에 있지 않아서 선택자를 더 구체적으로 */
 .news-actions { display: grid; gap: 6px; }
 .news-actions .btn { width: 100%; text-align: left; }
@@ -171,6 +230,7 @@ button { font: inherit; color: inherit; }
 .card .stat:last-child, .card .contract { text-align: right; }
 .detail-stats { grid-template-columns: repeat(3, 1fr); gap: 12px 8px; margin: 4px 0 16px; padding: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
 .detail-actions { display: grid; gap: 4px; }
+.arrow { font-weight: 700; } /* 폼 화살표 ▲▼는 굵은 글꼴 조각에만 있음 */
 .up { color: var(--accent); }
 .down, .bad { color: var(--bad); }
 .contract small.warn { color: var(--warn); }
@@ -308,6 +368,7 @@ button { font: inherit; color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   .toast { transition: none; }
   .next:active { transform: none; }
+  .scene[open] { animation: none; }
 }
 
 /* 결산 창의 은퇴식 문구 (summary-stats보다 뒤에 둬서 색이 이김) */

@@ -6,12 +6,12 @@ AI 코딩 도구가 이 리포를 이어서 작업할 때 읽는 문서입니다
 
 인수인계 문서는 세 개입니다. 새 세션은 이 장 → `.kiro/steering/session-handoff.md`(시작 절차·사용자와 일하는 방식·작업 순서·샌드박스 요령) → `.kiro/steering/game-design.md`(사용자 피드백으로 정한 설계 원칙) 순서로 직접 읽습니다. Kiro Web에서는 리포가 작업 폴더(`/projects/sandbox`)의 하위 폴더라서 두 steering 파일이 자동으로 읽히지 않을 수 있습니다.
 
-- **완료:** 1~8단계. 7단계까지는 `main`에 머지됐습니다(PR #8). 8단계(관계 이야기)는 PR #9(`phase8-tales`)로 리뷰 대기 중입니다. 머지 전이면 `phase8-tales`에서 이어서 작업하고, 머지 후에는 `main`에서 새 브랜치를 만듭니다.
-- **사용자 결정 대기:** 관계 이야기를 보여 주는 디자인 시안 A(이야기 카드)·B(이야기 장면 시트)·C(메신저) 중 하나. 시안 이미지는 `docs/design/8-tales-*.png`입니다. 지금 게임에는 A가 들어가 있고, B를 고르면 A 카드 위에 장면 시트를 더하고, C를 고르면 소식 화면을 대화로 바꿉니다.
+- **완료:** 1~8단계와 8단계 후속(디자인 시안 B, 글꼴). 8단계까지는 `main`에 머지됐습니다(PR #9). 8단계 후속은 `phase8b-scene-font` 브랜치의 PR로 리뷰 대기 중입니다. 머지 전이면 그 브랜치에서 이어서 작업하고, 머지 후에는 `main`에서 새 브랜치를 만듭니다.
+- **정해진 것:** 관계 이야기 화면은 디자인 시안 B(이야기 장면 시트 + 이야기 앨범)로 정했습니다. A 카드는 소식 목록에 그대로 남습니다. 글꼴은 Pretendard(OFL)를 리포에 넣어 씁니다(1장 1번). 사용자 결정 대기는 없습니다.
 - **사이트:** https://jn5310.github.io/be-the-agent/ (Pages가 `main`에서 자동 배포, 머지 후 1~2분)
-- **버전:** 세이브 `SAVE_VERSION = 8`, `index.html`은 `?v=9`. 다음 배포 때 `?v=10`으로 올립니다.
-- **규모:** `game.js` 약 2,910줄, 58개국 123개 리그, 구단 2,002개, 선수 48,048명.
-- **마지막 밸런스 검증 (1,000판 × 3시즌, 성실한 봇):** 지표 21개 모두 목표 안 (8장 표). 할 일이 있는 주 69.9%, 주당 소식 0.76, 재계약 72.9%, 영입 53.7%, 선수를 잃은 게임 20.9%, 파산 0.4%, 1시즌 안 회사 설립 52.8%, 관계 이야기 3시즌 14.1개. 유망주 ÷ 베테랑 번 돈 1.03.
+- **버전:** 세이브 `SAVE_VERSION = 8`(8단계 후속은 세이브를 바꾸지 않음), `index.html`은 `?v=10`. 다음 배포 때 `?v=11`로 올립니다.
+- **규모:** `game.js` 약 3,020줄, 58개국 123개 리그, 구단 2,002개, 선수 48,048명. 글꼴 파일 6개 약 840KB(`fonts/`, 처음 한 번 받고 나면 브라우저에 남음).
+- **마지막 밸런스 검증 (1,000판 × 3시즌, 성실한 봇, 8단계 후속):** 지표 21개 모두 목표 안 (8장 표). 할 일이 있는 주 70.2%, 주당 소식 0.77, 재계약 73.8%, 영입 53.8%, 선수를 잃은 게임 22.9%, 파산 0.6%, 1시즌 안 회사 설립 54.4%, 관계 이야기 3시즌 14.2개. 유망주 ÷ 베테랑 번 돈 1.08. 규칙은 그대로라 8단계와 같은 범위(무작위 차이)입니다.
 - **사용자가 중요하게 보는 것:** 에이전트와 선수의 관계처럼 밀접한 부분을 강조하면 게임이 재밌어진다고 봅니다. 새 기능을 만들 때 선수와의 관계에 어떤 순간이 생기는지 먼저 생각합니다 (`game-design.md`). 화면을 크게 바꿀 때는 디자인 시안 몇 개를 이미지로 보여 주고 고르게 합니다.
 
 ### 앞으로 일하는 방식 (사용자 요청)
@@ -22,10 +22,10 @@ AI 코딩 도구가 이 리포를 이어서 작업할 때 읽는 문서입니다
 - 아래 "다음에 할 일"은 가져올 요소를 고를 때 참고하는 후보 목록입니다.
 
 ### 다음에 할 일 (후보)
-1. **디자인 시안 반영:** 사용자가 A·B·C 중 고르면 그 화면으로 바꿉니다. B는 `<dialog>` 시트(시즌 결산 창과 같은 방식) + 이니셜 얼굴, C는 선수별 대화 기록과 메시지 목록이 필요합니다.
-2. **이적 시장 기간과 마감일:** 여름·겨울 이적 기간에만 제안이 오고, 마감일 주에 막판 제안이 몰립니다.
-3. **시즌 시상·업적·목표, 진행 편의:** 득점왕·올해의 유망주, 에이전시 업적, 시즌 목표, 빠른 진행(4주씩 또는 다음 소식까지).
-4. **경기력에 따른 잠재력 변화:** 평점이 높으면 잠재력이 오르고 낮으면 내려감. 6단계 잠재력 범위와 함께 쓰려면 범위도 같이 움직여야 합니다.
+1. **이적 시장 기간과 마감일 (다음 추천):** 여름·겨울 이적 기간에만 제안이 오고, 마감일 주에 막판 제안이 몰립니다. 축구 감독 게임의 이적 마감일에서 가져옵니다. 제안이 몰리는 주와 조용한 주가 생겨, 할 일이 있는 주(지금 70%)를 늘리지 않고 긴장되는 순간을 만듭니다.
+2. **시즌 시상·업적·목표, 진행 편의:** 득점왕·올해의 유망주, 에이전시 업적, 시즌 목표, 빠른 진행(4주씩 또는 다음 소식까지).
+3. **경기력에 따른 잠재력 변화:** 평점이 높으면 잠재력이 오르고 낮으면 내려감. 6단계 잠재력 범위와 함께 쓰려면 범위도 같이 움직여야 합니다.
+4. **오래 함께한 선수용 이야기:** 4종을 다 본 선수에게 시즌마다 한 번쯤 오는 이야기(예: 은퇴 고민, 지도자 꿈). 앨범 칸이 5칸 이상이 됩니다.
 5. **기존 큰 기획:** 고교 시찰, 경쟁 에이전시, 세계 뉴스, 60세 은퇴 엔딩(개인 자산과 함께한 선수 이야기를 점수·회고로).
 
 ### 알려진 문제·주의
@@ -42,7 +42,10 @@ AI 코딩 도구가 이 리포를 이어서 작업할 때 읽는 문서입니다
 
 ## 1. 작업 규칙
 
-1. **게임 파일은 3개만:** `index.html`, `style.css`, `game.js`. 외부 라이브러리, CDN, 웹 폰트, 빌드 도구를 쓰지 않습니다. 오프라인에서도 그대로 동작해야 합니다. 개발용 밸런스 시뮬레이터 `tools/sim.js`(Node)는 게임에서 불러오지 않습니다.
+1. **게임 파일은 3개 + 글꼴만:** `index.html`, `style.css`, `game.js`와 `fonts/`(Pretendard). 외부 라이브러리, CDN, 빌드 도구를 쓰지 않습니다. 오프라인에서도 그대로 동작해야 합니다. 개발용 밸런스 시뮬레이터 `tools/sim.js`(Node)는 게임에서 불러오지 않습니다.
+   - 글꼴은 사용자 요청(8단계 후속)으로 넣었습니다. Pretendard v1.3.9 공식 배포 파일을 고치지 않고 그대로 씁니다. 글꼴 이름이 예약 이름(RFN)이라, 직접 글자를 빼거나 바꾸면 Pretendard라는 이름을 쓸 수 없기 때문입니다. `fonts/LICENSE.txt`(OFL 1.1)를 같이 둡니다.
+   - 굵기는 400·700·800 세 개입니다(600은 700으로 보임). 부분 세트(한글 2,780자)에 없는 ▲▼▶만 공식 조각 파일(`*.subset.82/85.woff2`)을 `unicode-range`로 씁니다. 없는 글자(희귀 음절 푈·툠 등)는 폰 기본 글꼴로 보이고, 글꼴을 못 받아도 게임은 기본 글꼴로 동작합니다.
+   - 화면에 새 기호를 쓰면 글꼴에 있는지 확인합니다: `fc-query --format='%{charset}' fonts/Pretendard-Regular.subset.woff2`. 없으면 그 글자가 든 공식 조각 파일을 찾아 `unicode-range`로 더하거나 다른 기호를 씁니다.
 2. **가장 작은 완전한 변경:** 요청하지 않은 추상화, 래퍼, 미래 대비 코드를 넣지 않습니다.
 3. **함수는 역할별로 나누고, 주석은 한국어로 짧게** 씁니다.
 4. **상태는 `state` 객체 하나:** 저장할 값은 모두 `state` 안에 둡니다. 화면 출력은 `textContent`/`createElement`로 하고 `innerHTML`에 데이터를 넣지 않습니다.
@@ -52,7 +55,7 @@ AI 코딩 도구가 이 리포를 이어서 작업할 때 읽는 문서입니다
    - 읽지 못한 세이브는 지우지 않고 `be-the-agent:save:backup`에 옮긴 뒤 새 게임을 시작합니다. 기록 탭에서 백업 파일로 받을 수 있습니다.
    - 화면 그리기가 실패하면 화면 위치(`ui`)만 처음으로 돌려 다시 그립니다(`safeRender`). 세이브를 바로 덮어쓰지 않습니다.
 8. **라이선스:** 실존 리그명·구단명·선수명을 쓰지 않습니다. 국가와 도시 이름은 쓰되 구단 접미어는 가상으로 만들고, 실존 유명 선수와 겹치는 이름 조합은 `BLOCKED_NAMES`에 넣습니다.
-9. **배포할 때마다 `index.html`의 `?v=` 숫자를 올립니다** (지금은 `style.css?v=9`, `game.js?v=9`). GitHub Pages는 파일을 10분 동안 캐시해서 옛 파일과 새 파일이 섞일 수 있습니다. 새 화면 요소를 추가하면 `REQUIRED_IDS`에도 넣습니다. 요소가 빠져 있으면 게임은 안내만 띄우고 아무것도 저장하지 않습니다.
+9. **배포할 때마다 `index.html`의 `?v=` 숫자를 올립니다** (지금은 `style.css?v=10`, `game.js?v=10`. 글꼴 파일은 바뀌지 않아 숫자를 붙이지 않음). GitHub Pages는 파일을 10분 동안 캐시해서 옛 파일과 새 파일이 섞일 수 있습니다. 새 화면 요소를 추가하면 `REQUIRED_IDS`에도 넣습니다. 요소가 빠져 있으면 게임은 안내만 띄우고 아무것도 저장하지 않습니다.
 10. **화면 이동은 `navigate()`와 `goUp()`으로만 합니다.** 이동할 때마다 브라우저 기록에 쌓여서 안드로이드 뒤로가기가 한 단계씩 돌아갑니다.
 
 ## 2. 게임 개요
@@ -145,12 +148,20 @@ AI 코딩 도구가 이 리포를 이어서 작업할 때 읽는 문서입니다
 
 ### 8단계 (완료): 관계 이야기 (친밀도 단계마다 이벤트가 열리는 생활 시뮬레이션 게임에서 가져옴)
 - 유대가 깊어지고 함께한 시간이 쌓인 선수에게 한 번씩 찾아오는 이야기 4종: 밤 11시의 전화(유대 45·8주), 가족 결혼식(60·26주), 후배 소개(70·1시즌, 이야기 1개 이상 뒤), 인터뷰의 고마움(85·2시즌)
-- 이야기는 따뜻한 색 카드(디자인 시안 A)로 소식 사이에 나오고, 선수의 말을 크게 보여 줌. 고른 답은 선수 상세 "함께한 이야기 n/4"에 남음
+- 이야기는 따뜻한 색 카드(디자인 시안 A)로 소식 사이에 나오고, 선수의 말을 크게 보여 줌. 고른 답은 선수 상세에 남음(8단계 후속부터 "이야기 앨범 n/4")
 - 후배 소개: 같은 나라 유망주를 소개받음(잠재력 범위 2단계 좁음, 26주 동안 영입 확률 +15%p, 누르면 그 선수 상세로)
 - 은퇴식: 오래 함께했거나 유대 60 이상인 선수가 은퇴하면 결산 창에 고마움 문구와 평판 +1. 유대 70 이상이면 그 나라 스카우트로 합류(옛 선수 최대 5명, 그 나라 유망주는 스카우트 +1번)
 - 가져오면서 바꾼 점: 원작처럼 선물로 호감도를 올리는 대신, 소식에 답하는 방식(돈·AP를 쓸지)으로 관계가 쌓이게 했습니다. 이야기에는 모두 "외면하는" 답이 있습니다
-- 디자인 시안 3개(`docs/design/8-tales-A·B·C.png`)를 만들어 사용자 결정을 기다립니다
+- 디자인 시안 3개(`docs/design/8-tales-A·B·C.png`)를 만들어 사용자가 B를 골랐습니다 (아래 8단계 후속)
 - 세이브 v8 (v1~v7 변환), `index.html` `?v=9`
+
+### 8단계 후속 (완료): 디자인 시안 B와 글꼴 (사용자 선택·요청)
+- **이야기 장면 시트:** 다음 주를 누른 뒤 그 주에 새로 찾아온 관계 이야기가 아래에서 올라옵니다(`#scene` `<dialog>`). 선수 얼굴(이름 첫 글자, 포지션 색 테두리), 이름·포지션·나이·인연, 유대 단계, 이야기 문장(따뜻한 색), 선수의 말(크게), 지금 사정(함께한 기간·만족·이번 시즌 리그 평점)을 보여 줍니다. 답 버튼은 왼쪽에 답, 오른쪽에 AP·돈·유대이고 가장 따뜻한 첫 답에 테두리가 있습니다
+- 시트를 닫으면("나중에 답하기"·Esc·안드로이드 뒤로가기) 이야기는 시안 A 카드로 소식 목록에 남습니다. 같은 주에 이야기가 둘이면 하나를 닫을 때 다음이 올라오고, 시즌 결산 창이 뜨는 주에는 결산 창을 닫은 뒤에 올라옵니다. 대기열(`sceneQueue`)은 저장하지 않아서, 새로고침하면 카드로만 보입니다
+- **선수 상세:** 관계 단계 하트 3칸(믿음·끈끈함·가족 같음)과 "이야기 앨범 n/4"(2×2 칸). 함께한 이야기는 고른 답·주·유대 변화, 답하지 않았거나 외면한 이야기는 흐리게, 조건을 채운 이야기는 "때가 되면 찾아옵니다", 잠긴 이야기는 제목을 숨기고 못 채운 조건과 지금 값을 보여 줍니다. 그 아래 "선수가 기억하는 일"(최근 기억 3개)은 그대로입니다
+- 결혼식 이야기 제목은 선수마다 정해진 가족으로 보입니다(예: "누나 결혼식", `familyOf`)
+- **글꼴:** Pretendard(OFL 1.1)를 리포 `fonts/`에 넣고 `@font-face`로 씁니다(1장 1번). 후보 3개(Pretendard·SUIT·Spoqa Han Sans Neo)를 같은 화면으로 비교한 이미지는 `docs/design/font-compare.png`입니다. Pretendard를 고른 이유: 굵기가 많아(9개 중 3개 사용) 숫자·제목 위계를 굵기로 만들 수 있고, 고정폭 숫자(tabular-nums)를 켜면 숫자 폭이 모두 같아(Regular 0.614em) 돈·능력치 열이 맞습니다. 안드로이드·아이폰·PC에서 같은 모양으로 보입니다
+- 게임 규칙·확률·세이브는 바꾸지 않았습니다. 세이브 v8 그대로, `index.html` `?v=10`
 
 ### 다음 단계 후보
 - 0장 "다음에 할 일"과 "앞으로 일하는 방식"을 봅니다. 앞으로는 다른 게임의 요소를 하나씩 가져와 넣습니다.
@@ -159,11 +170,12 @@ AI 코딩 도구가 이 리포를 이어서 작업할 때 읽는 문서입니다
 
 | 파일 | 내용 |
 |---|---|
-| `index.html` | 상단 바, 본문(`#view`), 하단 바(탭 4개 + 다음 주), 시즌 결산 `<dialog>`, 알림 |
-| `style.css` | 어두운 테마, 강조색 하나(`--accent`), 고정폭 숫자, safe-area 여백 |
+| `index.html` | 상단 바, 본문(`#view`), 하단 바(탭 4개 + 다음 주), 시즌 결산 `<dialog>`, 이야기 장면 `<dialog id="scene">`, 파산 창, 알림, 본문 글꼴 미리 받기(preload) |
+| `style.css` | 글꼴(`@font-face` Pretendard), 어두운 테마, 강조색 하나(`--accent`)와 이야기용 따뜻한 색(`--warm`), 고정폭 숫자, safe-area 여백 |
+| `fonts/` | Pretendard v1.3.9 공식 웹 글꼴 그대로: 부분 세트 400·700·800, ▲▼▶용 조각 3개, `LICENSE.txt`(OFL 1.1) |
 | `game.js` | 아래 구역 |
 | `tools/sim.js` | 개발용 밸런스 시뮬레이터 (게임에서 불러오지 않음, 8장) |
-| `docs/design/` | 디자인 시안 이미지 (게임에서 쓰지 않음). `8-tales-A·B·C.png` 시안, `8-tales-A-game*.png` 실제 게임 화면 |
+| `docs/design/` | 디자인 시안 이미지 (게임에서 쓰지 않음). `8-tales-A·B·C.png` 시안, `8-tales-A-game*.png`·`8-tales-B-game.png` 실제 게임 화면, `font-compare.png` 글꼴 비교 |
 
 | 구역 | 내용 |
 |---|---|
@@ -173,11 +185,11 @@ AI 코딩 도구가 이 리포를 이어서 작업할 때 읽는 문서입니다
 | 4. 선수 | `coreStats`, `getPlayer(slot)`, `weeklyWage`, `companyUpkeep`, `upkeepNow`, `growthStep`, `coachStep`, `marketValue`, `nextForm`, `contractEnd`, `leaveChance` |
 | 5. 상태 | `newGame`(혼자 시작), `newWorld`, `START_TIES`, `pickStartingClients`, `newClient`, `addLog` |
 | 6. 주간 진행 | `advanceWeek`, `checkDebt`, `endSeason`, 영입·해지(`recruitChance`, `recruitCost`, `recruitBlock`, `recruit`, `release`) |
-| 6-2. 만족도·유대·협상·소식·경기 | `TUNE`, `weeklyAp`, `clientLimit`, `maxClients`, `gainRep`, 유대(`addBond`, `BOND_TIERS`, `bondName`, `bondKeepBonus`, `bondConsentBonus`, `togetherText`), 관계 이야기(`TALE_KEYS`, `FAMILY`, `taleSeen`, `taleOpen`, `taleReady`, `startTale`, `nextTaleText`, `findJunior`, `alumniKnow`, `introActive`, `EVENT_TYPES`의 `call`·`wedding`·`junior`·`praise`), 일정(`leagueGames`, `compRun`, `weekGames`), 경기(`playMatch`, `worldStats`, `playClientWeek`), 국가대표(`computeNatCut`, `natCutFrom`), 성향(`prefsOf`, `fitChecks`, `fitScore`, `consentChance`), `meet`, `renewTerms`, `renew`, `makeOffer`, `acceptOffer`, `transfer`, `keepClient`, `EVENT_TYPES`, `findTip`, `resolveEvent`, `weeklyClients` |
+| 6-2. 만족도·유대·협상·소식·경기 | `TUNE`, `weeklyAp`, `clientLimit`, `maxClients`, `gainRep`, 유대(`addBond`, `BOND_TIERS`, `bondName`, `bondKeepBonus`, `bondConsentBonus`, `togetherText`), 관계 이야기(`TALE_KEYS`, `FAMILY`, `taleSeen`, `taleOpen`, `taleReady`, `startTale`, `familyOf`, `taleTitle`, `albumTile`, `findJunior`, `alumniKnow`, `introActive`, `EVENT_TYPES`의 `call`·`wedding`·`junior`·`praise`), 일정(`leagueGames`, `compRun`, `weekGames`), 경기(`playMatch`, `worldStats`, `playClientWeek`), 국가대표(`computeNatCut`, `natCutFrom`), 성향(`prefsOf`, `fitChecks`, `fitScore`, `consentChance`), `meet`, `renewTerms`, `renew`, `makeOffer`, `acceptOffer`, `transfer`, `keepClient`, `EVENT_TYPES`, `findTip`, `resolveEvent`, `weeklyClients` |
 | 6-3. 회사 설립·자금 쓸 곳 | `foundChecks`, `foundBlock`, `foundAgency`, `walletKey`, `INVEST_TYPES`, `investSteps`, `investUpkeep`, `weeklySpend`, `investBlock`, `invest`, `downgrade`, `dividendRoom`, `afterTax`, `payDividend`, `inject`, `ITEMS`, `netWorth`, `itemBlock`, `buyItem` |
 | 6-4. 유망주 찾기 | `scoutCount`, `potRange`, `potText`, `scoutBlock`, `scout`, `toggleWatch`, `dropRetiredKeys`, `findProspects` |
 | 7. 저장·불러오기 | `serialize`/`deserialize`(검증, v1~v3 변환), `cleanUi`, `backupSave`, `fillWages`, `saveState`, `loadState`, `exportSave`, `exportBackup`, `importSave` |
-| 8. 화면 | `render`, `renderClients`, `newsCard`, `checkList`, `renderWorld`, `renderClub`, `renderPlayer`, `statsTable`, `careerTable`, `prefsBlock`, `bondNode`, `bondBlock`, `renewPanel`, `clientActions`, `scoutActions`, `playerRow`, `renderScouting`, `segButton`, `renderSolo`, `appendAlumni`, `renderAgency`, `itemList`, `investCard`, `moneyPanel`, `renderLog`, `openSummary`, `openGameOver`, `navigate`, `goUp`, `bindEvents` |
+| 8. 화면 | `render`, `renderClients`, `optionInfo`, `dueText`, `newsCard`, 이야기 장면(`sceneQueue`, `openScene`), `heartsNode`, `checkList`, `renderWorld`, `renderClub`, `renderPlayer`, `statsTable`, `careerTable`, `prefsBlock`, `bondNode`, `bondBlock`, `renewPanel`, `clientActions`, `scoutActions`, `playerRow`, `renderScouting`, `segButton`, `renderSolo`, `appendAlumni`, `renderAgency`, `itemList`, `investCard`, `moneyPanel`, `renderLog`, `openSummary`, `openGameOver`, `navigate`, `goUp`, `bindEvents` |
 | 9. 자가 검증 | `runSelfCheck`, `boot` |
 
 ## 5. 1단계 규칙과 수식
@@ -324,7 +336,8 @@ v = 25,000 × e^(0.165 × (능력 - 40))
 - 기록: 이야기가 시작되면 `c.tales`에 `{ k, w: 시작 주, t: '' }`를 넣고(`startTale`), 답하면 `t`에 고른 답의 기억 문구를 씁니다. 답하지 않아 기본 처리되면 "(답하지 않음)"이 앞에 붙습니다. 선수마다 이야기마다 한 번입니다.
 - 후배 소개(`findJunior`): 소개한 선수와 같은 나라 구단에서 20세 이하·잠재력 여유 10 이상·영입 확률 20% 이상·내 선수가 아닌 선수 중 잠재력이 가장 높은 선수. 소개받으면 스카우트 기록을 2번으로 올리고, `state.intros["슬롯-세대"]`에 26주(`introWeeks`) 동안 영입 확률 +15%p(`introBonus`)를 둡니다. 소개할 후배가 없으면 이야기가 오지 않습니다.
 - 은퇴식: 시즌 말에 은퇴한 소속 선수가 유대 60(`farewellBond`) 이상이거나 2시즌 이상 함께했으면 평판 +1(`gainRep`)과 결산 창 문구. 유대 70(`alumniBond`) 이상이면 `state.alumni`에 들어가(최대 5명, `alumniMax`) 그 나라 국적 유망주의 스카우트 횟수 +1(`alumniKnow`).
-- 선수 상세 "함께한 이야기 n/4": 이야기(따뜻한 색)와 최근 기억 3개를 시간 순으로 한 줄씩, 끝에 다음 이야기 조건(`nextTaleText`).
+- 장면 시트(8단계 후속, 시안 B): 다음 주 버튼을 누르기 전 `state.nextEventId`를 기억해 두고, 그보다 번호가 큰 이야기 소식을 `sceneQueue`에 넣어 `openScene()`으로 하나씩 보여 줍니다. 결산 창이 뜨는 주에는 결산 창의 `close`에서, 시트를 닫을 때는 시트의 `close`에서 다음 것을 엽니다. 답 버튼은 소식 카드와 같은 `onAction('event', id, 번호)`를 부릅니다. 선택지 표시와 막힘은 `optionInfo`, 기본 처리 안내는 `dueText`를 소식 카드와 같이 씁니다.
+- 선수 상세 "이야기 앨범 n/4"(`albumTile`): 이야기마다 한 칸. 상태는 `done`(고른 답·주·그 답의 유대 변화. 답의 `memo`로 찾음), `done cold`(답하지 않았거나 유대가 내려간 답), `now`(찾아왔는데 아직 답 안 함), `open`(조건을 채움), `locked`(못 채운 조건을 제목에, 지금 값을 아래에) 다섯 가지입니다. n은 `done` 칸 수입니다. 하트 3칸(`heartsNode`)은 `BOND_TIERS`에서 0보다 큰 단계 수입니다. 최근 기억 3개는 "선수가 기억하는 일"로 따로 보여 줍니다(이야기와 같은 기억은 뺌).
 
 ### 유망주 찾기 (6단계, 숫자는 `TUNE`)
 - 보이는 잠재력(`potRange`): 소속 선수와 24세 이상(`TUNE.potAgeMax` 초과)은 정확히, 나머지는 범위 [아래, 위].
@@ -447,6 +460,8 @@ node tools/sim.js --games 1000 --bot youth --tune '{"potWidth":[0,0,0,0]}'  # �
 투자를 하면 손해가 아닌지 (성실한 봇, 번 돈 중앙값): 3시즌 $44만(투자 안 함 $34만), 6시즌 $589만($542만), 10시즌 $3,247만($2,726만). 법인 자금 중앙값은 6시즌 $99만으로, 투자를 안 하면 $545만까지 쌓입니다. 투자를 공짜로 1주차에 최고 단계까지 주면(6시즌) 번 돈이 변호사 +12%, 스카우트망 +24%, 코치 +46%, 사무실 +40% 늘어납니다.
 
 8단계 결과 (1,000판 × 3시즌, 성실한 봇, 21개 지표 모두 목표 안): 할 일 있는 주 69.9%, 주당 소식 0.76, 3건 이상 쌓인 주 3.7%, AP 39.2%, 재계약 72.9%, 영입 53.7%, 잃은 게임 20.9%, 파산 0.4%, 첫 이적 67.5%, 국가대표 27.4%, 꿈의 구단 18.2%, 시즌당 이적 1.74건, 동의 53.5%, 1시즌 안 회사 설립 52.8%, 설립 뒤 첫 투자 85.5%, 혼자일 때 할 일 있는 주 59.7%, 유대 60 이상 67.0%, 관계 이야기 14.1개, 투자 4.75단계, 쓴 비율 69.6%, 적자 주 0.0%. 유망주 ÷ 베테랑 번 돈 1.03(중앙값 비율 1.04).
+
+8단계 후속 결과 (1,000판 × 3시즌, 성실한 봇, 규칙은 그대로라 확인만): 21개 지표 모두 목표 안. 할 일 있는 주 70.2%, 주당 소식 0.77, 3건 이상 쌓인 주 3.6%, AP 39.3%, 재계약 73.8%, 영입 53.8%, 잃은 게임 22.9%, 파산 0.6%, 첫 이적 69.0%, 국가대표 28.6%, 꿈의 구단 20.9%, 시즌당 이적 1.78건, 동의 53.5%, 1시즌 안 회사 설립 54.4%, 설립 뒤 첫 투자 85.5%, 혼자일 때 할 일 있는 주 60.2%, 유대 60 이상 67.0%, 관계 이야기 14.17개, 투자 4.81단계, 쓴 비율 69.2%, 적자 주 0.0%. 유망주 ÷ 베테랑 번 돈 1.08(중앙값 비율 1.11). 장면 시트는 화면만 바꾸고 봇은 화면을 쓰지 않아서, 8단계 결과와의 차이는 무작위 차이입니다.
 
 관계 이야기 빈도 (게임당): 3시즌 성실 14.1개(밤 전화 3.8, 결혼식 4.1, 후배 3.5, 인터뷰 2.7), 대충 2.5개. 6시즌 성실 27.0개. 후배 소개를 받은 게임은 3시즌 성실 100%, 대충 22%. 옛 선수 스카우트는 10시즌 베테랑 봇 평균 4.5명(3시즌에는 거의 없음). 시작 선수는 유대 60으로 시작해 첫 주부터 결혼식 조건을 채우므로, 이야기가 시간과 함께 오도록 함께한 기간 조건(8·26·52·104주)을 더했습니다. 3시즌 총수는 14.7 → 14.2개로 거의 같습니다.
 

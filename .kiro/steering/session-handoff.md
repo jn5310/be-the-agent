@@ -18,7 +18,7 @@ inclusion: always
 - 범위가 바뀌는 큰 결정은 만들기 전에 먼저 묻습니다. 세부 수치는 추천안으로 진행한 뒤 보고합니다.
 - 보고 순서: PR 링크 → 들어간 것 → 숫자로 확인한 것 → 남은 문제·사용자가 볼 점 → 다음 후보와 추천 하나. 짧게 씁니다.
 - GitHub 설정처럼 사용자가 직접 해야 하는 일은 클릭 경로로 안내합니다. Pages 설정 API는 이 환경에서 403이 납니다.
-- 밸런스는 직접 느낌만으로 정하지 않습니다. `node tools/sim.js --games 1000 --all`(약 2분 20초)로 수천 판을 돌려 지표로 판단하고, 결과를 PR에 적습니다.
+- 밸런스는 직접 느낌만으로 정하지 않습니다. `node tools/sim.js --games 1000 --all`(약 2분 20초~3분)로 수천 판을 돌려 지표로 판단하고, 결과를 PR에 적습니다.
 - 5단계 이후에는 다른 게임의 요소를 하나씩 가져와 넣습니다. 새 작업을 시작할 때 후보를 "선택지 | 추천" 표로 먼저 드립니다 (`game-design.md` "기능을 넣는 방식").
 - 화면을 새로 만들거나 크게 바꿀 때는 디자인 시안 2~3개를 이미지로 만들어 PR에 보여 주고 사용자가 고르게 합니다(8단계부터). 기능은 가장 작은 시안으로 먼저 넣고, 고르면 그 시안으로 바꿉니다.
 
@@ -32,12 +32,14 @@ inclusion: always
 
 ## 이 샌드박스에서 확인하는 요령
 - Playwright는 `file://`를 막고, 파이썬 서버 같은 백그라운드 서버도 막힙니다. `page.route('http://bta.local/**', ...)`로 리포 파일을 직접 돌려주고 `http://bta.local/`을 엽니다.
-- 헤드리스 브라우저에 한글 글꼴이 없어 스크린샷에는 한글이 네모로 나옵니다. 화면 내용은 `innerText`로 확인합니다.
-- 한글이 보이는 스크린샷(디자인 시안 등)이 필요하면 GitHub API로 OFL 글꼴을 받아 `@font-face`로 씁니다. 홈 폴더는 읽기 전용이라 `_scratch/fonts`에 둡니다. 게임 자체에는 웹 글꼴을 넣지 않습니다(1장 1번).
-  `gh api -H "Accept: application/vnd.github.raw" "repos/google/fonts/contents/ofl/nanumgothic/NanumGothic-Regular.ttf" > _scratch/fonts/NanumGothic-Regular.ttf` (Bold·ExtraBold도 같은 방식)
-  그다음 `page.route`로 `/fonts/*.ttf`를 돌려주고 `page.addStyleTag`로 `font-family`를 덮어씁니다. 시안 이미지는 `docs/design/`에 PNG로 넣고 PR 본문에 `raw.githubusercontent.com` 주소로 보여 줍니다.
-- 이미지를 확인하는 도구는 같은 경로를 다시 읽으면 예전 이미지를 돌려줄 수 있습니다. 다시 그린 이미지는 새 이름으로 복사해서 확인합니다.
-- 대신 쓰는 글꼴의 한글 폭이 실제의 60%쯤이라 줄바꿈 검사가 실제보다 후하게 나옵니다. 좁은 곳(하단 탭 등)은 한글을 `W`로 바꿔 폭을 재면 실제와 비슷합니다.
+- 8단계 후속부터 게임이 Pretendard(`fonts/`)를 직접 불러와서, 헤드리스 스크린샷에도 한글이 실제 폭으로 보입니다. `page.route`가 `.woff2`를 `font/woff2`로 돌려주기만 하면 됩니다. 줄바꿈·넘침 검사도 이제 실제와 같습니다. 찍기 전에 `await page.evaluate(() => document.fonts.ready)`로 글꼴을 기다립니다.
+- 다른 글꼴과 비교하는 이미지(디자인 시안 등)가 필요하면 GitHub API로 OFL 글꼴을 받아 `page.addStyleTag`의 `@font-face`로 덮어씁니다. 홈 폴더는 읽기 전용이라 `_scratch/fonts`에 둡니다.
+  `gh api -H "Accept: application/vnd.github.raw" "repos/sun-typeface/SUIT/contents/fonts/static/woff2/SUIT-Regular.woff2" > _scratch/fonts/SUIT-Regular.woff2`
+  시안 이미지는 `docs/design/`에 PNG로 넣고 PR 본문에 `raw.githubusercontent.com` 주소로 보여 줍니다.
+- 글꼴에 어떤 글자가 있는지는 `fc-query --format='%{charset}' 파일.woff2`로 봅니다(woff2도 읽음). pip·npm 설치는 막혀 있어서 fontTools 같은 도구로 글꼴을 고칠 수 없고, 고치면 예약 이름 때문에 이름도 바꿔야 하니 공식 파일만 씁니다(AGENTS.md 1장 1번).
+- 이미지를 확인하는 도구는 같은 경로를 다시 읽으면 예전 이미지를 돌려줄 수 있습니다. 다시 그린 이미지는 새 이름으로 복사해서 확인합니다. 그림을 만드는 명령과 그 그림을 읽는 도구를 한 번에 부르면 병렬로 돌아 파일이 없다고 나옵니다. 따로 부릅니다.
+- `<dialog>` 시트는 올라오는 애니메이션(0.25초)이 있어서, 위치를 잴 때는 400ms쯤 기다립니다.
+- 셸 도구는 `run_in_background`를 켜도 120초가 지나면 명령을 끊습니다. `node tools/sim.js --games 1000 --all`(8코어 약 3분)은 `timeout`을 900000(15분)으로 주고 앞에서 돌립니다.
 - Playwright 위치: `$(npm root -g)/@playwright/mcp/node_modules/playwright`, 브라우저는 `PLAYWRIGHT_BROWSERS_PATH=/inner_container/opt/playwright`로 지정합니다.
 - 샌드박스는 인터넷이 안 돼서 실제 사이트를 열 수 없습니다. 배포는 `gh api repos/jn5310/be-the-agent/pages/builds/latest`로 확인합니다.
 - 파일 쓰기 도구의 `/tmp`와 셸의 `/tmp`는 서로 다릅니다. 임시 파일은 리포 밖 `/projects/sandbox/_scratch`에 두고 끝나면 지웁니다.

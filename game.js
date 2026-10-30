@@ -958,14 +958,33 @@ const taleSeen = (c, key) => c.tales.some(t => t.k === key);
 const taleOpen = (c, key) => c.bond >= EVENT_TYPES[key].tale.need && absWeek() - c.since >= EVENT_TYPES[key].tale.weeks;
 const taleReady = (c, key) => !taleSeen(c, key) && taleOpen(c, key);
 const startTale = (c, key) => c.tales.push({ k: key, w: absWeek(), t: '' });
-// 다음 이야기 안내: 조건을 채운 이야기가 있으면 곧 찾아온다고, 아니면 필요한 유대
-function nextTaleText(c) {
-  const left = TALE_KEYS.filter(k => !taleSeen(c, k));
-  if (!left.length) return '이 선수와의 이야기를 모두 함께했습니다.';
-  if (left.some(k => taleOpen(c, k))) return '유대가 충분히 깊어져 새 이야기가 찾아올 수 있습니다.';
-  const next = EVENT_TYPES[left[0]].tale;
-  const time = next.weeks >= WEEKS ? `${next.weeks / WEEKS}시즌` : `${next.weeks}주`;
-  return `다음 이야기는 유대 ${next.need} 이상, 함께한 지 ${time}부터 열립니다 (지금 유대 ${c.bond}, ${togetherText(c)}).`;
+// 결혼하는 가족은 선수마다 정해져 있음 (소식과 이야기 앨범에 같이 씀)
+const familyOf = c => FAMILY[hash(state.seed, c.s, c.g, 61) % FAMILY.length];
+const taleTitle = (c, key) => (key === 'wedding' ? `${familyOf(c)} 결혼식` : EVENT_TYPES[key].tale.title);
+// 이야기 앨범 한 칸 (디자인 시안 B): 함께한 이야기는 고른 답·주·유대, 찾아온 이야기는 답 기다림,
+// 조건을 채운 이야기는 찾아올 수 있다고, 잠긴 이야기는 제목을 숨기고 못 채운 조건과 지금 값
+function albumTile(c, key) {
+  const tale = EVENT_TYPES[key].tale;
+  const seen = c.tales.find(t => t.k === key);
+  if (seen && seen.t) {
+    const memo = seen.t.replace('(답하지 않음) ', '');
+    const opt = EVENT_TYPES[key].options.find(o => (o.memo || o.label()) === memo);
+    const bond = opt && opt.bond ? ` · 유대 ${opt.bond > 0 ? '+' : ''}${opt.bond}` : '';
+    return { cls: memo !== seen.t || (opt && opt.bond < 0) ? 'done cold' : 'done', title: taleTitle(c, key), sub: seen.t, meta: `${weekLabel(seen.w)}${bond}` };
+  }
+  if (seen) return { cls: 'now', title: taleTitle(c, key), sub: '지금 찾아온 이야기입니다', meta: '내 선수 탭 소식에서 답해 주세요' };
+  if (taleOpen(c, key)) return { cls: 'open', title: taleTitle(c, key), sub: `유대 ${tale.need} 이상이 됐습니다`, meta: '때가 되면 찾아옵니다' };
+  // 잠긴 칸: 아직 못 채운 조건을 제목에, 지금 값을 아래에
+  const time = tale.weeks >= WEEKS ? `${tale.weeks / WEEKS}시즌` : `${tale.weeks}주`;
+  const bondOk = c.bond >= tale.need;
+  const timeOk = absWeek() - c.since >= tale.weeks;
+  const together = togetherText(c).replace('함께한 지 ', '');
+  return {
+    cls: 'locked',
+    title: `잠김 · ${bondOk ? `함께한 지 ${time}` : `유대 ${tale.need}`}`,
+    sub: bondOk ? '유대 조건은 채웠습니다' : timeOk ? '함께한 시간은 채웠습니다' : `함께한 지 ${time}부터`,
+    meta: `지금 ${bondOk ? together : timeOk ? `유대 ${c.bond}` : `유대 ${c.bond} · ${together}`}`
+  };
 }
 
 // 후배 소개: 같은 나라 구단에서 20세 이하·잠재력 여유 10 이상·영입 확률 20% 이상, 아직 내 선수가 아닌 선수 중 잠재력이 가장 높은 선수
@@ -1288,7 +1307,7 @@ const EVENT_TYPES = {
   wedding: {
     tale: { title: '가족 결혼식', need: 60, weeks: 26 },
     chance: c => (taleReady(c, 'wedding') ? TUNE.taleChance : 0),
-    make: c => (startTale(c, 'wedding'), { who: FAMILY[hash(state.seed, c.s, c.g, 61) % FAMILY.length] }),
+    make: c => (startTale(c, 'wedding'), { who: familyOf(c) }),
     text: (p, d) => `${p.name} 선수가 ${d.who} 결혼식에 초대했습니다.`,
     quote: () => '에이전트님이 와 주시면 가족들이 정말 좋아할 거예요. 저 무명일 때부터 챙겨 주신 분이라고 늘 얘기했거든요.',
     options: [
@@ -1947,7 +1966,8 @@ const REGIONS = [...new Set(COUNTRIES.map(c => c.region))];
 const LEAGUE_COUNT = COUNTRIES.reduce((n, c) => n + c.tiers.length, 0);
 // index.html에 꼭 있어야 하는 요소 (배포 직후 옛 HTML이 캐시에 남아 있는지 확인용)
 const REQUIRED_IDS = ['hdr-date', 'hdr-cash', 'hdr-rep', 'hdr-ap', 'view', 'btn-next', 'summary', 'summary-title', 'summary-body',
-  'summary-close', 'gameover', 'gameover-body', 'gameover-new', 'gameover-close', 'toast', 'import-file', 'tab-agency'];
+  'summary-close', 'gameover', 'gameover-body', 'gameover-new', 'gameover-close', 'toast', 'import-file', 'tab-agency',
+  'scene', 'scene-who', 'scene-title', 'scene-body', 'scene-close'];
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -2035,11 +2055,24 @@ function satNode(c) {
 }
 const bondNode = c => el('span', c.bond >= TUNE.bondCalm ? 'up' : '', `유대 ${bondName(c.bond)} ${c.bond}`);
 
-// 선수와의 관계: 유대 단계, 함께한 기간, 인연, 유대가 주는 효과, 선수가 기억하는 최근 일
+// 관계 단계 하트 3칸: 믿음·끈끈함·가족 같음 (디자인 시안 B)
+function heartsNode(c) {
+  const tiers = BOND_TIERS.filter(([lo]) => lo > 0);
+  const got = tiers.filter(([lo]) => c.bond >= lo).length;
+  const box = el('span', 'hearts');
+  box.setAttribute('role', 'img');
+  box.setAttribute('aria-label', `관계 단계 ${got}/${tiers.length}`);
+  tiers.forEach((_, i) => box.append(el('span', i < got ? 'on' : '', '♥')));
+  return box;
+}
+
+// 선수와의 관계: 하트, 유대 단계, 함께한 기간, 인연, 유대가 주는 효과, 이야기 앨범, 선수가 기억하는 최근 일
 function bondBlock(c) {
   const box = el('div', 'panel');
   const head = el('div', 'panel-head');
-  head.append(el('strong', c.bond >= TUNE.bondCalm ? 'up' : '', `${bondName(c.bond)} · 유대 ${c.bond}/100`), el('span', 'badge', togetherText(c)));
+  const name = el('div', 'bond-name');
+  name.append(heartsNode(c), el('strong', c.bond >= TUNE.bondCalm ? 'up' : '', `${bondName(c.bond)} · 유대 ${c.bond}/100`));
+  head.append(name, el('span', 'badge', togetherText(c)));
   const bar = el('span', 'bar bond-bar');
   bar.setAttribute('aria-hidden', 'true');
   const fill = el('i');
@@ -2050,23 +2083,29 @@ function bondBlock(c) {
     ? `유대 효과: 다른 에이전시가 와도 붙잡을 확률 +${Math.round(bondKeepBonus(c) * 100)}%p · 이적을 권하면 동의 +${bondConsentBonus(c)}%p · ${calm}`
     : `유대가 ${TUNE.bondFrom}을 넘으면 다른 에이전시가 와도 붙잡기 쉬워지고, 이적을 권하면 잘 따라옵니다.`;
   box.append(head, bar, el('p', 'panel-line', `인연: ${c.how}`), el('p', 'sub', effect));
-  // 함께한 일: 관계 이야기(강조)와 선수가 기억하는 최근 일을 시간 순 한 줄로 (이야기와 같은 기억은 한 번만)
+  // 이야기 앨범 4칸: 함께한 이야기, 찾아온 이야기, 곧 올 이야기, 잠긴 이야기(필요한 유대·기간)
+  const tiles = TALE_KEYS.map(k => albumTile(c, k));
+  box.append(el('h3', 'mini', `이야기 앨범 ${tiles.filter(t => t.cls.startsWith('done')).length}/${TALE_KEYS.length}`));
+  const album = el('div', 'album');
+  for (const t of tiles) {
+    const tile = el('div', `tile ${t.cls}`);
+    tile.append(el('strong', 'tile-title', t.title), el('span', 'tile-sub', t.sub), el('small', 'tile-meta', t.meta));
+    album.append(tile);
+  }
+  box.append(album);
+  // 선수가 기억하는 최근 일 (이야기와 같은 기억은 앨범에 있으니 한 번만)
   const told = c.tales.filter(t => t.t);
-  const items = [
-    ...told.map(t => ({ w: t.w, text: t.t, tale: true })),
-    ...c.memo.filter(m => !told.some(t => t.t === m.t)).map(m => ({ w: m.w, text: `${m.t} (유대 ${m.n > 0 ? '+' : ''}${m.n})`, bad: m.n < 0 }))
-  ].sort((a, b) => b.w - a.w);
-  box.append(el('h3', 'mini', `함께한 이야기 ${told.length}/${TALE_KEYS.length}`));
-  if (items.length) {
+  const memos = c.memo.filter(m => !told.some(t => t.t === m.t));
+  box.append(el('h3', 'mini', '선수가 기억하는 일'));
+  if (memos.length) {
     const line = el('div', 'timeline');
-    for (const it of items) {
-      const row = el('p', it.tale ? 'tl tale' : it.bad ? 'tl bad' : 'tl', it.text);
-      row.append(el('small', '', ` · ${weekLabel(it.w)}`));
+    for (const m of memos) {
+      const row = el('p', m.n < 0 ? 'tl bad' : 'tl', `${m.t} (유대 ${m.n > 0 ? '+' : ''}${m.n})`);
+      row.append(el('small', '', ` · ${weekLabel(m.w)}`));
       line.append(row);
     }
     box.append(line);
   } else box.append(el('p', 'sub', '함께 시간을 보내고 어려울 때 곁에 있어 주면 유대가 쌓입니다. 외면하면 줄어듭니다.'));
-  box.append(el('p', 'tale-next', nextTaleText(c)));
   return box;
 }
 
@@ -2103,6 +2142,14 @@ function checkList(checks, score, extra) {
   return box;
 }
 
+// 선택지에 붙는 표시 "1 AP · $500 · 유대 +5"와, AP·자금이 모자라서 막히는지 (소식 카드와 이야기 장면이 같이 씀)
+function optionInfo(ev, opt, c) {
+  const cost = opt.cost ? opt.cost(ev.d, c) : 0;
+  const bond = opt.bond && c ? `유대 ${opt.bond > 0 ? '+' : ''}${opt.bond}` : '';
+  return { tags: [opt.ap ? `${opt.ap} AP` : '', cost ? cash(cost) : '', bond].filter(Boolean).join(' · '), blocked: Boolean((opt.ap && state.ap < opt.ap) || cost > state.agencyCash) };
+}
+const dueText = (ev, type, p, c) => (ev.until > absWeek() ? `${ev.until - absWeek()}주 안에 답하지 않으면 "${type.options[type.def].label(p, ev.d, c)}"` : '이번 주까지 답해야 합니다');
+
 // 이번 주 소식 카드: 선택지마다 AP·비용 표시, 모자라면 버튼을 막음
 function newsCard(ev) {
   const type = EVENT_TYPES[ev.type];
@@ -2112,7 +2159,7 @@ function newsCard(ev) {
   const card = el('article', type.tale ? 'news tale' : 'news');
   if (type.tale && c) {
     const lab = el('div', 'tale-lab');
-    lab.append(el('span', 'tale-name', `이야기 · ${type.tale.title}`), el('span', 'badge warm', `${bondName(c.bond)} ${c.bond}`));
+    lab.append(el('span', 'tale-name', `이야기 · ${taleTitle(c, ev.type)}`), el('span', 'badge warm', `${bondName(c.bond)} ${c.bond}`));
     card.append(lab);
   }
   card.append(el('p', 'news-text', type.text(p, ev.d, c)));
@@ -2122,19 +2169,57 @@ function newsCard(ev) {
     const fit = type.fit(p, ev.d);
     card.append(checkList(fit.checks, fit.score, `이적 동의 ${fit.consent}%${fit.bond ? ` (유대 +${fit.bond}%p 포함)` : ''}`));
   }
-  card.append(el('p', 'news-due', ev.until > absWeek() ? `${ev.until - absWeek()}주 안에 답하지 않으면 "${type.options[type.def].label(p, ev.d, c)}"` : '이번 주까지 답해야 합니다'));
+  card.append(el('p', 'news-due', dueText(ev, type, p, c)));
   const actions = el('div', 'news-actions');
   type.options.forEach((opt, i) => {
-    const cost = opt.cost ? opt.cost(ev.d, c) : 0;
-    const bond = opt.bond && c ? `유대 ${opt.bond > 0 ? '+' : ''}${opt.bond}` : '';
-    const tags = [opt.ap ? `${opt.ap} AP` : '', cost ? cash(cost) : '', bond].filter(Boolean).join(' · ');
-    const b = actButton('btn', 'event', ev.id, opt.label(p, ev.d, c) + (tags ? ` (${tags})` : ''));
+    const info = optionInfo(ev, opt, c);
+    const b = actButton('btn', 'event', ev.id, opt.label(p, ev.d, c) + (info.tags ? ` (${info.tags})` : ''));
     b.dataset.o = String(i);
-    b.disabled = (opt.ap && state.ap < opt.ap) || cost > state.agencyCash;
+    b.disabled = info.blocked;
     actions.append(b);
   });
   card.append(actions);
   return card;
+}
+
+// ===== 관계 이야기 장면 (디자인 시안 B): 다음 주를 누른 뒤 새로 찾아온 이야기를 아래에서 올라오는 시트로 =====
+// 시트를 닫아도 이야기는 내 선수 탭 소식에 남음. 대기열은 저장하지 않음 (새로고침하면 소식 카드로만 보임)
+let sceneQueue = [];
+
+function openScene() {
+  const dialog = $('scene');
+  if (dialog.open || state.over) return;
+  let ev = null;
+  while (sceneQueue.length && !ev) {
+    const id = sceneQueue.shift();
+    ev = state.events.find(e => e.id === id && EVENT_TYPES[e.type].tale && clientOf(e.s)) || null;
+  }
+  if (!ev) return;
+  const type = EVENT_TYPES[ev.type];
+  const p = getPlayer(ev.s);
+  const c = clientOf(ev.s);
+  // 선수 얼굴(이름 첫 글자, 포지션 색 테두리), 이름·인연, 유대 단계
+  const face = el('span', `face face-${p.pos}`, [...p.name][0]);
+  face.setAttribute('aria-hidden', 'true');
+  const info = el('div', 'scene-info');
+  info.append(el('strong', 'scene-name', p.name), el('span', 'scene-meta', `${p.pos} · ${ageOf(p)}세 · ${c.how}`), el('span', 'badge warm', `${bondName(c.bond)} ${c.bond}`));
+  $('scene-who').replaceChildren(face, info);
+  $('scene-title').textContent = type.text(p, ev.d, c);
+  // 선수의 말을 크게, 그 아래 지금 사정(함께한 기간·만족·리그 평점)
+  const ctx = [togetherText(c), `만족 ${c.sat}`, c.st.L[0] ? `이번 시즌 리그 평점 ${avgRating(c.st.L)}` : ''].filter(Boolean).join(' · ');
+  const actions = el('div', 'news-actions');
+  type.options.forEach((opt, i) => {
+    const o = optionInfo(ev, opt, c);
+    // 첫 답이 가장 따뜻한 답이라 테두리를 강조
+    const b = actButton(i === 0 ? 'scene-opt warm' : 'scene-opt', 'event', ev.id, el('span', 'opt-label', opt.label(p, ev.d, c)));
+    if (o.tags) b.append(el('span', 'opt-tags', o.tags));
+    b.dataset.o = String(i);
+    b.disabled = o.blocked;
+    actions.append(b);
+  });
+  $('scene-body').replaceChildren(el('p', 'scene-quote', `"${type.quote(p, ev.d, c)}"`), el('p', 'scene-ctx', ctx), actions,
+    el('p', 'news-due', `${dueText(ev, type, p, c)} · 닫아도 내 선수 탭 소식에 남습니다`));
+  dialog.showModal();
 }
 
 function renderClients(root) {
@@ -2736,10 +2821,14 @@ function onAction(act, v, o) {
 
 function bindEvents() {
   $('btn-next').addEventListener('click', () => {
+    const first = state.nextEventId;
     const news = advanceWeek();
     render();
+    // 이번 주에 새로 찾아온 관계 이야기는 장면 시트로 보여 줌 (결산 창이 뜨면 닫은 뒤에)
+    sceneQueue = state.events.filter(e => e.id >= first && EVENT_TYPES[e.type].tale).map(e => e.id);
     if (state.over) openGameOver();
     else if (state.summary && !state.summary.seen) openSummary();
+    else if (sceneQueue.length) openScene();
     else if (news) toast(`새 소식 ${news}건이 있습니다. 내 선수 탭에서 답해 주세요.`);
   });
   document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => {
@@ -2763,7 +2852,17 @@ function bindEvents() {
       state.summary.seen = true;
       saveState();
     }
+    openScene();
   });
+  // 이야기 장면: 답을 고르면 시트를 닫고 소식 카드와 똑같이 처리, 닫으면 같은 주의 다음 이야기
+  $('scene').addEventListener('click', e => {
+    const b = e.target.closest('[data-act]');
+    if (!b || b.disabled) return;
+    $('scene').close();
+    onAction(b.dataset.act, Number(b.dataset.v), Number(b.dataset.o));
+  });
+  $('scene-close').addEventListener('click', () => $('scene').close());
+  $('scene').addEventListener('close', openScene);
   $('gameover-new').addEventListener('click', () => {
     $('gameover').close();
     startNewGame();
@@ -2852,10 +2951,17 @@ function runSelfCheck() {
   // 8단계: 관계 이야기는 필요한 유대가 낮은 순, 선수의 말과 기본 선택이 있고, 한 번 시작하면 다시 오지 않음
   check(TALE_KEYS.every((k, i) => EVENT_TYPES[k] && EVENT_TYPES[k].tale && typeof EVENT_TYPES[k].quote === 'function' && EVENT_TYPES[k].tale.need <= 100
     && (i === 0 || EVENT_TYPES[k].tale.need > EVENT_TYPES[TALE_KEYS[i - 1]].tale.need)), '관계 이야기: 필요한 유대 순서, 선수의 말');
-  const tt = { bond: 100, sat: 50, tales: [], since: absWeek() - 4 * WEEKS };
+  const tt = { s: 0, g: 0, bond: 100, sat: 50, tales: [], since: absWeek() - 4 * WEEKS };
   const readyBefore = taleReady(tt, 'wedding');
   startTale(tt, 'wedding');
-  check(readyBefore && !taleReady(tt, 'wedding') && typeof nextTaleText(tt) === 'string', '관계 이야기는 선수마다 한 번만');
+  check(readyBefore && !taleReady(tt, 'wedding') && albumTile(tt, 'wedding').cls === 'now', '관계 이야기는 선수마다 한 번만');
+  // 이야기 앨범 (시안 B): 고른 답의 유대 변화를 보여 주고, 답하지 않은 이야기는 흐리게, 조건을 못 채우면 잠김
+  const wed = EVENT_TYPES.wedding.options;
+  tt.tales[0].t = wed[0].memo;
+  const done = albumTile(tt, 'wedding');
+  tt.tales[0].t = `(답하지 않음) ${wed[wed.length - 1].memo}`;
+  check(done.cls === 'done' && done.meta.endsWith(`유대 +${wed[0].bond}`) && albumTile(tt, 'wedding').cls === 'done cold'
+    && albumTile(tt, 'praise').cls === 'open' && albumTile({ ...tt, bond: 0 }, 'praise').cls === 'locked', '이야기 앨범 칸 상태');
   check(TUNE.alumniBond >= TUNE.farewellBond && TUNE.introBonus > 0 && TUNE.introWeeks > 0, '은퇴식·옛 선수·후배 소개 값');
 }
 

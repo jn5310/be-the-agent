@@ -6,8 +6,10 @@
   <meta name="theme-color" content="#0b1120">
   <title>Be The Agent</title>
   <!-- 배포할 때마다 ?v= 숫자를 올림 (GitHub Pages 10분 캐시에 옛 파일이 섞이지 않게) -->
-  <link rel="stylesheet" href="style.css?v=9">
-  <script src="game.js?v=9" defer></script>
+  <!-- 가장 많이 쓰는 굵기(본문)는 미리 받아 글꼴이 바뀌는 깜빡임을 줄임 -->
+  <link rel="preload" href="fonts/Pretendard-Regular.subset.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="style.css?v=10">
+  <script src="game.js?v=10" defer></script>
 </head>
 <body>
   <!-- 상단: 시즌·주차, 자금, 평판, 행동력 -->
@@ -34,6 +36,16 @@
     <h2 id="summary-title" class="title"></h2>
     <div id="summary-body"></div>
     <button type="button" id="summary-close" class="btn primary">확인</button>
+  </dialog>
+
+  <!-- 관계 이야기 장면: 다음 주를 누른 뒤 아래에서 올라오는 시트 (디자인 시안 B) -->
+  <dialog id="scene" class="sheet scene" aria-labelledby="scene-title">
+    <span class="grip" aria-hidden="true"></span>
+    <div id="scene-who" class="scene-who"></div>
+    <!-- 시트가 열리면 답 버튼이 아니라 이야기 문장에 먼저 초점 (화면 읽기 순서, 잘못 누르기 방지) -->
+    <h2 id="scene-title" class="scene-title" tabindex="-1" autofocus></h2>
+    <div id="scene-body"></div>
+    <button type="button" id="scene-close" class="btn wide">나중에 답하기</button>
   </dialog>
 
   <!-- 파산 -->
