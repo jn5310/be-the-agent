@@ -71,6 +71,28 @@ button { font: inherit; color: inherit; }
 .news-actions { display: grid; gap: 6px; }
 .news-actions .btn { width: 100%; text-align: left; }
 
+/* 기록 표·성향·점검표 */
+.card-line { display: block; margin-top: 6px; color: var(--text); font-size: 12px; }
+.stats-table { width: 100%; margin: 0 0 8px; border-collapse: collapse; font-size: 13px; }
+.stats-table th, .stats-table td { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: right; }
+.stats-table th:first-child, .stats-table td:first-child { text-align: left; }
+.stats-table th { color: var(--muted); font-weight: 600; font-size: 12px; }
+.prefs { padding: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; font-size: 14px; }
+.prefs p { margin: 0 0 4px; }
+.mini { margin: 10px 0 4px; font-size: 13px; color: var(--muted); }
+.checks { margin: 6px 0 8px; }
+.check { margin: 0 0 2px; font-size: 13px; }
+.check.ok { color: var(--accent); }
+.check.no { color: var(--bad); }
+.check-sum { margin: 4px 0 0; font-size: 13px; font-weight: 700; }
+.summary-stats { display: block; color: var(--muted); font-size: 12px; }
+.segment { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px; }
+.seg { min-height: 44px; border: 1px solid var(--line); border-radius: 10px; background: none; color: var(--muted); cursor: pointer; }
+.seg.on { background: var(--panel); color: var(--text); border-color: var(--accent); font-weight: 700; }
+.option { display: grid; gap: 2px; padding: 8px 12px; text-align: left; }
+.opt-title { font-weight: 700; }
+.opt-sub { color: var(--muted); font-size: 12px; }
+
 /* 소속 선수 카드 (누르면 상세) */
 .card {
   display: block;
