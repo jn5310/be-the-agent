@@ -25,7 +25,7 @@ inclusion: always
 ## 작업 순서 (매 단계)
 1. 코드 수정 → `node --check game.js` → 쓰지 않는 함수가 없는지 확인
 2. 확률·수치를 바꿨다면 `TUNE`에서 바꾸고 시뮬레이션 1,000판 이상
-3. 브라우저 확인 (아래 방법), 390px·360px, 콘솔 오류 0, 자가 검증 통과
+3. 브라우저 확인 (아래 방법), 390px·360px, 콘솔 오류 0, 자가 검증 통과. 한국어와 영어 둘 다 봅니다(새 글은 `L(한국어, 영어)`, 영어 화면에 한글이 남지 않았는지)
 4. 세이브 구조가 바뀌면 `SAVE_VERSION`을 올리고 이전 버전 변환 + 왕복 테스트
 5. `index.html`의 `?v=` 숫자 올리기, 새 화면 요소는 `REQUIRED_IDS`에 추가
 6. `AGENTS.md`(0장 포함)·`README.md` 갱신 → 커밋 → 푸시 → PR(`gh api .../pulls`, `gh pr create`는 안 됨)
@@ -39,6 +39,10 @@ inclusion: always
 - 글꼴에 어떤 글자가 있는지는 `fc-query --format='%{charset}' 파일.woff2`로 봅니다(woff2도 읽음). pip·npm 설치는 막혀 있어서 fontTools 같은 도구로 글꼴을 고칠 수 없고, 고치면 예약 이름 때문에 이름도 바꿔야 하니 공식 파일만 씁니다(AGENTS.md 1장 1번).
 - 이미지를 확인하는 도구는 같은 경로를 다시 읽으면 예전 이미지를 돌려줄 수 있습니다. 다시 그린 이미지는 새 이름으로 복사해서 확인합니다. 그림을 만드는 명령과 그 그림을 읽는 도구를 한 번에 부르면 병렬로 돌아 파일이 없다고 나옵니다. 따로 부릅니다.
 - `<dialog>` 시트는 올라오는 애니메이션(0.25초)이 있어서, 위치를 잴 때는 400ms쯤 기다립니다.
+- 언어(11단계): 언어 설정이 없으면 게임이 브라우저 언어를 따릅니다. 헤드리스 Chromium은 `en-US`라서, 한국어로 확인할 때는 `browser.newContext({ locale: 'ko-KR' })`, 영어는 `locale: 'en-US'`로 엽니다.
+- 영어 화면 점검: 열린 화면·창의 글자 노드와 `aria-label`을 훑어 `[가-힣]`이 남았는지 봅니다(언어 버튼 "한국어", "Language · 언어"는 예외). 소식은 `d.v`를 0~59로 바꿔 가며 상황 글·선수의 말 변형을 모두 그려 봅니다. 한 줄이어야 하는 버튼(하단 탭)은 글자 노드의 `getClientRects()` 줄 수로 두 줄이 됐는지 봅니다(`scrollWidth`로는 줄바꿈을 못 잡음).
+- 코드에서 짝 없는 한국어 글 찾기: eslint에 들어 있는 acorn(`$(npm root -g)/eslint/node_modules/acorn`)으로 `game.js`를 읽어, `L()`·`M()`·`SAY()`의 첫 인자가 아닌 곳에 한글이 있는 문자열을 찾습니다. 주석·`console`·자가 검증 메시지·조사 도구·세계 데이터는 빼고 봅니다.
+- 게임 동작이 그대로인지(글만 바꿀 때): `Math.random`을 고정 시드로 바꾸고 봇 몇 판을 돌려 숫자 상태(자금·평판·선수·통계)의 해시를 바꾸기 전 파일과 비교합니다. `tools/sim.js`는 시드를 고정하지 않아 돌릴 때마다 조금씩 다릅니다.
 - 셸 도구는 `run_in_background`를 켜도 120초가 지나면 명령을 끊습니다. `node tools/sim.js --games 1000 --all`(8코어 약 3분)은 `timeout`을 900000(15분)으로 주고 앞에서 돌립니다.
 - Playwright 위치: `$(npm root -g)/@playwright/mcp/node_modules/playwright`, 브라우저는 `PLAYWRIGHT_BROWSERS_PATH=/inner_container/opt/playwright`로 지정합니다.
 - 샌드박스는 인터넷이 안 돼서 실제 사이트를 열 수 없습니다. 배포는 `gh api repos/jn5310/be-the-agent/pages/builds/latest`로 확인합니다.
