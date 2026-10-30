@@ -3124,7 +3124,7 @@ function boot() {
   if (missing.length) {
     console.warn('화면 요소가 없습니다:', missing.join(', '));
     const note = el('p', '', '새 버전을 적용하는 중입니다. 1~2분 뒤 새로고침해 주세요. 저장된 진행 상황은 그대로입니다.');
-    note.style.cssText = 'position:fixed;left:16px;right:16px;top:40%;z-index:99;padding:16px;border:1px solid #34d399;border-radius:12px;background:#111a2e;color:#e2e8f0;text-align:center';
+    note.style.cssText = 'position:fixed;left:16px;right:16px;top:40%;z-index:99;padding:16px;border:1px solid #067647;border-radius:12px;background:#ffffff;color:#101828;text-align:center';
     document.body.append(note);
     return;
   }
