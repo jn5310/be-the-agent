@@ -28,6 +28,7 @@ const TARGETS = {
     ['firstInvestS1', '설립 뒤 1시즌 안에 첫 투자', 60, 100, '%'],
     ['soloBusy', '혼자일 때 할 일이 있는 주', 45, 75, '%'],
     ['bondHigh', '남은 선수 중 유대 60 이상', 30, 70, '%'],
+    ['tales', '3시즌 동안 관계 이야기', 6, 20, '개'],
     ['investLevels', '투자 단계 (10단계 중)', 3, 7, ''],
     ['spendShare', '번 돈 중 투자·아이템에 쓴 비율', 40, 85, '%'],
     ['deficitWeeks', '투자 유지비 때문에 적자인 주', 0, 3, '%']
@@ -59,7 +60,7 @@ function loadGame() {
 
 // ----- 봇 -----
 // 소식 답: 성실한 봇은 상황을 보고 고름, 대충 하는 봇은 아무거나
-function answer(G, bot, ev) {
+function answer(G, bot, ev, m) {
   const st = G.state;
   const c = G.clientOf(ev.s);
   const p = G.getPlayer(ev.s);
@@ -70,10 +71,17 @@ function answer(G, bot, ev) {
     const cost = o.cost ? o.cost(ev.d, c) : 0;
     return !(o.ap && st.ap < o.ap) && cost <= st.agencyCash;
   };
+  if (type.tale) {
+    m.tales += 1;
+    m.taleKinds[ev.type] = (m.taleKinds[ev.type] || 0) + 1;
+    if (ev.type === 'junior') m.juniors += 1;
+  }
   if (bot === 'careless') {
     const opts = type.options.map((_, i) => i).filter(ok);
     return opts.length ? opts[Math.floor(Math.random() * opts.length)] : type.def;
   }
+  // 관계 이야기: 성실한 봇은 할 수 있으면 가장 따뜻한 답(0번), 아니면 다음 답
+  if (type.tale) return ok(0) ? 0 : ok(1) ? 1 : type.def;
   switch (ev.type) {
     case 'offer': {
       const fit = G.offerFit(p, ev.d);
@@ -202,7 +210,7 @@ function botWeek(G, bot, m) {
       m.offers += 1;
       m.consentSum += G.offerFit(G.getPlayer(ev.s), ev.d).consent;
     }
-    const go = G.resolveEvent(ev.id, answer(G, bot, ev));
+    const go = G.resolveEvent(ev.id, answer(G, bot, ev, m));
     acted = true;
     if (go !== null && !G.clientOf(go) && !G.recruitBlock(G.getPlayer(go))) {
       m.recruitTry += 1;
@@ -302,7 +310,7 @@ function playGame(G, bot, seasons) {
   const st = G.state;
   const m = { weeks: 0, decisionWeeks: 0, news: 0, overload: 0, apUsed: 0, offers: 0, consentSum: 0, recruitTry: 0, firstTransfer: 0, bankrupt: 0,
     firstInvest: 0, investSpent: 0, upkeepPaid: 0, taxPaid: 0, itemSpent: 0, downgrades: 0, deficitWeeks: 0, buyWeek: {},
-    scouts: 0, scoutWeeks: 0, busyWithScout: 0, youthTry: 0, youthPotSum: 0, youthMissSum: 0, foundWeek: 0, soloWeeks: 0, soloBusy: 0, apAvail: 0 };
+    scouts: 0, scoutWeeks: 0, busyWithScout: 0, youthTry: 0, youthPotSum: 0, youthMissSum: 0, foundWeek: 0, soloWeeks: 0, soloBusy: 0, apAvail: 0, tales: 0, juniors: 0, taleKinds: {} };
   const signed0 = st.stats.signed;
   for (let w = 0; w < seasons * 52; w++) {
     const news = st.events.length;
@@ -365,7 +373,11 @@ function playGame(G, bot, seasons) {
     foundWeek: m.foundWeek || null,
     soloBusy: m.soloWeeks ? (m.soloBusy / m.soloWeeks) * 100 : null,
     bondAvg: bonds.length ? bonds.reduce((a, b) => a + b, 0) / bonds.length : null,
-    bondHigh: bonds.length ? (bonds.filter(b => b >= 60).length / bonds.length) * 100 : null
+    bondHigh: bonds.length ? (bonds.filter(b => b >= 60).length / bonds.length) * 100 : null,
+    tales: m.tales,                          // 찾아온 관계 이야기 수
+    juniorAny: m.juniors ? 100 : 0,          // 후배 소개를 받은 게임
+    alumni: st.alumni.length,                // 스카우트로 합류한 옛 선수
+    taleKinds: m.taleKinds
   };
   return {
     ...money,
@@ -471,6 +483,8 @@ const median = (rows, key) => {
       const mid = weeks[Math.floor(weeks.length / 2)];
       console.log(`    혼자 시작: 회사 설립 시점 중앙값 ${mid === Infinity ? '-' : `${mid}주`}, 1시즌 안에 설립 ${mean(rows, 'foundS1').toFixed(0)}%, 설립 못 한 게임 ${((weeks.filter(w => w === Infinity).length / rows.length) * 100).toFixed(0)}%, 혼자일 때 할 일 있는 주 ${mean(rows, 'soloBusy').toFixed(1)}%`);
       console.log(`    유대: 남은 선수 평균 ${mean(rows, 'bondAvg').toFixed(1)}, 60 이상(끈끈함 이상) ${mean(rows, 'bondHigh').toFixed(0)}%`);
+      const kinds = ['call', 'wedding', 'junior', 'praise'].map(k => `${k} ${(rows.reduce((n, r) => n + (r.taleKinds[k] || 0), 0) / rows.length).toFixed(2)}`).join(', ');
+      console.log(`    관계 이야기: 게임당 ${mean(rows, 'tales').toFixed(2)}개 (${kinds}), 후배 소개를 받은 게임 ${mean(rows, 'juniorAny').toFixed(0)}%, 옛 선수 스카우트 평균 ${mean(rows, 'alumni').toFixed(2)}명`);
     }
     if (rows[0].scoutsPerSeason !== undefined) {
       console.log(`    스카우트: 시즌당 ${mean(rows, 'scoutsPerSeason').toFixed(1)}번, 스카우트까지 넣은 할 일 있는 주 ${mean(rows, 'busyWithScout').toFixed(1)}%, 영입하려 한 21세 이하 진짜 잠재력 평균 ${mean(rows, 'youthPot').toFixed(1)} (보이던 범위 가운데와 차이 ${mean(rows, 'youthMiss').toFixed(1)})`);
