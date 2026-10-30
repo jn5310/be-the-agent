@@ -6,13 +6,13 @@ AI 코딩 도구가 이 리포를 이어서 작업할 때 읽는 문서입니다
 
 인수인계 문서는 세 개입니다. 새 세션은 이 장 → `.kiro/steering/session-handoff.md`(시작 절차·사용자와 일하는 방식·작업 순서·샌드박스 요령) → `.kiro/steering/game-design.md`(사용자 피드백으로 정한 설계 원칙) 순서로 직접 읽습니다. Kiro Web에서는 리포가 작업 폴더(`/projects/sandbox`)의 하위 폴더라서 두 steering 파일이 자동으로 읽히지 않을 수 있습니다.
 
-- **완료:** 1~9단계와 밝은 화면. 8단계 후속(디자인 시안 B, 글꼴)까지 `main`에 머지됐습니다(PR #10). 9단계(이적 시장)는 PR #11(`phase9-transfer-window`), 밝은 화면은 그 위에 쌓은 `phase9b-light-theme` 브랜치의 PR로 리뷰 대기 중입니다. 머지 전이면 가장 위 브랜치에서 새 브랜치를 따서 이어 가고, 머지 후에는 `main`에서 새 브랜치를 만듭니다.
+- **완료:** 1~10단계와 밝은 화면. 8단계 후속(디자인 시안 B, 글꼴)까지 `main`에 머지됐습니다(PR #10). 리뷰 대기: 9단계 이적 시장 PR #11(`phase9-transfer-window`) → 밝은 화면 PR #12(`phase9b-light-theme`) → 10단계 세계 뉴스(`phase10-world-news`) 순서로 쌓았습니다. 머지 전이면 가장 위 브랜치에서 새 브랜치를 따서 이어 가고, 머지 후에는 `main`에서 새 브랜치를 만듭니다.
 - **정해진 것:** 관계 이야기 화면은 디자인 시안 B(이야기 장면 시트 + 이야기 앨범). 글꼴은 Pretendard(OFL)를 리포에 넣어 씁니다(1장 1번). 화면은 밝은 시안 C(밝은 회색 바탕 + 흰 카드 + 잔디색 상단 바)로 넣었고, A(화이트)·B(종이)로 바꾸려면 `style.css` `:root` 변수만 바꿉니다(`docs/design/light-compare.png`).
-- **사용자 요청 (9단계 뒤 이어서):** ① 화면을 어두운색에서 밝은색으로 바꾸기(완료, 시안 C), ② 영어 버전 준비: 번역하고, 대화·선수의 말은 너무 단순하지 않게 문장을 최대한 많이 준비하기(진행 중).
+- **사용자 요청 (9단계 뒤 이어서):** ① 화면을 어두운색에서 밝은색으로 바꾸기(완료, 시안 C), ② 세계 뉴스: 어느 구단이 어느 포지션이 부족한지, 누가 누구를 영입했는지(완료, 10단계), ③ 영어 버전 준비: 번역하고, 대화·선수의 말은 너무 단순하지 않게 문장을 최대한 많이 준비하기(다음).
 - **사이트:** https://jn5310.github.io/be-the-agent/ (Pages가 `main`에서 자동 배포, 머지 후 1~2분)
-- **버전:** 세이브 `SAVE_VERSION = 9`(9단계: 선수의 `hunt`), `index.html`은 `?v=12`. 다음 배포 때 `?v=13`으로 올립니다.
-- **규모:** `game.js` 약 3,140줄, 58개국 123개 리그, 구단 2,002개, 선수 48,048명. 글꼴 파일 6개 약 840KB(`fonts/`, 처음 한 번 받고 나면 브라우저에 남음).
-- **마지막 밸런스 검증 (1,000판 × 3시즌, 성실한 봇, 9단계):** 지표 22개 모두 목표 안 (8장 표). 할 일이 있는 주 70.7%, 주당 소식 0.79, 재계약 73.5%, 영입 54.1%, 선수를 잃은 게임 22.0%, 파산 0.5%, 1시즌 안 첫 이적 72.5%, 시즌당 이적 1.84건, 1시즌 안 회사 설립 54.5%, 관계 이야기 3시즌 14.3개, 마감 주에 온 이적 제안 19.0%. 유망주 ÷ 베테랑 번 돈 1.13.
+- **버전:** 세이브 `SAVE_VERSION = 10`(10단계: 뉴스·보강 필요·이적 기간 결산, 선수의 `pitch`), `index.html`은 `?v=13`. 다음 배포 때 `?v=14`로 올립니다.
+- **규모:** `game.js` 약 3,440줄, 58개국 123개 리그, 구단 2,002개, 선수 48,048명. 글꼴 파일 6개 약 840KB(`fonts/`, 처음 한 번 받고 나면 브라우저에 남음).
+- **마지막 밸런스 검증 (1,000판 × 3시즌, 성실한 봇, 10단계):** 지표 22개 모두 목표 안 (8장 표). 할 일이 있는 주 71.0%, 주당 소식 0.80, 재계약 74.1%, 영입 54.1%, 선수를 잃은 게임 23.9%, 파산 0.6%, 1시즌 안 첫 이적 71.1%, 시즌당 이적 1.82건, 꿈의 구단 이적 13.8%, 1시즌 안 회사 설립 53.5%, 관계 이야기 3시즌 14.4개, 마감 주에 온 이적 제안 20.1%. 유망주 ÷ 베테랑 번 돈 1.12. 세계 이적 시즌당 43.6건.
 - **사용자가 중요하게 보는 것:** 에이전트와 선수의 관계처럼 밀접한 부분을 강조하면 게임이 재밌어진다고 봅니다. 새 기능을 만들 때 선수와의 관계에 어떤 순간이 생기는지 먼저 생각합니다 (`game-design.md`). 화면을 크게 바꿀 때는 디자인 시안 몇 개를 이미지로 보여 주고 고르게 합니다.
 
 ### 앞으로 일하는 방식 (사용자 요청)
@@ -23,13 +23,15 @@ AI 코딩 도구가 이 리포를 이어서 작업할 때 읽는 문서입니다
 - 아래 "다음에 할 일"은 가져올 요소를 고를 때 참고하는 후보 목록입니다.
 
 ### 다음에 할 일 (후보)
-1. **영어 버전 준비 (사용자 요청):** 위 "사용자 요청" ②.
+1. **영어 버전 준비 (사용자 요청, 다음):** 위 "사용자 요청" ③. 뉴스는 데이터로 저장해 두어서(10단계) 화면에서 영어 문장으로 만들 수 있습니다.
 2. **시즌 시상·업적·목표, 진행 편의:** 득점왕·올해의 유망주, 에이전시 업적, 시즌 목표, 빠른 진행(4주씩 또는 다음 소식까지). 빠른 진행은 이적 기간이 닫힌 조용한 주(9단계)를 빨리 넘길 때 특히 쓸모 있습니다.
 3. **경기력에 따른 잠재력 변화:** 평점이 높으면 잠재력이 오르고 낮으면 내려감. 6단계 잠재력 범위와 함께 쓰려면 범위도 같이 움직여야 합니다.
 4. **오래 함께한 선수용 이야기:** 4종을 다 본 선수에게 시즌마다 한 번쯤 오는 이야기(예: 은퇴 고민, 지도자 꿈). 앨범 칸이 5칸 이상이 됩니다.
 5. **기존 큰 기획:** 고교 시찰, 경쟁 에이전시(이적 마감일에 같은 선수를 두고 다툼), 세계 뉴스, 60세 은퇴 엔딩(개인 자산과 함께한 선수 이야기를 점수·회고로).
 
 ### 알려진 문제·주의
+- 10단계부터 추천한 구단·보강이 필요한 구단이 먼저 제안해서, 꿈의 구단 이적이 20.7% → 13.8%로 줄었습니다(목표 10~25% 안). 더 줄면 꿈의 구단 확인을 추천보다 먼저 하게 바꿉니다.
+- 세계 이적은 실제로 선수를 옮겨서 `moved`가 시즌당 약 44건씩 늘고, 선수가 은퇴하면 지워집니다.
 - 9단계부터 계약 중인 선수의 이적 제안은 1년 52주 중 17주(이적 기간)에만 옵니다. 닫힌 기간에는 무소속 선수 제안만 옵니다. 그래서 제안이 몰리는 주와 조용한 주가 생깁니다. 할 일이 있는 주는 70.7%로 8단계(70.2%)와 비슷합니다. 이적 요청(게임당 2.7건)이 조용해진 만큼을 채웁니다.
 - 유망주 봇은 남은 선수 중 유대 60 이상이 71.8%로 목표(30~70%)를 조금 넘습니다(8단계 69.8%). 성실한 봇은 68.1%로 안입니다. 이적 요청을 알아봐 주면 유대 +3이라서입니다.
 - 혼자일 때는 선수가 2~3명이라 한가하고(할 일이 있는 주 61.7%), 회사를 세우면 다시 바빠집니다. 매주 일을 늘리는 기능은 상한(75%)을 보며 넣습니다.
@@ -186,6 +188,18 @@ AI 코딩 도구가 이 리포를 이어서 작업할 때 읽는 문서입니다
 - 시안 C를 고른 이유: 이야기 카드의 따뜻한 주황이 종이색(B)보다 차가운 바탕에서 더 잘 보이고, 잔디색 상단 바가 축구 게임이라는 느낌을 줍니다. 상단 바는 날짜·자금·평판·AP만 있어 짙은 색이어도 화면이 어두워 보이지 않습니다
 - 세이브는 그대로, `index.html` `?v=12`
 
+### 10단계 (완료): 세계 뉴스 (축구 감독 게임의 뉴스·구단 보강 정보에서 가져옴, 사용자 요청)
+- 이적 기간이 열리면 구단 400곳(1부 우선)을 살펴, 주전 평균 능력이 구단 수준보다 2 이상 낮은 포지션을 "보강 필요"로 정합니다(최대 40곳). 큰 구단 6곳과 내 선수가 맞는 구단은 뉴스로 알립니다
+- 이적 기간 매주 3건(마감 주 6건) 보강이 필요한 구단이 다른 구단 선수를 실제로 데려옵니다. 명단이 바뀌고, 영입 뉴스가 나옵니다. 내 선수는 세계 이적에 끼지 않고 제안으로만 옮깁니다
+- **추천 (에이전트가 하는 일):** 보강 뉴스에 내 선수가 맞으면(포지션, 구단 수준이 선수 능력 -8 ~ +4, 지금 구단보다 많이 낮지 않음) 1 AP로 그 구단에 추천합니다. 마감까지 그 선수 제안이 1.2배, 제안이 오면 70%는 그 구단에서 옵니다. 선수마다 이적 기간에 한 구단만
+- 보강이 필요한 구단은 내 선수 제안도 먼저 보냅니다(맞는 구단이 있으면 50%). 제안 문장 앞에 "추천해 둔"·"수비수 보강이 필요한" 이 붙습니다
+- 뉴스 종류: 보강 필요, 영입(세계 이적), 내 선수 이적, 내 선수 첫 국가대표 발탁, 이적 기간 결산(이적 건수와 가장 비싼 이적). 종류마다 문장 2~5가지 중 뉴스마다 정해진 하나를 씁니다
+- 화면: 내 선수 탭 이적 시장 줄 아래 "세계 뉴스" 상자(추천 기회 1건 → 내 선수 소식 → 최근 순으로 3건), "전체 보기"는 뉴스 화면(보강이 필요한 구단 목록 + 최근 뉴스 60건). 리그 탭 맨 위에 뉴스 화면으로 가는 줄, 보강이 필요한 구단 화면 맨 위에 보강 상자와 추천 버튼
+- 조사: 구단·선수 이름 끝 글자의 받침으로 이/가·을/를·으로/로를 고릅니다(`josa`, 숫자로 끝나면 읽는 소리로)
+- 가져오면서 바꾼 점: 원작은 감독이 보강을 직접 합니다. 여기서는 구단들의 보강 소식이 에이전트에게 기회가 되어, 내 선수를 추천하는 일로 이어집니다
+- 밸런스: 추천 1.5배면 시즌당 이적 2.25건(목표 2건 이하)이라 1.2배. 이적이 늘어 선수를 덜 잃어서(19.5%) 이적 기간 배수 2.8 → 2.6, 다른 에이전시 접근 0.0015 → 0.0018
+- 세이브 v10 (뉴스·보강 필요·결산, 선수의 `pitch`, v1~v9 변환), `index.html` `?v=13`
+
 ### 다음 단계 후보
 - 0장 "다음에 할 일"과 "앞으로 일하는 방식"을 봅니다. 앞으로는 다른 게임의 요소를 하나씩 가져와 넣습니다.
 
@@ -198,7 +212,7 @@ AI 코딩 도구가 이 리포를 이어서 작업할 때 읽는 문서입니다
 | `fonts/` | Pretendard v1.3.9 공식 웹 글꼴 그대로: 부분 세트 400·700·800, ▲▼▶용 조각 3개, `LICENSE.txt`(OFL 1.1) |
 | `game.js` | 아래 구역 |
 | `tools/sim.js` | 개발용 밸런스 시뮬레이터 (게임에서 불러오지 않음, 8장) |
-| `docs/design/` | 디자인 시안 이미지 (게임에서 쓰지 않음). `8-tales-A·B·C.png` 시안, `8-tales-A-game*.png`·`8-tales-B-game.png` 실제 게임 화면(어두운 화면 때), `font-compare.png` 글꼴 비교, `9-market-game.png` 이적 시장, `light-compare.png` 밝은 화면 시안 3개, `light-C-game.png` 시안 C 실제 화면 |
+| `docs/design/` | 디자인 시안 이미지 (게임에서 쓰지 않음). `8-tales-A·B·C.png` 시안, `8-tales-A-game*.png`·`8-tales-B-game.png` 실제 게임 화면(어두운 화면 때), `font-compare.png` 글꼴 비교, `9-market-game.png` 이적 시장, `light-compare.png` 밝은 화면 시안 3개, `light-C-game.png` 시안 C 실제 화면, `10-news-game.png` 세계 뉴스 |
 
 | 구역 | 내용 |
 |---|---|
@@ -208,11 +222,11 @@ AI 코딩 도구가 이 리포를 이어서 작업할 때 읽는 문서입니다
 | 4. 선수 | `coreStats`, `getPlayer(slot)`, `weeklyWage`, `companyUpkeep`, `upkeepNow`, `growthStep`, `coachStep`, `marketValue`, `nextForm`, `contractEnd`, `leaveChance` |
 | 5. 상태 | `newGame`(혼자 시작), `newWorld`, `START_TIES`, `pickStartingClients`, `newClient`, `addLog` |
 | 6. 주간 진행 | `advanceWeek`, `checkDebt`, `endSeason`, 영입·해지(`recruitChance`, `recruitCost`, `recruitBlock`, `recruit`, `release`) |
-| 6-2. 만족도·유대·협상·소식·경기 | `TUNE`, `weeklyAp`, `clientLimit`, `maxClients`, `gainRep`, 유대(`addBond`, `BOND_TIERS`, `bondName`, `bondKeepBonus`, `bondConsentBonus`, `togetherText`), 이적 시장(`WINDOWS`, `inWindow`, `windowAt`, `windowLeft`, `windowEnd`, `isDeadline`, `nextWindow`, `pickLine`, `LATE_LINES`, `ASK_LINES`, `EVENT_TYPES`의 `ask`), 관계 이야기(`TALE_KEYS`, `FAMILY`, `taleSeen`, `taleOpen`, `taleReady`, `startTale`, `familyOf`, `taleTitle`, `albumTile`, `findJunior`, `alumniKnow`, `introActive`, `EVENT_TYPES`의 `call`·`wedding`·`junior`·`praise`), 일정(`leagueGames`, `compRun`, `weekGames`), 경기(`playMatch`, `worldStats`, `playClientWeek`), 국가대표(`computeNatCut`, `natCutFrom`), 성향(`prefsOf`, `fitChecks`, `fitScore`, `consentChance`), `meet`, `renewTerms`, `renew`, `makeOffer`, `acceptOffer`, `transfer`, `keepClient`, `EVENT_TYPES`, `findTip`, `resolveEvent`, `weeklyClients` |
+| 6-2. 만족도·유대·협상·소식·경기 | `TUNE`, `weeklyAp`, `clientLimit`, `maxClients`, `gainRep`, 유대(`addBond`, `BOND_TIERS`, `bondName`, `bondKeepBonus`, `bondConsentBonus`, `togetherText`), 세계 뉴스(6-5 구역: `POS_NAME`, `STARTERS`, `lastJong`, `josa`, `named`, `clubGaps`, `pushNews`, `refreshNeeds`, `fitsNeed`, `worldSignings`, `countDeal`, `pitchFit`, `pitching`, `pitchBlock`, `pitch`, `newDeals`), 이적 시장(`WINDOWS`, `inWindow`, `windowAt`, `windowLeft`, `windowEnd`, `isDeadline`, `nextWindow`, `pickLine`, `LATE_LINES`, `ASK_LINES`, `EVENT_TYPES`의 `ask`), 관계 이야기(`TALE_KEYS`, `FAMILY`, `taleSeen`, `taleOpen`, `taleReady`, `startTale`, `familyOf`, `taleTitle`, `albumTile`, `findJunior`, `alumniKnow`, `introActive`, `EVENT_TYPES`의 `call`·`wedding`·`junior`·`praise`), 일정(`leagueGames`, `compRun`, `weekGames`), 경기(`playMatch`, `worldStats`, `playClientWeek`), 국가대표(`computeNatCut`, `natCutFrom`), 성향(`prefsOf`, `fitChecks`, `fitScore`, `consentChance`), `meet`, `renewTerms`, `renew`, `makeOffer`, `acceptOffer`, `transfer`, `keepClient`, `EVENT_TYPES`, `findTip`, `resolveEvent`, `weeklyClients` |
 | 6-3. 회사 설립·자금 쓸 곳 | `foundChecks`, `foundBlock`, `foundAgency`, `walletKey`, `INVEST_TYPES`, `investSteps`, `investUpkeep`, `weeklySpend`, `investBlock`, `invest`, `downgrade`, `dividendRoom`, `afterTax`, `payDividend`, `inject`, `ITEMS`, `netWorth`, `itemBlock`, `buyItem` |
 | 6-4. 유망주 찾기 | `scoutCount`, `potRange`, `potText`, `scoutBlock`, `scout`, `toggleWatch`, `dropRetiredKeys`, `findProspects` |
 | 7. 저장·불러오기 | `serialize`/`deserialize`(검증, v1~v3 변환), `cleanUi`, `backupSave`, `fillWages`, `saveState`, `loadState`, `exportSave`, `exportBackup`, `importSave` |
-| 8. 화면 | `render`, `marketLine`, `renderClients`, `optionInfo`, `dueText`, `newsCard`, 이야기 장면(`sceneQueue`, `openScene`), `heartsNode`, `checkList`, `renderWorld`, `renderClub`, `renderPlayer`, `statsTable`, `careerTable`, `prefsBlock`, `bondNode`, `bondBlock`, `renewPanel`, `clientActions`, `scoutActions`, `playerRow`, `renderScouting`, `segButton`, `renderSolo`, `appendAlumni`, `renderAgency`, `itemList`, `investCard`, `moneyPanel`, `renderLog`, `openSummary`, `openGameOver`, `navigate`, `goUp`, `bindEvents` |
+| 8. 화면 | `render`, `marketLine`, 세계 뉴스(`NEWS_TAG`, `NEWS_LINES`, `newsName`, `clubLabel`, `clubFull`, `newsText`, `newsRow`, `pitchButtons`, `newsBox`, `renderNews`), `renderClients`, `optionInfo`, `dueText`, `newsCard`, 이야기 장면(`sceneQueue`, `openScene`), `heartsNode`, `checkList`, `renderWorld`, `renderClub`, `renderPlayer`, `statsTable`, `careerTable`, `prefsBlock`, `bondNode`, `bondBlock`, `renewPanel`, `clientActions`, `scoutActions`, `playerRow`, `renderScouting`, `segButton`, `renderSolo`, `appendAlumni`, `renderAgency`, `itemList`, `investCard`, `moneyPanel`, `renderLog`, `openSummary`, `openGameOver`, `navigate`, `goUp`, `bindEvents` |
 | 9. 자가 검증 | `runSelfCheck`, `boot` |
 
 ## 5. 1단계 규칙과 수식
@@ -370,6 +384,14 @@ v = 25,000 × e^(0.165 × (능력 - 40))
   - 알아보면 `c.hunt = 마감일 절대 주차`. 마감까지 이적하면 `transfer`에서 0으로, 못 하면 마감 다음 주 `weeklyClients`에서 0으로 돌리고 만족 -`huntMiss`(3)와 기록을 남깁니다.
 - 기록: 이적 기간이 열린 주(47주·22주), 마감일 주, 닫힌 주에 한 줄씩. 내 선수 탭 맨 위 `marketLine()`이 지금 상태를 보여 줍니다.
 
+### 세계 뉴스 (10단계, 숫자는 `TUNE`)
+- 보강 필요(`refreshNeeds`, 이적 기간이 열린 주와 새 게임·v9 세이브를 불러온 때): 무작위로 구단 `needSample`(400)곳을 고르고(1부는 늘, 나머지는 45%), 포지션별 주전(GK 1·DF 4·MF 4·FW 2) 평균 능력을 구단 수준과 비교(`clubGaps`, 빈자리는 능력 40)합니다. 가장 약한 포지션의 차이가 `needGap`(2) 이상이면 `state.needs`에 `{ club, pos, gap, avg, until: 마감 절대 주 }`. 1부 → 차이가 큰 순으로 `needMax`(40)곳. 앞 `needNews`(6)곳과 내 선수가 맞는 곳은 뉴스로 냅니다. 400곳을 살피는 데 약 10ms입니다.
+- 세계 이적(`worldSignings`, 이적 기간 매주): `signWeek`(3)건, 마감 주는 `deadlineBoost`배. 보강 필요 하나를 골라 무작위 150명 중 그 포지션·`fitsNeed`(능력이 구단 수준 -1 ~ +5, 지금 구단 수준이 그 구단 +2 이하, 32세 이하)·내 선수 아님을 거르고, 능력이 구단 수준 +2에 가깝고 젊을수록 고릅니다. `state.moved`로 실제로 옮기고, 이적료는 몸값의 0.9~1.4배입니다. 그 보강은 끝납니다.
+- 내 선수 제안(`makeOffer`): 추천해 둔 구단이 있으면 `pitchClub`(70%)로 그 구단. 아니면 꿈의 구단(2%). 아니면 그 포지션 보강이 필요하고 수준이 맞는([max(지금 구단, 능력 -8), 능력 +3]) 구단이 있으면 `needOffer`(50%)로 그중 하나. `d.from`에 'pitch'·'need'를 남겨 문장 앞에 붙입니다. 추천 중이면 제안 확률 × `pitchBoost`(1.2).
+- 추천(`pitch`, 1 AP): `pitchFit`(포지션, 구단 수준 ≤ 능력 +4, ≥ 능력 -8, 무소속이 아니면 지금 구단 수준 -2 이상)과 `pitchBlock`(이적 기간, 이미 추천함, AP)을 통과하면 `c.pitch = { club, until: 마감 }`. 이적하면 `null`로, 마감이 지나면 저절로 끝납니다(`pitching`).
+- 뉴스(`state.news`, 최근 `newsMax` 60건, 새것이 앞): `{ w: 절대 주, k, ... }`. `k`는 `need`(club·pos·gap·avg), `sign`(s·g·nm·from·to·pos·fee·age·ab·late), `mine`(같은 모양, 내 선수 이적), `call`(s·g·nm·nat, 첫 국가대표), `close`(win·n·fee·nm·to, 이적 기간 결산). 화면에서 `newsText`가 문장을 만들고, 이름은 그 슬롯이 아직 같은 선수면 지금 이름, 아니면 저장한 `nm`을 씁니다.
+- 이적 기간 결산(`state.deals = { n, fee, nm, to }`): 기간이 열릴 때 비우고, 세계 이적과 기간 중 내 선수 이적을 셉니다. 기간이 닫힌 주에 `close` 뉴스를 내고 보강 필요를 비웁니다.
+
 ### 유망주 찾기 (6단계, 숫자는 `TUNE`)
 - 보이는 잠재력(`potRange`): 소속 선수와 24세 이상(`TUNE.potAgeMax` 초과)은 정확히, 나머지는 범위 [아래, 위].
 - 스카우트 횟수 = 직접 보낸 횟수(`state.scouted["슬롯-세대"]`) + 스카우트망 단계별 기본 횟수(`TUNE.scoutKnow` = 0/1/1/2).
@@ -420,8 +442,11 @@ v = 25,000 × e^(0.165 × (능력 - 40))
     "st": { "season": 1, "club": 1414, "L": [12, 3, 1, 830], "C": [1, 0, 0, 64], "K": [0, 0, 0, 0], "N": [0, 0, 0, 0] },
     "hist": [], "playRate": 0.62, "capped": false,
     "bond": 66, "since": 1, "how": "고향 후배", "memo": [{ "w": 30, "t": "다쳤을 때 재활을 지원함", "n": 4 }],
-    "tales": [{ "k": "wedding", "w": 30, "t": "가족 결혼식에 직접 와 줌" }], "hunt": 0 }],
+    "tales": [{ "k": "wedding", "w": 30, "t": "가족 결혼식에 직접 와 줌" }], "hunt": 0, "pitch": { "club": 120, "until": 58 } }],
   "alumni": [{ "name": "타일러 그리피스", "nat": "ENG", "season": 5 }],
+  "news": [{ "w": 49, "k": "sign", "s": 1211, "g": 0, "nm": "다비드 레예스", "from": 50, "to": 120, "pos": "MF", "fee": 1400000, "age": 28, "ab": 66 }],
+  "needs": [{ "club": 120, "pos": "DF", "gap": 3, "avg": 63, "until": 58 }],
+  "deals": { "n": 4, "fee": 5250000, "nm": "벤체 너지", "to": 77 },
   "intros": { "9188-0": 62 },
   "natCut": { "KOR": 71, "ENG": 83 },
   "stats": { "lost": 0, "transfers": 1, "dream": 0, "callups": 0, "renewTry": 2, "renewWin": 1, "signed": 1 },
@@ -437,13 +462,14 @@ v = 25,000 × e^(0.165 × (능력 - 40))
 ```
 
 - `world`의 각 값은 슬롯 수만큼의 숫자를 36진수 고정폭 문자열로 이은 것입니다(`PACK` 참고). 전체 크기는 약 520KB입니다.
+- v9 세이브는 뉴스·보강 필요·결산과 선수의 `pitch` 없이 v10으로 읽습니다. 보강 필요는 `null`로 읽은 뒤 `fillWages`에서, 이적 기간 중이면 다시 찾습니다. 뉴스는 아는 종류와 아는 필드만, 구단·슬롯 번호가 맞는 것만 60건까지 읽습니다.
 - v8 세이브는 선수의 `hunt`(이적 요청을 받아 새 구단을 알아보는 마감 절대 주차) 없이 v9로 읽습니다(0 = 안 알아봄). 0보다 큰 정수만 읽습니다. 소식 `d`는 그대로 옮겨서, 이적 제안의 `late`(마감일 막판 제안)도 남습니다.
 - v7 세이브는 관계 이야기 기록·옛 선수·후배 소개 없이 v8로 읽습니다. 선수의 `tales`는 아는 이야기만 하나씩, `alumni`는 아는 나라만 5명까지, `intros`는 "숫자-숫자" 키만 100개까지 읽습니다. 소식 중 후배 소개는 슬롯 번호가, 결혼식은 가족 이름이 맞아야 남깁니다.
 - v1~v6 세이브는 읽을 때 v7로 바꿉니다: 없는 값은 기본값(성장치 0, 만족 70, 개인 자금 0, 투자 0단계, 아이템·스카우트 기록·관심 목록 없음, 이미 회사가 있음, 유대 40, 인연 "예전부터 함께한 선수" 등), 주급·이번 시즌 기록·국가대표 기준·함께하기 시작한 주(가장 오래된 기록 시즌의 첫 주)는 불러온 뒤 채움(`fillWages`). 3단계까지 8명이던 세이브도 읽고, 한도 아래로 줄 때까지 영입만 막습니다.
 - `founded`는 `false`일 때만 혼자인 상태입니다. 선수의 `bond`는 0~100 정수, `how`는 40자, `memo`는 3개·문구 60자까지 읽습니다.
 - `invest`는 아는 투자만 0~최고 단계로 자르고, `items`는 아는 아이템만 중복 없이, `personalCash`는 0 이상으로 읽습니다.
 - `scouted`·`watch`는 "숫자-숫자" 모양의 키만 읽고, 횟수는 1~4, 개수는 300명·20명까지입니다.
-- `version`이 1~9가 아니거나 `slots`가 다르면 불러오지 않습니다. 국가·리그·팀 수를 바꾸면 `slots`가 바뀌므로 기존 세이브를 읽을 수 없게 됩니다. 이때는 `SAVE_VERSION`을 올리고 변환 코드를 추가하거나 새 게임으로 안내합니다.
+- `version`이 1~10이 아니거나 `slots`가 다르면 불러오지 않습니다. 국가·리그·팀 수를 바꾸면 `slots`가 바뀌므로 기존 세이브를 읽을 수 없게 됩니다. 이때는 `SAVE_VERSION`을 올리고 변환 코드를 추가하거나 새 게임으로 안내합니다.
 
 ## 8. 밸런스와 재미 지표 (`tools/sim.js`)
 
@@ -463,6 +489,7 @@ node tools/sim.js --games 1000 --bot youth --tune '{"potWidth":[0,0,0,0]}'  # �
 성실·유망주·베테랑 봇은 돈도 씁니다(`botMoney`). 투자는 우선순위대로(성실: 변호사 → 스카우트망 → 코치 → 사무실, 유망주: 코치 먼저, 베테랑: 변호사·사무실 먼저) 도입비와 여유 자금(지출 10주치 + 주 수입 4주치)이 있고 유지비를 더해도 주간 수지가 수입의 30% 이상 남을 때 한 단계씩 삽니다. 아이템은 투자할 돈을 남기고 남는 만큼만 배당해서 삽니다. 돈 쓰기는 플레이어가 원할 때 하는 일이라 "할 일이 있는 주"에 넣지 않습니다.
 8단계부터 관계 이야기에는 성실·유망주·베테랑 봇이 할 수 있으면 가장 따뜻한 답(0번), 못 하면 다음 답을 고르고, 대충 하는 봇은 아무거나 고릅니다.
 7단계부터 모든 봇(아무것도 안 하는 봇 빼고)은 회사 설립 조건을 채운 주에 바로 회사를 세웁니다. 이것도 한 번뿐인 결정이라 "할 일이 있는 주"에 넣지 않습니다. 베테랑 봇은 영입 점수에서 영입 비용을 뺍니다.
+10단계부터 성실·유망주·베테랑 봇은 남는 AP로, 맞는 보강 중 가장 수준 높은 구단에 내 선수를 추천합니다(유망주 봇은 AP가 2 이상일 때만). 추천도 하고 싶을 때 하는 일이라 "할 일이 있는 주"에 넣지 않습니다. `--no-pitch`로 추천하지 않는 봇과 비교합니다.
 유망주 봇은 6단계부터 진짜 잠재력을 모르고 보이는 범위만 씁니다(`youthRecruit`). AP가 2 이상이면 범위 위쪽으로 좋아 보이는 후보에게 스카우트를 보내고(폭 4가 될 때까지, 관심 목록에 넣음), 영입은 범위 가운데 값이 능력 +10 이상인 선수에게 합니다. 자리가 차 있어도 확인된 유망주가 관심 목록에 6명보다 적으면 주 1번 스카우트합니다. 스카우트도 하고 싶을 때 하는 일이라 "할 일이 있는 주"에 넣지 않고 따로 보여 줍니다.
 
 | 지표 (성실한 봇, 3시즌) | 목표 | 이유 |
@@ -493,6 +520,10 @@ node tools/sim.js --games 1000 --bot youth --tune '{"potWidth":[0,0,0,0]}'  # �
 투자를 하면 손해가 아닌지 (성실한 봇, 번 돈 중앙값): 3시즌 $44만(투자 안 함 $34만), 6시즌 $589만($542만), 10시즌 $3,247만($2,726만). 법인 자금 중앙값은 6시즌 $99만으로, 투자를 안 하면 $545만까지 쌓입니다. 투자를 공짜로 1주차에 최고 단계까지 주면(6시즌) 번 돈이 변호사 +12%, 스카우트망 +24%, 코치 +46%, 사무실 +40% 늘어납니다.
 
 8단계 결과 (1,000판 × 3시즌, 성실한 봇, 21개 지표 모두 목표 안): 할 일 있는 주 69.9%, 주당 소식 0.76, 3건 이상 쌓인 주 3.7%, AP 39.2%, 재계약 72.9%, 영입 53.7%, 잃은 게임 20.9%, 파산 0.4%, 첫 이적 67.5%, 국가대표 27.4%, 꿈의 구단 18.2%, 시즌당 이적 1.74건, 동의 53.5%, 1시즌 안 회사 설립 52.8%, 설립 뒤 첫 투자 85.5%, 혼자일 때 할 일 있는 주 59.7%, 유대 60 이상 67.0%, 관계 이야기 14.1개, 투자 4.75단계, 쓴 비율 69.6%, 적자 주 0.0%. 유망주 ÷ 베테랑 번 돈 1.03(중앙값 비율 1.04).
+
+10단계 결과 (1,000판 × 3시즌, 성실한 봇, 22개 지표 모두 목표 안): 할 일 있는 주 71.0%, 주당 소식 0.80, 3건 이상 쌓인 주 4.3%, AP 45.6%(추천 때문에 39.8%에서 오름), 재계약 74.1%, 영입 54.1%, 잃은 게임 23.9%, 파산 0.6%, 첫 이적 71.1%, 국가대표 31.4%, 꿈의 구단 13.8%, 시즌당 이적 1.82건, 동의 51.9%, 1시즌 안 회사 설립 53.5%, 설립 뒤 첫 투자 87.2%, 혼자일 때 할 일 있는 주 60.7%, 유대 60 이상 68.2%, 관계 이야기 14.38개, 마감 주에 온 이적 제안 20.1%, 투자 4.96단계, 쓴 비율 71.0%, 적자 주 0.0%. 유망주 ÷ 베테랑 번 돈 1.12(중앙값 비율 1.15). 세계 이적 시즌당 43.6건, 추천 게임당 14.7번(대충 하는 봇은 안 함), 추천한 구단에서 온 제안 게임당 4.9건.
+
+세계 뉴스 튜닝 (600~1,000판, 성실한 봇): 추천 1.5배면 시즌당 이적 2.25건, 잃은 게임 19.5%로 목표 밖이었습니다. 추천 1.2배·이적 기간 2.6배·다른 에이전시 접근 0.0018에서 1.82건·23.9%가 됐습니다.
 
 9단계 결과 (1,000판 × 3시즌, 성실한 봇, 22개 지표 모두 목표 안): 할 일 있는 주 70.7%, 주당 소식 0.79, 3건 이상 쌓인 주 4.0%, AP 39.8%, 재계약 73.5%, 영입 54.1%, 잃은 게임 22.0%, 파산 0.5%, 첫 이적 72.5%, 국가대표 31.6%, 꿈의 구단 20.7%, 시즌당 이적 1.84건, 동의 53.3%, 1시즌 안 회사 설립 54.5%, 설립 뒤 첫 투자 86.7%, 혼자일 때 할 일 있는 주 61.7%, 유대 60 이상 68.1%, 관계 이야기 14.31개, 마감 주에 온 이적 제안 19.0%, 투자 4.91단계, 쓴 비율 71.0%, 적자 주 0.0%. 유망주 ÷ 베테랑 번 돈 1.13(중앙값 비율 1.22). 이적 요청은 게임당 성실 2.73건, 대충 1.31건이고, 이적 기간 밖에 계약 중인 선수에게 온 제안은 0건입니다.
 

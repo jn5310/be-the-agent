@@ -116,6 +116,23 @@ button { font: inherit; color: inherit; }
 .market.deadline { color: var(--warn-ink); font-weight: 700; }
 .market.deadline::before { background: var(--warn); }
 
+/* 세계 뉴스 (10단계): 내 선수 탭 상자와 뉴스 화면. 한 줄 = 종류 표시 + 문장 + 주 */
+.news-box .panel-head { margin-bottom: 4px; }
+.link { min-height: 44px; padding: 0 4px; background: none; border: 0; color: var(--accent-ink); font-size: 13px; font-weight: 700; cursor: pointer; }
+.nitem { padding: 8px 0; border-top: 1px solid var(--line); }
+.news-box .nitem:first-of-type { border-top: 0; }
+.view > .nitem { margin-bottom: 8px; padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+.nbody { display: grid; gap: 4px; width: 100%; padding: 0; background: none; border: 0; text-align: left; }
+button.nbody { min-height: 44px; cursor: pointer; }
+.ntag { justify-self: start; padding: 1px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 11px; font-weight: 700; }
+.ntag-need { color: var(--accent-ink); border-color: var(--accent-ink); }
+.ntag-mine, .ntag-call { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+.ntag-close { color: var(--warn-ink); border-color: var(--warn); }
+.ntext { font-size: 14px; line-height: 1.5; }
+.nmeta { margin: 0; color: var(--muted); font-size: 12px; }
+.nitem .option { margin-top: 6px; }
+.need-panel { border-color: var(--accent-ink); }
+
 /* 관계 이야기 (디자인 시안 A): 따뜻한 색 카드, 선수의 말, 함께한 이야기 줄 */
 .news.tale { border-color: var(--warm); background: linear-gradient(180deg, var(--warm-soft), var(--panel) 55%); }
 .tale-lab { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; color: var(--warm-ink); font-size: 12px; font-weight: 700; }
