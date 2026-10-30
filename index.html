@@ -9,11 +9,12 @@
   <script src="game.js" defer></script>
 </head>
 <body>
-  <!-- 상단: 시즌·주차, 자금, 평판 -->
+  <!-- 상단: 시즌·주차, 자금, 평판, 행동력 -->
   <header class="topbar">
     <span id="hdr-date" class="hdr-date">1시즌 · 1주</span>
-    <span class="hdr-item">자금 <b id="hdr-cash">$25,000</b></span>
+    <span class="hdr-item"><b id="hdr-cash">$25,000</b></span>
     <span class="hdr-item">평판 <b id="hdr-rep">12</b></span>
+    <span class="hdr-item">AP <b id="hdr-ap">3/3</b></span>
   </header>
 
   <main id="view" class="view"></main>
@@ -31,6 +32,14 @@
     <h2 id="summary-title" class="title"></h2>
     <div id="summary-body"></div>
     <button type="button" id="summary-close" class="btn primary">확인</button>
+  </dialog>
+
+  <!-- 파산 -->
+  <dialog id="gameover" class="sheet" aria-labelledby="gameover-title">
+    <h2 id="gameover-title" class="title">에이전시 파산</h2>
+    <p id="gameover-body" class="sub"></p>
+    <button type="button" id="gameover-new" class="btn primary">새 게임 시작</button>
+    <button type="button" id="gameover-close" class="btn wide">기록만 보기</button>
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
