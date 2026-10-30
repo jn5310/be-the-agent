@@ -4,11 +4,10 @@
 // ===== 1. 상수와 세계 데이터 =====
 const SAVE_KEY = 'be-the-agent:save';
 const BACKUP_KEY = 'be-the-agent:save:backup'; // 읽지 못한 세이브를 지우지 않고 보관
-const SAVE_VERSION = 6;
+const SAVE_VERSION = 7;
 const WEEKS = 52;
 const SQUAD = 24;
 const WORLD_SEED = 20261030; // 구단 이름·전력은 모든 게임에서 같게 고정
-const START_CASH = 25000;
 const START_REP = 12;
 const FEE_RATE = 0.08;       // 수수료: 소속 선수 주급의 8%
 const UPKEEP_BASE = 550;     // 주간 운영비 기본
@@ -306,7 +305,9 @@ function weeklyWage(ability) {
   return Math.round(v / step) * step;
 }
 const commissionOf = wage => Math.round(wage * FEE_RATE);
-const upkeepNow = () => UPKEEP_BASE + UPKEEP_PER_CLIENT * state.clients.length;
+// 운영비: 회사를 세우기 전(혼자)에는 전화·교통비 정도, 세운 뒤에는 사무실 운영비
+const companyUpkeep = () => UPKEEP_BASE + UPKEEP_PER_CLIENT * state.clients.length;
+const upkeepNow = () => (state.founded ? companyUpkeep() : TUNE.soloUpkeep[0] + TUNE.soloUpkeep[1] * state.clients.length);
 
 // 시즌 말 능력 변화: 28세까지는 잠재력 쪽으로(어릴수록 크게), 29세부터 하락. 평균 폼이 좋으면 조금 더 큼
 function growthStep(age, ability, pot, avgForm, x) {
@@ -384,11 +385,12 @@ function newWorld(seed) {
   };
 }
 
+// 새 게임은 회사 없이 혼자 시작 (founded = false). 돈은 모두 내 돈이고, 회사를 세우면 그 돈이 법인 자금이 됨
 function newGame() {
   const seed = (Math.random() * 2 ** 32) >>> 0;
   state = {
     version: SAVE_VERSION, seed, season: 1, week: 1,
-    agencyCash: START_CASH, rep: START_REP, ap: TUNE.ap, debtWeeks: 0, over: false,
+    agencyCash: TUNE.soloCash, rep: START_REP, ap: TUNE.soloAp, debtWeeks: 0, over: false, founded: false,
     personalCash: 0, invest: newInvest(), items: [], scouted: {}, watch: [],
     clients: [], cooldowns: {}, logs: [], summary: null, moved: {}, events: [], nextEventId: 1,
     natCut: {}, stats: newCareerStats(),
@@ -397,11 +399,15 @@ function newGame() {
   };
   state.natCut = computeNatCut();
   state.clients = pickStartingClients();
-  addLog(`에이전시를 열었습니다. 소속 선수 ${state.clients.length}명과 함께 시작합니다.`);
+  const who = state.clients.map(c => `${getPlayer(c.s).name}(${c.how})`).join(', ');
+  addLog(`에이전트 자격을 따고 혼자 일을 시작했습니다. ${who}의 대리인이 됐습니다. 회사는 아직 없습니다.`);
   saveState();
 }
 
-// 시작 소속 선수: 한국 국적, 능력 45~66, 유망주 2·중견 2·베테랑 1, 능력 62 이상과 GK는 1명까지
+// 시작 선수와의 인연: 혼자 시작하는 에이전트가 처음 맡는 두 사람은 아는 사이
+const START_TIES = ['고향 후배', '대학 은사의 제자', '동네 축구교실에서 가르친 아이', '친구의 동생', '단골 식당 사장님의 아들', '고등학교 축구부 후배'];
+
+// 시작 선수 두 명: 한국 국적, 능력 45~66, 유망주 1·중견 1, 능력 62 이상과 GK는 1명까지
 function pickStartingClients() {
   const r = rng(hash(state.seed, 99));
   const kor = COUNTRY_BY_ID.KOR;
@@ -412,7 +418,7 @@ function pickStartingClients() {
       if (p.nat === kor && p.ability >= 45 && p.ability <= 66) pool.push(p);
     }
   }
-  // 주급 합계가 $12K~16K인 조합을 고름 → 시작 주간 수지가 소폭 흑자
+  // 주급 합계가 TUNE.soloWage 안인 조합을 고름 → 혼자 시작해도 주간 수지가 소폭 흑자
   let chosen = [];
   for (let attempt = 0; attempt < 60; attempt++) {
     for (let i = pool.length - 1; i > 0; i--) {
@@ -427,23 +433,30 @@ function pickStartingClients() {
         && (p.ability < 62 || !chosen.some(c => c.ability >= 62))
         && (p.pos !== 'GK' || !chosen.some(c => c.pos === 'GK'));
     };
-    for (const [lo, hi, n] of [[18, 21, 2], [22, 27, 2], [28, 31, 1]]) {
+    for (const [lo, hi, n] of [[18, 21, 1], [22, 27, 1]]) {
       for (const p of pool) {
         if (chosen.filter(c => ageOf(c) >= lo && ageOf(c) <= hi).length === n) break;
         if (fits(p, lo, hi)) chosen.push(p);
       }
     }
     const total = chosen.reduce((n, p) => n + weeklyWage(p.ability), 0);
-    if (chosen.length === 5 && total >= 12000 && total <= 16000) break;
+    if (chosen.length === 2 && total >= TUNE.soloWage[0] && total <= TUNE.soloWage[1]) break;
   }
-  return chosen.map(p => newClient(p, contractEnd(p, 1), TUNE.satStart));
+  const ties = [...START_TIES];
+  for (let i = ties.length - 1; i > 0; i--) {
+    const j = Math.floor(r() * (i + 1));
+    [ties[i], ties[j]] = [ties[j], ties[i]];
+  }
+  return chosen.map((p, i) => newClient(p, contractEnd(p, 1), TUNE.satStart, TUNE.bondStart, ties[i]));
 }
 
 // 소속 선수 기록: 슬롯·세대·계약 만료·주급·만족·마지막 면담·재협상 가능 주·만료 알림 보낸 계약
 // st = 이번 구간 기록(시즌·구단별), hist = 지난 구간들, playRate = 최근 출전 비율, capped = 국가대표 경험
-const newClient = (p, end, sat) => ({
+// bond = 유대(0~100), since = 함께하기 시작한 절대 주차, how = 인연(만난 계기), memo = 유대가 바뀐 최근 일 [{ w, t, n }]
+const newClient = (p, end, sat, bond, how) => ({
   s: p.s, g: p.g, end, wage: weeklyWage(p.ability), sat, met: 0, negUntil: 0, warned: 0,
-  st: newStint(p.club, worldStats(p, state.season, state.week)), hist: [], playRate: 0.6, capped: false
+  st: newStint(p.club, worldStats(p, state.season, state.week)), hist: [], playRate: 0.6, capped: false,
+  bond, since: absWeek(), how, memo: []
 });
 // 에이전시 커리어 통계 (기록 탭·시뮬레이션용)
 const newCareerStats = () => ({ lost: 0, transfers: 0, dream: 0, callups: 0, renewTry: 0, renewWin: 0, signed: 0 });
@@ -476,7 +489,7 @@ function advanceWeek() {
 
   state.week += 1;
   if (state.week > WEEKS) endSeason();
-  state.ap = TUNE.ap;
+  state.ap = weeklyAp();
   const now = absWeek();
   for (const key of Object.keys(state.cooldowns)) if (state.cooldowns[key] <= now) delete state.cooldowns[key];
   const week = weeklyClients();
@@ -601,7 +614,10 @@ const recruitChance = p => clamp(Math.round(60 + state.rep - (p.ability - 40) * 
 function recruitBlock(p) {
   if (state.over) return '파산한 게임입니다';
   if (state.clients.some(c => c.s === p.s)) return '이미 소속 선수입니다';
-  if (state.clients.length >= clientLimit()) return `소속 선수가 한도(${clientLimit()}명)에 찼습니다. 평판 ${TUNE.limitStep}마다 1명씩 늘어납니다 (최대 ${TUNE.limitMax}명)${state.invest.office ? '' : '. 에이전시 탭의 사무실 확장으로 1명 더 맡을 수 있습니다'}`;
+  if (state.clients.length >= clientLimit()) {
+    if (!state.founded) return `혼자서는 ${TUNE.soloLimit}명까지 맡을 수 있습니다. 에이전시 탭에서 회사를 세우면 ${TUNE.limitBase}명이 됩니다`;
+    return `소속 선수가 한도(${clientLimit()}명)에 찼습니다. 평판 ${TUNE.limitStep}마다 1명씩 늘어납니다 (최대 ${TUNE.limitMax}명)${state.invest.office ? '' : '. 에이전시 탭의 사무실 확장으로 1명 더 맡을 수 있습니다'}`;
+  }
   if (state.ap < 1) return '이번 주 행동력(AP)을 다 썼습니다';
   if (state.agencyCash < 0) return '자금이 마이너스라 영입할 수 없습니다';
   if (state.agencyCash < recruitCost(p)) return `자금이 부족합니다 (${cash(recruitCost(p))} 필요)`;
@@ -623,7 +639,9 @@ function recruit(s) {
   if (Math.random() * 100 < recruitChance(p)) {
     const gain = 1 + Math.floor((p.ability - 40) / 15);
     const [lo, hi] = potRange(p); // 계약하면 잠재력을 정확히 알게 됨
-    state.clients.push(newClient(p, contractEnd(p, absWeek()), 75));
+    // 혼자 일할 때 직접 데려온 선수는 처음부터 더 가까움
+    const how = !state.founded ? '혼자 일할 때 직접 찾아가 데려옴' : state.scouted[cooldownKey(p)] ? '스카우트 보고서를 보고 영입' : '연락해서 영입';
+    state.clients.push(newClient(p, contractEnd(p, absWeek()), 75, state.founded ? TUNE.bondNew : TUNE.bondSolo, how));
     state.watch = state.watch.filter(k => k !== cooldownKey(p));
     state.stats.signed += 1;
     const got = gainRep(gain);
@@ -663,9 +681,11 @@ const TUNE = {
   renewWindow: 26, renewRetry: 2, renewBase: [80, 55, 30],
   transferCut: 0.02, dealShare: 0.25,
   eventTtl: 2, eventMax: 3,
-  offerBase: 0.018, offerStar: 0.025, offerForm: 0.015, offerFree: 0.1, offerYouth: 0.02, offerFirst: 0.06, dreamChance: 0.02, dreamReach: 4, offerRespect: 0.5,
+  // offerFirst: 첫 시즌 후반 첫 이적 보너스. 7단계부터 혼자 시작해 선수가 2~3명뿐이라 0.06 → 0.12
+  offerBase: 0.018, offerStar: 0.025, offerForm: 0.015, offerFree: 0.1, offerYouth: 0.02, offerFirst: 0.12, dreamChance: 0.02, dreamReach: 4, offerRespect: 0.5,
   consentBase: 50, consentStep: 12,
-  playtimeChance: 0.09, raiseChance: 0.08, poachBase: 0.0015, poachStar: 0.002, poachLow: 0.04, sponsorChance: 0.05, snsChance: 0.008,
+  // poachStar: 몸값 $300만 이상 스타를 노리는 다른 에이전시. 7단계에서 유대가 시험받는 순간을 늘리려고 0.002 → 0.004
+  playtimeChance: 0.09, raiseChance: 0.08, poachBase: 0.0015, poachStar: 0.004, poachLow: 0.04, sponsorChance: 0.05, snsChance: 0.008,
   injuryChance: 0.008, interviewChance: 0.015, familyChance: 0.008, tipChance: 0.06,
   // 5단계 법인 투자: 단계별 [도입비, 주간 유지비]와 단계별 효과 (효과 배열의 0번 = 투자 안 함)
   lawyerLv: [[20000, 200], [150000, 800], [800000, 3500]], lawyerWage: [0, 0.05, 0.1, 0.15], lawyerCounter: [0, 5, 10, 15],
@@ -677,7 +697,13 @@ const TUNE = {
   tax: 0.15, reserveWeeks: 4,
   // 6단계 유망주 찾기: 스카우트 횟수별 잠재력 범위 폭(마지막 0 = 정확히 앎), 스카우트망 단계별로 이미 스카우트한 것처럼 치는 횟수,
   // 범위로 보이는 나이(이보다 많으면 다 자라서 정확히 보임), 관심 목록 인원, 찾기 결과 수, 찾기에 넣는 최소 영입 확률
-  potWidth: [16, 8, 4, 0], scoutKnow: [0, 1, 1, 2], potAgeMax: 23, scoutMax: 300, watchMax: 20, findMax: 20, findChance: 20
+  potWidth: [16, 8, 4, 0], scoutKnow: [0, 1, 1, 2], potAgeMax: 23, scoutMax: 300, watchMax: 20, findMax: 20, findChance: 20,
+  // 7단계 개인 에이전트로 시작: 시작 자금, 시작 두 선수 주급 합 범위, 혼자일 때 한도·운영비 [기본, 선수당], 회사 설립 조건(평판·자금)과 설립비
+  soloCash: 10000, soloWage: [4500, 7500], soloLimit: 3, soloAp: 1, soloUpkeep: [250, 25], foundRep: 16, foundCash: 35000, foundCost: 15000,
+  // 선수와의 유대(0~100): 시작 값(시작 선수, 혼자일 때 영입, 회사 세운 뒤 영입), 함께 지낸 몇 주마다 +1, 회사 세울 때 +, 면담 +
+  // 효과는 유대 bondFrom을 넘는 만큼: 붙잡을 확률 + (유대 - bondFrom) × bondKeep, 이적 동의 + (유대 - bondFrom) × bondConsent(%p)
+  // 유대 bondCalm 이상이면 만족이 격주로만 떨어짐
+  bondStart: 60, bondSolo: 35, bondNew: 20, bondTime: 13, bondFound: 5, bondMeet: 1, bondFrom: 40, bondKeep: 0.002, bondConsent: 0.15, bondCalm: 70
 };
 // 평판 오르는 양은 평판이 높을수록 줄어듦 (30시즌 커리어 동안 천천히 오르게). 소수점은 확률로 반올림
 function gainRep(n) {
@@ -686,7 +712,9 @@ function gainRep(n) {
   state.rep = Math.min(100, state.rep + Math.floor(add) + (Math.random() < add % 1 ? 1 : 0));
   return state.rep - before;
 }
-const clientLimit = () => Math.min(TUNE.limitMax, TUNE.limitBase + Math.floor(state.rep / TUNE.limitStep)) + TUNE.officeLimit[state.invest.office];
+// 주당 행동력: 혼자일 때는 손이 모자라 TUNE.soloAp, 회사를 세우면 TUNE.ap
+const weeklyAp = () => (state.founded ? TUNE.ap : TUNE.soloAp);
+const clientLimit = () => (state.founded ? Math.min(TUNE.limitMax, TUNE.limitBase + Math.floor(state.rep / TUNE.limitStep)) + TUNE.officeLimit[state.invest.office] : TUNE.soloLimit);
 const maxClients = () => TUNE.limitMax + Math.max(...TUNE.officeLimit); // 세이브 검사용 최대 인원
 
 // 지금 소속 구단: 이적한 선수는 moved[슬롯] = 구단 번호 (능력·이름은 처음 구단 기준 그대로)
@@ -889,6 +917,28 @@ const clientIncome = c => (isFreeAgent(c) ? 0 : commissionOf(c.wage));
 const dealFee = wage => Math.round(wage * WEEKS * FEE_RATE * TUNE.dealShare);
 const addSat = (c, n) => (c.sat = clamp(c.sat + n, 0, 100));
 
+// --- 선수와의 유대 (7단계): 만족은 매주 오르내리는 기분, 유대는 함께 쌓는 관계 ---
+// 유대가 바뀐 일은 최근 3개까지 기억해서 선수 상세에 보여 줌
+function addBond(c, n, memo) {
+  const before = c.bond;
+  c.bond = clamp(c.bond + n, 0, 100);
+  if (memo && c.bond !== before) {
+    c.memo.unshift({ w: absWeek(), t: memo, n: c.bond - before });
+    if (c.memo.length > 3) c.memo.length = 3;
+  }
+}
+const BOND_TIERS = [[85, '가족 같음'], [60, '끈끈함'], [30, '믿음'], [0, '서먹함']];
+const bondName = n => BOND_TIERS.find(([lo]) => n >= lo)[1];
+// 유대 효과는 유대가 TUNE.bondFrom을 넘는 만큼만 (갓 만난 선수는 효과 없음)
+const bondKeepBonus = c => Math.max(0, c.bond - TUNE.bondFrom) * TUNE.bondKeep;
+const bondConsentBonus = c => Math.round(Math.max(0, c.bond - TUNE.bondFrom) * TUNE.bondConsent);
+// "함께한 지 1시즌 12주"
+function togetherText(c) {
+  const weeks = Math.max(0, absWeek() - c.since);
+  const seasons = Math.floor(weeks / WEEKS);
+  return `함께한 지 ${seasons ? `${seasons}시즌 ` : ''}${weeks % WEEKS}주`;
+}
+
 function removeClient(c, reason, repLoss) {
   state.clients = state.clients.filter(x => x !== c);
   state.events = state.events.filter(e => e.s !== c.s || e.type === 'tip');
@@ -912,7 +962,8 @@ function meet(s) {
   state.ap -= 1;
   c.met = absWeek();
   addSat(c, TUNE.meetGain);
-  addLog(`${getPlayer(s).name} 선수와 면담했습니다 (만족 +${TUNE.meetGain} → ${c.sat}).`);
+  addBond(c, TUNE.bondMeet, '따로 만나 이야기함');
+  addLog(`${getPlayer(s).name} 선수와 면담했습니다 (만족 +${TUNE.meetGain} → ${c.sat}, 유대 +${TUNE.bondMeet}).`);
   saveState();
 }
 
@@ -953,6 +1004,7 @@ function renew(s, level, years = 2) {
     c.wage = t.wage;
     c.end = absWeek() + WEEKS * years;
     addSat(c, t.satGain);
+    addBond(c, 3, '재계약을 성사시킴');
     state.agencyCash += t.fee;
     gainRep(1);
     state.stats.renewWin += 1;
@@ -961,6 +1013,7 @@ function renew(s, level, years = 2) {
   } else {
     c.negUntil = absWeek() + TUNE.renewRetry;
     addSat(c, -8);
+    addBond(c, -2, '재계약 협상이 결렬됨');
     addLog(`${p.name} 재계약 협상 결렬 (만족 -8). ${TUNE.renewRetry}주 뒤 다시 협상할 수 있습니다.`);
     toast('구단이 조건을 거절했습니다.');
   }
@@ -992,11 +1045,14 @@ function makeOffer(c, p) {
 
 const offerCut = d => Math.round(d.fee * TUNE.transferCut) + dealFee(d.wage);
 const counterChance = () => clamp(Math.round(45 + state.rep / 5), 45, 80) + TUNE.lawyerCounter[state.invest.lawyer];
+// 이적 동의: 조건 점수 + 유대 (믿는 에이전트가 권하면 따라옴)
 function offerFit(p, d) {
   const pref = prefsOf(p);
   const checks = fitChecks(p, pref, CLUBS[d.club], d.wage, d.years || 3);
   const score = fitScore(checks, pref);
-  return { checks, score, consent: consentChance(score) };
+  const c = clientOf(p.s);
+  const bond = c ? bondConsentBonus(c) : 0;
+  return { checks, score, bond, consent: clamp(consentChance(score) + bond, 5, 95) };
 }
 
 function transfer(c, d) {
@@ -1012,6 +1068,7 @@ function transfer(c, d) {
   c.wage = d.wage;
   c.end = absWeek() + WEEKS * (d.years || 3);
   addSat(c, clamp(5 + fit.score * 2, -10, 20));
+  addBond(c, fit.score >= 1 ? 5 : 2, fit.score >= 1 ? `원하던 ${to.name} 이적을 성사시킴` : `${to.name} 이적을 성사시킴`);
   state.agencyCash += gain;
   const got = gainRep(2);
   state.stats.transfers += 1;
@@ -1033,22 +1090,26 @@ function counterOffer(c, p, d) {
     return `더 요구해서 조건이 올랐습니다. ${acceptOffer(c, p, better)}`;
   }
   addSat(c, -5);
-  return `${CLUBS[d.club].name}이(가) 제안을 거둬들였습니다 (${p.name} 만족 -5).`;
+  addBond(c, -2, '더 요구하다 이적 제안이 날아감');
+  return `${CLUBS[d.club].name}이(가) 제안을 거둬들였습니다 (${p.name} 만족 -5, 유대 -2).`;
 }
 
-// 다른 에이전시 접근: 만족이 높을수록 붙잡기 쉬움 (만족 80 → 85%, 50 → 70%, 30 → 60%). 실패하면 떠남
-const keepChanceOf = c => clamp(0.45 + c.sat / 200 + (TUNE.keepChance - 0.75), 0.3, 0.9);
+// 다른 에이전시 접근: 만족·유대가 높을수록 붙잡기 쉬움 (만족 80 → 85%, 50 → 70%, 30 → 60%, 유대 60이면 +18%p). 실패하면 떠남
+const keepChanceOf = c => clamp(0.45 + c.sat / 200 + (TUNE.keepChance - 0.75) + bondKeepBonus(c), 0.3, 0.95);
 function keepClient(c, p, chance, gain, how) {
   if (how === '직접 만나') c.met = absWeek();
   if (Math.random() < chance) {
     addSat(c, gain);
-    return `${p.name} 선수를 ${how} 붙잡았습니다 (만족 +${gain}).`;
+    const bond = how === '직접 만나' ? 5 : 1;
+    addBond(c, bond, how === '직접 만나' ? '다른 에이전시가 왔을 때 직접 만나 붙잡음' : '보너스를 주고 붙잡음');
+    return `${p.name} 선수를 ${how} 붙잡았습니다 (만족 +${gain}, 유대 +${bond}).`;
   }
   removeClient(c, `${how} 붙잡으려 했지만 다른 에이전시로 옮겼습니다`, 2);
   return '';
 }
 
-// 소식 종류: chance(c, p) 주간 확률, text, options[{ label, ap, cost, go, run }], def = 답이 없을 때 고르는 번호
+// 소식 종류: chance(c, p) 주간 확률, text, options[{ label, ap, cost, bond, memo, go, run }], def = 답이 없을 때 고르는 번호
+// bond = 그 선택으로 바뀌는 유대(버튼에 표시), memo = 선수가 기억하는 일
 const EVENT_TYPES = {
   offer: {
     // 아직 이적이 없으면 첫 시즌 후반(27~46주)에 제안이 늘어남: 첫 큰 거래를 1시즌 안에 맛보게
@@ -1068,9 +1129,9 @@ const EVENT_TYPES = {
     chance: (c, p) => (c.playRate < 0.45 && state.week <= LEAGUE_WEEKS ? TUNE.playtimeChance * (prefsOf(p).main === 'play' ? 1.5 : 1) : 0),
     text: p => `${p.name} 선수가 출전 시간이 부족하다며 불만을 털어놓았습니다.`,
     options: [
-      { label: () => '면담하며 다독인다', ap: 1, run: (c, p) => (c.met = absWeek(), addSat(c, 10), `${p.name} 선수를 다독였습니다 (만족 +10).`) },
-      { label: () => '구단에 출전 보장을 요구한다 (반반)', run: (c, p) => (Math.random() < 0.5 ? (addSat(c, 12), (c.playRate = Math.max(c.playRate, 0.6)), `구단이 출전을 약속했습니다 (${p.name} 만족 +12).`) : (addSat(c, -4), `구단이 요구를 무시했습니다 (${p.name} 만족 -4).`)) },
-      { label: () => '참으라고 한다', run: (c, p) => (addSat(c, -8), `${p.name} 선수가 서운해합니다 (만족 -8).`) }
+      { label: () => '면담하며 다독인다', bond: 3, memo: '출전 불만을 들어 줌', ap: 1, run: (c, p) => (c.met = absWeek(), addSat(c, 10), `${p.name} 선수를 다독였습니다 (만족 +10).`) },
+      { label: () => '구단에 출전 보장을 요구한다 (반반)', bond: 2, memo: '구단에 출전 보장을 요구해 줌', run: (c, p) => (Math.random() < 0.5 ? (addSat(c, 12), (c.playRate = Math.max(c.playRate, 0.6)), `구단이 출전을 약속했습니다 (${p.name} 만족 +12).`) : (addSat(c, -4), `구단이 요구를 무시했습니다 (${p.name} 만족 -4).`)) },
+      { label: () => '참으라고 한다', bond: -4, memo: '출전 불만에 참으라고 함', run: (c, p) => (addSat(c, -8), `${p.name} 선수가 서운해합니다 (만족 -8).`) }
     ],
     def: 2
   },
@@ -1078,8 +1139,8 @@ const EVENT_TYPES = {
     chance: (c, p) => (!isFreeAgent(c) && wantWage(p, prefsOf(p)) >= c.wage * 1.4 ? TUNE.raiseChance : 0),
     text: (p, d, c) => `${p.name} 선수가 주급(${cash(c.wage)})이 적다며 재계약을 원합니다. 원하는 금액은 ${cash(wantWage(p, prefsOf(p)))} 정도입니다.`,
     options: [
-      { label: () => '재계약 협상을 준비한다', go: true, run: (c, p) => (addSat(c, 2), `${p.name} 선수에게 재계약을 준비하겠다고 했습니다 (만족 +2).`) },
-      { label: () => '다음에 하자고 달랜다', run: (c, p) => (addSat(c, -6), `${p.name} 선수가 실망했습니다 (만족 -6).`) }
+      { label: () => '재계약 협상을 준비한다', bond: 1, memo: '주급 고민에 재계약을 약속함', go: true, run: (c, p) => (addSat(c, 2), `${p.name} 선수에게 재계약을 준비하겠다고 했습니다 (만족 +2).`) },
+      { label: () => '다음에 하자고 달랜다', bond: -3, memo: '주급 고민을 미룸', run: (c, p) => (addSat(c, -6), `${p.name} 선수가 실망했습니다 (만족 -6).`) }
     ],
     def: 1
   },
@@ -1088,7 +1149,7 @@ const EVENT_TYPES = {
     make: (c, p) => ({ cut: Math.max(1000, Math.round((valueOf(p) * 0.01) / 100) * 100) }),
     text: (p, d) => `스포츠 브랜드가 요즘 폼이 좋은 ${p.name} 선수에게 광고를 제안했습니다. 내 몫은 ${cash(d.cut)}입니다.`,
     options: [
-      { label: () => '계약한다', run: (c, p, d) => (state.agencyCash += d.cut, addSat(c, 3), `${p.name} 광고 계약: 자금 +${cash(d.cut)}, 평판 +${gainRep(1)}, 만족 +3`) },
+      { label: () => '계약한다', bond: 1, memo: '광고 계약을 잡아 줌', run: (c, p, d) => (state.agencyCash += d.cut, addSat(c, 3), `${p.name} 광고 계약: 자금 +${cash(d.cut)}, 평판 +${gainRep(1)}, 만족 +3`) },
       { label: () => '거절한다', run: (c, p) => `${p.name} 광고 제안을 거절했습니다.` }
     ],
     def: 1
@@ -1097,9 +1158,9 @@ const EVENT_TYPES = {
     chance: () => TUNE.snsChance,
     text: p => `${p.name} 선수의 SNS 글이 논란이 됐습니다.`,
     options: [
-      { label: () => '사과문을 함께 낸다', cost: () => 1000, run: (c, p) => (addSat(c, 2), `${p.name} 선수와 사과문을 냈습니다 (만족 +2).`) },
-      { label: () => '법적으로 대응한다', cost: () => 5000, run: (c, p) => (addSat(c, 6), `${p.name} 선수를 감쌌습니다 (평판 +${gainRep(1)}, 만족 +6).`) },
-      { label: () => '무시한다', run: (c, p) => (state.rep = Math.max(0, state.rep - 2), addSat(c, -4), `${p.name} 논란을 내버려 뒀습니다 (평판 -2, 만족 -4).`) }
+      { label: () => '사과문을 함께 낸다', bond: 1, memo: '논란 때 사과문을 함께 냄', cost: () => 1000, run: (c, p) => (addSat(c, 2), `${p.name} 선수와 사과문을 냈습니다 (만족 +2).`) },
+      { label: () => '법적으로 대응한다', bond: 3, memo: '논란 때 앞장서 감싸 줌', cost: () => 5000, run: (c, p) => (addSat(c, 6), `${p.name} 선수를 감쌌습니다 (평판 +${gainRep(1)}, 만족 +6).`) },
+      { label: () => '무시한다', bond: -4, memo: '논란을 외면함', run: (c, p) => (state.rep = Math.max(0, state.rep - 2), addSat(c, -4), `${p.name} 논란을 내버려 뒀습니다 (평판 -2, 만족 -4).`) }
     ],
     def: 2
   },
@@ -1108,8 +1169,8 @@ const EVENT_TYPES = {
     make: c => ({ cost: Math.max(1000, Math.round(c.wage / 100) * 100) }),
     text: p => `${p.name} 선수가 훈련 중 다쳤습니다.`,
     options: [
-      { label: () => '전문 재활을 지원한다', cost: d => d.cost, run: (c, p) => (state.world.form[c.s] = Math.max(state.world.form[c.s], 5), addSat(c, 6), `${p.name} 재활 지원: 폼 회복, 만족 +6`) },
-      { label: () => '구단 의료진에 맡긴다', run: (c, p) => (state.world.form[c.s] = Math.max(1, state.world.form[c.s] - 3), addSat(c, -3), `${p.name} 회복이 더딥니다 (폼 -3, 만족 -3).`) }
+      { label: () => '전문 재활을 지원한다', bond: 4, memo: '다쳤을 때 재활을 지원함', cost: d => d.cost, run: (c, p) => (state.world.form[c.s] = Math.max(state.world.form[c.s], 5), addSat(c, 6), `${p.name} 재활 지원: 폼 회복, 만족 +6`) },
+      { label: () => '구단 의료진에 맡긴다', bond: -2, memo: '다쳤을 때 구단에만 맡김', run: (c, p) => (state.world.form[c.s] = Math.max(1, state.world.form[c.s] - 3), addSat(c, -3), `${p.name} 회복이 더딥니다 (폼 -3, 만족 -3).`) }
     ],
     def: 1
   },
@@ -1117,7 +1178,7 @@ const EVENT_TYPES = {
     chance: (c, p) => (valueOf(p) >= 300000 ? TUNE.interviewChance : 0),
     text: p => `방송사에서 ${p.name} 선수 인터뷰를 요청했습니다.`,
     options: [
-      { label: () => '인터뷰에 응한다', ap: 1, run: (c, p) => (addSat(c, 2), `${p.name} 인터뷰가 화제가 됐습니다 (평판 +${gainRep(1)}, 만족 +2).`) },
+      { label: () => '인터뷰에 응한다', bond: 1, memo: '인터뷰를 함께 준비함', ap: 1, run: (c, p) => (addSat(c, 2), `${p.name} 인터뷰가 화제가 됐습니다 (평판 +${gainRep(1)}, 만족 +2).`) },
       { label: () => '거절한다', run: (c, p) => `${p.name} 인터뷰를 거절했습니다.` }
     ],
     def: 1
@@ -1137,7 +1198,8 @@ const EVENT_TYPES = {
             return '';
           }
           addSat(c, -5);
-          return `${p.name} 선수가 일단 남았지만 흔들립니다 (만족 -5).`;
+          addBond(c, -3, '다른 에이전시 접근을 내버려 둠');
+          return `${p.name} 선수가 일단 남았지만 흔들립니다 (만족 -5, 유대 -3).`;
         }
       }
     ],
@@ -1147,8 +1209,8 @@ const EVENT_TYPES = {
     chance: () => TUNE.familyChance,
     text: p => `${p.name} 선수가 가족 일로 며칠 쉬고 싶어 합니다.`,
     options: [
-      { label: () => '휴가를 허락한다', run: (c, p) => (state.world.form[c.s] = Math.max(1, state.world.form[c.s] - 1), addSat(c, 8), `${p.name} 휴가 허락 (폼 -1, 만족 +8).`) },
-      { label: () => '거절한다', run: (c, p) => (addSat(c, -6), `${p.name} 선수가 서운해합니다 (만족 -6).`) }
+      { label: () => '휴가를 허락한다', bond: 5, memo: '가족 일에 휴가를 허락함', run: (c, p) => (state.world.form[c.s] = Math.max(1, state.world.form[c.s] - 1), addSat(c, 8), `${p.name} 휴가 허락 (폼 -1, 만족 +8).`) },
+      { label: () => '거절한다', bond: -5, memo: '가족 일에 휴가를 거절함', run: (c, p) => (addSat(c, -6), `${p.name} 선수가 서운해합니다 (만족 -6).`) }
     ],
     def: 1
   },
@@ -1212,7 +1274,9 @@ function resolveEvent(id, index, auto = false) {
   if (opt.ap) state.ap -= opt.ap;
   state.agencyCash -= cost;
   const result = opt.run(c, p, ev.d);
-  if (result) addLog(auto ? `(답하지 않아 기본 처리) ${result}` : result);
+  // 답하지 않고 넘어간 것도 선수는 기억함
+  if (opt.bond && c && clientOf(ev.s)) addBond(c, opt.bond, auto ? `(답하지 않음) ${opt.memo}` : opt.memo);
+  if (result) addLog(`${auto ? '(답하지 않아 기본 처리) ' : ''}${result}${opt.bond && c ? ` 유대 ${opt.bond > 0 ? '+' : ''}${opt.bond}.` : ''}`);
   return opt.go ? ev.s : null;
 }
 
@@ -1247,6 +1311,7 @@ function playClientWeek(c, p, week) {
     c.capped = true;
     run('N', 2, natCutOf(p) + 2, true);
     addSat(c, first ? 6 : 3);
+    if (first) addBond(c, 5, '첫 국가대표 발탁을 함께 기뻐함');
     const got = first ? gainRep(2) : 0;
     state.stats.callups += 1;
     call = first ? ` · 첫 국가대표 발탁! (평판 +${got})` : ' · 국가대표 소집';
@@ -1279,7 +1344,11 @@ function weeklyClients() {
     const main = checks.find(ch => ch.key === pref.main);
     if (main && !main.ok) d -= TUNE.mainMiss;
     if (fitScore(checks, pref) >= 3) d += TUNE.happyBonus;
+    // 유대가 깊으면 서운한 일이 있어도 쉽게 식지 않음: 기본 감소가 격주로만
+    if (c.bond >= TUNE.bondCalm && now % 2 === 0) d += TUNE.satDecay;
     addSat(c, d);
+    // 함께 지낸 시간만큼 유대가 쌓임
+    if (now > c.since && (now - c.since) % TUNE.bondTime === 0) addBond(c, 1);
     if (left === -1) addLog(`${p.name} 선수 계약이 끝나 무소속이 됐습니다. 재계약하거나 이적시키기 전까지 수수료가 없습니다.`);
     if (c.sat < TUNE.satLeave) removeClient(c, '불만이 쌓여 에이전시를 떠났습니다', 2);
   }
@@ -1326,8 +1395,36 @@ const investSteps = key => TUNE[`${key}Lv`];
 const investUpkeep = () => INVEST_KEYS.reduce((n, k) => n + (state.invest[k] ? investSteps(k)[state.invest[k] - 1][1] : 0), 0);
 const weeklySpend = () => upkeepNow() + investUpkeep();
 
+// --- 회사 설립 (7단계): 혼자 일하다 조건을 채우면 직접 세움 ---
+// 조건: 평판, 자금(설립비 포함), 세운 뒤 운영비를 지금 수수료로 낼 수 있는지. [{ ok, text }]
+function foundChecks() {
+  const income = weeklyIncome();
+  const after = companyUpkeep();
+  return [
+    { ok: state.rep >= TUNE.foundRep, text: `평판 ${TUNE.foundRep} 이상 (지금 ${state.rep})` },
+    { ok: state.agencyCash >= TUNE.foundCash, text: `자금 ${cash(TUNE.foundCash)} 이상 (지금 ${cash(state.agencyCash)}, 설립비 ${cash(TUNE.foundCost)} 포함)` },
+    { ok: income >= after, text: `주간 수수료가 회사 운영비 이상 (${cash(income)} / ${cash(after)})` }
+  ];
+}
+const foundBlock = () => (state.founded ? '이미 회사를 세웠습니다' : state.over ? '파산한 게임입니다' : foundChecks().every(ch => ch.ok) ? '' : '설립 조건을 아직 채우지 못했습니다');
+
+function foundAgency() {
+  const block = foundBlock();
+  if (block) return toast(block);
+  if (!confirm(`에이전시를 세울까요?\n설립비 ${cash(TUNE.foundCost)}, 남은 돈은 회사 자본금(법인 자금)이 됩니다.\n운영비가 주 ${cash(upkeepNow())}에서 ${cash(companyUpkeep())}로 오르고, 주당 AP ${TUNE.soloAp} → ${TUNE.ap}, 소속 한도 ${TUNE.limitBase}명, 법인 투자·배당이 열립니다.`)) return;
+  state.agencyCash -= TUNE.foundCost;
+  state.founded = true;
+  state.ap += TUNE.ap - TUNE.soloAp; // 직원이 생겨 이번 주부터 손이 늘어남
+  for (const c of state.clients) addBond(c, TUNE.bondFound, '회사를 세울 때 함께함');
+  const names = state.clients.map(c => getPlayer(c.s).name).join(', ');
+  addLog(`에이전시를 세웠습니다 (설립비 ${cash(TUNE.foundCost)}). ${names ? `혼자 일할 때부터 함께한 ${names} 선수가 따라왔습니다 (유대 +${TUNE.bondFound}).` : ''}`);
+  toast('에이전시를 세웠습니다!');
+  saveState();
+}
+
 function investBlock(key) {
   const lv = state.invest[key];
+  if (!state.founded) return '회사를 세우면 투자할 수 있습니다';
   if (state.over) return '파산한 게임입니다';
   if (lv >= investSteps(key).length) return '최고 단계입니다';
   const cost = investSteps(key)[lv][0];
@@ -1370,6 +1467,7 @@ const dividendRoom = () => Math.max(0, Math.floor((state.agencyCash - weeklySpen
 const afterTax = amount => Math.round(amount * (1 - TUNE.tax));
 
 function payDividend(amount) {
+  if (!state.founded) return toast('회사를 세우기 전에는 자금이 모두 내 돈이라 배당이 필요 없습니다');
   if (state.over) return toast('파산한 게임입니다');
   if (!(amount > 0) || amount > dividendRoom()) return toast('배당할 수 있는 자금이 없습니다');
   const net = afterTax(amount);
@@ -1392,14 +1490,16 @@ function inject(amount) {
 }
 
 // 개인 아이템: 개인 자금으로 사고, 살 때 평판이 오름(평판이 높을수록 적게). 가격·평판은 TUNE.itemPrice·itemRep
+// 회사를 세우기 전에는 자금이 모두 내 돈이라 자금에서 바로 삼
 const ITEMS = [['suit', '맞춤 정장'], ['watch', '명품 시계'], ['sedan', '고급 세단'], ['box', '경기장 VIP 박스'], ['penthouse', '펜트하우스'], ['yacht', '요트']];
+const walletKey = () => (state.founded ? 'personalCash' : 'agencyCash');
 // 개인 자산 = 개인 자금 + 가진 아이템 값 (나중에 은퇴 엔딩 점수로 씀)
-const netWorth = () => state.personalCash + ITEMS.reduce((n, [id], i) => n + (state.items.includes(id) ? TUNE.itemPrice[i] : 0), 0);
+const netWorth = () => state[walletKey()] + ITEMS.reduce((n, [id], i) => n + (state.items.includes(id) ? TUNE.itemPrice[i] : 0), 0);
 
 function itemBlock(i) {
   if (state.over) return '파산한 게임입니다';
   if (state.items.includes(ITEMS[i][0])) return '이미 가지고 있습니다';
-  if (state.personalCash < TUNE.itemPrice[i]) return `개인 자금이 부족합니다 (${cash(TUNE.itemPrice[i])} 필요)`;
+  if (state[walletKey()] < TUNE.itemPrice[i]) return `${state.founded ? '개인 ' : ''}자금이 부족합니다 (${cash(TUNE.itemPrice[i])} 필요)`;
   return '';
 }
 
@@ -1408,8 +1508,8 @@ function buyItem(i) {
   if (block) return toast(block);
   const [id, name] = ITEMS[i];
   const price = TUNE.itemPrice[i];
-  if (!confirm(`${name}을(를) 살까요?\n가격 ${cash(price)} (개인 자금, 되팔 수 없음)`)) return;
-  state.personalCash -= price;
+  if (!confirm(`${name}을(를) 살까요?\n가격 ${cash(price)} (${state.founded ? '개인 자금' : '내 돈'}, 되팔 수 없음)`)) return;
+  state[walletKey()] -= price;
   state.items.push(id);
   const got = gainRep(TUNE.itemRep[i]);
   addLog(`${name} 구입: ${cash(price)}, 평판 +${got}`);
@@ -1531,11 +1631,11 @@ function serialize() {
   return JSON.stringify({ ...state, slots: SLOTS, world });
 }
 
-// 예전(v1~v5) 세이브도 읽음: 없는 값은 기본값(성장치 0, 만족 70, 투자 0단계, 스카우트 기록 없음 등), 주급은 불러온 뒤 채움
+// 예전(v1~v6) 세이브도 읽음: 없는 값은 기본값(성장치 0, 만족 70, 투자 0단계, 스카우트 기록 없음, 이미 회사가 있음, 유대 40 등), 주급은 불러온 뒤 채움
 function deserialize(text) {
   const d = JSON.parse(text);
   const int = v => Number.isInteger(v);
-  if (!d || ![1, 2, 3, 4, 5, SAVE_VERSION].includes(d.version)) throw new Error('지원하지 않는 버전입니다');
+  if (!d || ![1, 2, 3, 4, 5, 6, SAVE_VERSION].includes(d.version)) throw new Error('지원하지 않는 버전입니다');
   if (d.slots !== SLOTS) throw new Error('세계 구성이 다른 세이브입니다');
   if (!int(d.seed) || !int(d.season) || d.season < 1 || !int(d.week) || d.week < 1 || d.week > WEEKS) throw new Error('날짜 정보가 올바르지 않습니다');
   if (!Number.isFinite(d.agencyCash) || !Number.isFinite(d.rep) || !Array.isArray(d.logs)) throw new Error('기본 정보가 올바르지 않습니다');
@@ -1588,15 +1688,19 @@ function deserialize(text) {
   return {
     version: SAVE_VERSION, seed: d.seed, season: d.season, week: d.week,
     agencyCash: d.agencyCash, rep: clamp(Math.round(d.rep), 0, 100),
-    ap: int(d.ap) ? clamp(d.ap, 0, TUNE.ap) : TUNE.ap,
+    ap: int(d.ap) ? clamp(d.ap, 0, d.founded === false ? TUNE.soloAp : TUNE.ap) : d.founded === false ? TUNE.soloAp : TUNE.ap,
     debtWeeks: int(d.debtWeeks) ? clamp(d.debtWeeks, 0, DEBT_LIMIT) : 0,
-    over: d.over === true,
+    over: d.over === true, founded: d.founded !== false,
     personalCash: Number.isFinite(d.personalCash) ? Math.max(0, d.personalCash) : 0, invest, items, scouted, watch,
     clients: d.clients.map(c => ({
       s: c.s, g: c.g, end: c.end, wage: Number.isFinite(c.wage) ? c.wage : null,
       sat: Number.isFinite(c.sat) ? clamp(Math.round(c.sat), 0, 100) : TUNE.satStart, met: intOr(c.met, 0), negUntil: intOr(c.negUntil, 0), warned: intOr(c.warned, 0),
       st: cleanStint(c.st), hist: Array.isArray(c.hist) ? c.hist.map(cleanStint).filter(Boolean).slice(0, 20) : [],
-      playRate: Number.isFinite(c.playRate) ? clamp(c.playRate, 0, 1) : 0.6, capped: c.capped === true
+      playRate: Number.isFinite(c.playRate) ? clamp(c.playRate, 0, 1) : 0.6, capped: c.capped === true,
+      // 7단계: 유대·함께한 시작 주·인연·기억 (예전 세이브는 유대 40, 시작 주는 불러온 뒤 기록으로 추정)
+      bond: int(c.bond) ? clamp(c.bond, 0, 100) : 40, since: int(c.since) && c.since >= 1 ? c.since : null,
+      how: typeof c.how === 'string' && c.how ? c.how.slice(0, 40) : '예전부터 함께한 선수',
+      memo: (Array.isArray(c.memo) ? c.memo : []).filter(m => m && int(m.w) && typeof m.t === 'string' && int(m.n)).slice(0, 3).map(m => ({ w: m.w, t: m.t.slice(0, 60), n: clamp(m.n, -20, 20) }))
     })),
     cooldowns, logs: d.logs.map(String).slice(0, 80), summary, moved, events, nextEventId,
     natCut: Object.keys(natCut).length ? natCut : null, stats, ui: cleanUi(d.ui), world
@@ -1631,13 +1735,14 @@ function readBackup() {
   }
 }
 
-// 예전 세이브에 없던 값 채우기: 주급(v1), 국가대표 기준·이번 시즌 기록(v1~v3)
+// 예전 세이브에 없던 값 채우기: 주급(v1), 국가대표 기준·이번 시즌 기록(v1~v3), 함께하기 시작한 주(v1~v6: 가장 오래된 기록 시즌의 첫 주)
 function fillWages() {
   if (!state.natCut) state.natCut = computeNatCut();
   for (const c of state.clients) {
     const p = getPlayer(c.s);
     if (c.wage === null) c.wage = weeklyWage(p.ability);
     if (!c.st) c.st = newStint(p.club, worldStats(p, state.season, state.week));
+    if (c.since === null) c.since = Math.min(absWeek(), (Math.min(c.st.season, ...c.hist.map(h => h.season)) - 1) * WEEKS + 1);
   }
 }
 
@@ -1797,13 +1902,36 @@ function renderHeader() {
   $('hdr-cash').textContent = cash(state.agencyCash);
   $('hdr-cash').classList.toggle('bad', state.agencyCash < 0);
   $('hdr-rep').textContent = String(state.rep);
-  $('hdr-ap').textContent = `${state.ap}/${TUNE.ap}`;
+  $('hdr-ap').textContent = `${state.ap}/${weeklyAp()}`;
   $('btn-next').disabled = state.over;
 }
 
 // 소속 선수 카드 (누르면 상세)
 function satNode(c) {
   return el('span', c.sat < TUNE.satWarn ? 'bad' : c.sat < 50 ? 'warn' : '', `만족 ${c.sat}`);
+}
+const bondNode = c => el('span', c.bond >= TUNE.bondCalm ? 'up' : '', `유대 ${bondName(c.bond)} ${c.bond}`);
+
+// 선수와의 관계: 유대 단계, 함께한 기간, 인연, 유대가 주는 효과, 선수가 기억하는 최근 일
+function bondBlock(c) {
+  const box = el('div', 'panel');
+  const head = el('div', 'panel-head');
+  head.append(el('strong', c.bond >= TUNE.bondCalm ? 'up' : '', `${bondName(c.bond)} · 유대 ${c.bond}/100`), el('span', 'badge', togetherText(c)));
+  const bar = el('span', 'bar bond-bar');
+  bar.setAttribute('aria-hidden', 'true');
+  const fill = el('i');
+  fill.style.width = `${c.bond}%`;
+  bar.append(fill);
+  const calm = c.bond >= TUNE.bondCalm ? '서운한 일이 있어도 만족이 천천히 떨어짐' : `유대 ${TUNE.bondCalm}부터 만족이 천천히 떨어짐`;
+  const effect = c.bond > TUNE.bondFrom
+    ? `유대 효과: 다른 에이전시가 와도 붙잡을 확률 +${Math.round(bondKeepBonus(c) * 100)}%p · 이적을 권하면 동의 +${bondConsentBonus(c)}%p · ${calm}`
+    : `유대가 ${TUNE.bondFrom}을 넘으면 다른 에이전시가 와도 붙잡기 쉬워지고, 이적을 권하면 잘 따라옵니다.`;
+  box.append(head, bar, el('p', 'panel-line', `인연: ${c.how}`), el('p', 'sub', effect));
+  if (c.memo.length) {
+    box.append(el('h3', 'mini', '선수가 기억하는 일'));
+    for (const m of c.memo) box.append(el('p', m.n > 0 ? 'check ok' : 'check no', `${weekLabel(m.w)} · ${m.t} (유대 ${m.n > 0 ? '+' : ''}${m.n})`));
+  } else box.append(el('p', 'sub', '함께 시간을 보내고 어려울 때 곁에 있어 주면 유대가 쌓입니다. 외면하면 줄어듭니다.'));
+  return box;
 }
 
 const avgRating = row => (row[0] ? (row[3] / row[0] / 10).toFixed(1) : '-');
@@ -1825,7 +1953,7 @@ function clientCard(c) {
   const stats = el('span', 'stats');
   stats.append(stat('잠재력', potText(p)), stat('폼', formNode(p)), stat('몸값', money(valueOf(p))), stat('계약 만료', contractNode(c.end)));
   const foot = el('span', 'card-foot');
-  foot.append(satNode(c), isFreeAgent(c) ? ' · 무소속: 수수료 없음' : ` · 주급 ${cash(c.wage)} · 내 수수료 주 ${cash(commissionOf(c.wage))}`);
+  foot.append(satNode(c), ' · ', bondNode(c), isFreeAgent(c) ? ' · 무소속: 수수료 없음' : ` · 주급 ${cash(c.wage)} · 내 수수료 주 ${cash(commissionOf(c.wage))}`);
   card.append(top, el('span', 'meta', `${ageOf(p)}세 · ${p.nat.name} · ${p.club.name} · ${leagueName(p.club.country, p.club.t)}`),
     abilityBar(p.ability), stats, el('span', 'card-line', statLine(c.st)), foot);
   return card;
@@ -1846,15 +1974,17 @@ function newsCard(ev) {
   const c = clientOf(ev.s);
   const card = el('article', 'news');
   card.append(el('p', 'news-text', type.text(p, ev.d, c)));
+  if (c) card.append(el('p', 'news-bond', `관계: ${bondName(c.bond)} · 유대 ${c.bond} · ${c.how}`));
   if (type.fit) {
     const fit = type.fit(p, ev.d);
-    card.append(checkList(fit.checks, fit.score, `이적 동의 ${fit.consent}%`));
+    card.append(checkList(fit.checks, fit.score, `이적 동의 ${fit.consent}%${fit.bond ? ` (유대 +${fit.bond}%p 포함)` : ''}`));
   }
   card.append(el('p', 'news-due', ev.until > absWeek() ? `${ev.until - absWeek()}주 안에 답하지 않으면 "${type.options[type.def].label(p, ev.d, c)}"` : '이번 주까지 답해야 합니다'));
   const actions = el('div', 'news-actions');
   type.options.forEach((opt, i) => {
     const cost = opt.cost ? opt.cost(ev.d, c) : 0;
-    const tags = [opt.ap ? `${opt.ap} AP` : '', cost ? cash(cost) : ''].filter(Boolean).join(' · ');
+    const bond = opt.bond && c ? `유대 ${opt.bond > 0 ? '+' : ''}${opt.bond}` : '';
+    const tags = [opt.ap ? `${opt.ap} AP` : '', cost ? cash(cost) : '', bond].filter(Boolean).join(' · ');
     const b = actButton('btn', 'event', ev.id, opt.label(p, ev.d, c) + (tags ? ` (${tags})` : ''));
     b.dataset.o = String(i);
     b.disabled = (opt.ap && state.ap < opt.ap) || cost > state.agencyCash;
@@ -1866,7 +1996,8 @@ function newsCard(ev) {
 
 function renderClients(root) {
   root.append(el('h1', 'title', '내 선수'),
-    el('p', 'sub', `${state.clients.length}/${clientLimit()}명 · 주간 수수료 ${cash(weeklyIncome())} · 지출 ${cash(weeklySpend())}`));
+    el('p', 'sub', `${state.founded ? '' : '혼자 일하는 중 · '}${state.clients.length}/${clientLimit()}명 · 주간 수수료 ${cash(weeklyIncome())} · 지출 ${cash(weeklySpend())}`));
+  if (!state.founded && !foundBlock()) root.append(el('p', 'note up', '회사 설립 조건을 모두 채웠습니다. 에이전시 탭에서 회사를 세울 수 있습니다.'));
   // 소식 카드를 못 그리면(잘못된 데이터) 그 소식만 버리고 화면은 계속 그림
   const cards = [];
   for (const ev of [...state.events]) {
@@ -2108,7 +2239,7 @@ function clientActions(box, c, p) {
     ? '계약이 끝나 무소속입니다. 재계약하거나 이적 제안을 받아야 수수료가 다시 들어옵니다.'
     : `내 수수료는 주 ${cash(commissionOf(c.wage))}(주급의 ${FEE_RATE * 100}%)입니다.`));
   const meetMsg = meetBlock(c);
-  const meetBtn = actButton('btn primary', 'meet', c.s, `면담 (1 AP, 만족 +${TUNE.meetGain})`);
+  const meetBtn = actButton('btn primary', 'meet', c.s, `면담 (1 AP, 만족 +${TUNE.meetGain}, 유대 +${TUNE.bondMeet})`);
   meetBtn.disabled = Boolean(meetMsg);
   box.append(meetBtn);
   if (meetMsg) box.append(el('p', 'note', meetMsg));
@@ -2150,6 +2281,7 @@ function renderPlayer(root, s) {
     stat('몸값', money(valueOf(p))), stat('주급', cash(wage)), stat('계약 만료', contractNode(client ? client.end : contractEnd(p, absWeek()))));
   if (client) info.append(stat('만족', satNode(client)));
   root.append(info);
+  if (client) root.append(el('h2', 'section', '선수와의 관계'), bondBlock(client));
 
   root.append(el('h2', 'section', `${state.season}시즌 기록`), statsTable(client ? client.st : worldStats(p, state.season, state.week), p.club, p.nat, true),
     el('p', isNationalPick(p) ? 'sub up' : 'sub', nationalLine(p)));
@@ -2218,7 +2350,43 @@ function moneyPanel() {
   return box;
 }
 
+// 개인 아이템 목록 (혼자일 때는 내 돈, 회사를 세운 뒤에는 개인 자금으로 삼)
+function itemList() {
+  const list = el('div', 'list');
+  ITEMS.forEach(([id, name], i) => {
+    const owned = state.items.includes(id);
+    const short = !owned && state[walletKey()] < TUNE.itemPrice[i] ? ` · ${state.founded ? '개인 ' : ''}자금 부족` : '';
+    const b = rowButton('item', i, name, `${money(TUNE.itemPrice[i])} · 평판 +${TUNE.itemRep[i]}${short}`, owned ? '보유' : '');
+    b.disabled = Boolean(itemBlock(i));
+    if (owned) b.classList.add('owned');
+    list.append(b);
+  });
+  return list;
+}
+
+// 회사를 세우기 전: 혼자 일하는 지금 상황과 설립 조건 점검표
+function renderSolo(root) {
+  const income = weeklyIncome();
+  const net = income - upkeepNow();
+  root.append(el('h1', 'title', '에이전시 (아직 혼자)'),
+    el('p', 'sub', `회사 없이 혼자 일합니다. 선수는 ${TUNE.soloLimit}명까지, 손이 모자라 한 주에 AP ${TUNE.soloAp}만 쓰고, 운영비는 전화·교통비 정도입니다. 지금 자금은 모두 내 돈입니다.`));
+  const flow = el('div', 'panel');
+  flow.append(el('strong', net < 0 ? 'bad' : 'up', `주간 수지 ${signedCash(net)}`), el('p', 'panel-line', `수수료 ${cash(income)} - 운영비 ${cash(upkeepNow())}`));
+  const box = el('div', 'panel');
+  box.append(el('strong', '', '에이전시 세우기'),
+    el('p', 'sub', `세우면 주당 AP가 ${TUNE.soloAp}에서 ${TUNE.ap}로, 소속 한도가 ${TUNE.limitBase}명(평판이 오르면 더)이 되고 법인 투자·배당이 열립니다. 운영비는 주 ${cash(companyUpkeep())}(지금 선수 기준)로 오릅니다. 설립비를 낸 나머지 돈은 회사 자본금이 됩니다.`));
+  const checks = el('div', 'checks');
+  for (const ch of foundChecks()) checks.append(el('p', ch.ok ? 'check ok' : 'check no', `${ch.ok ? '✓' : '✗'} ${ch.text}`));
+  const b = actButton('btn wide option', 'found');
+  b.append(el('span', 'opt-title', `에이전시 세우기 · 설립비 ${cash(TUNE.foundCost)}`), el('span', 'opt-sub', `함께해 온 선수들이 따라옵니다 (유대 +${TUNE.bondFound})`));
+  b.disabled = Boolean(foundBlock());
+  box.append(checks, b);
+  root.append(flow, box, el('h2', 'section', '개인 아이템'),
+    el('p', 'sub', '지금은 내 돈으로 바로 삽니다. 살 때 평판이 오르고, 평판이 높을수록 덜 오릅니다. 설립 조건의 평판을 채우는 데도 씁니다.'), itemList());
+}
+
 function renderAgency(root) {
+  if (!state.founded) return renderSolo(root);
   const income = weeklyIncome();
   const upkeep = upkeepNow();
   const fixed = investUpkeep();
@@ -2233,17 +2401,7 @@ function renderAgency(root) {
     el('p', 'sub', '도입비는 한 번, 유지비는 매주 법인 자금에서 나갑니다. 단계를 낮추면 유지비가 줄지만 도입비는 돌려받지 못합니다.'));
   INVEST_KEYS.forEach((key, i) => root.append(investCard(key, i)));
   root.append(el('h2', 'section', '자금 옮기기'), moneyPanel(), el('h2', 'section', '개인 아이템'),
-    el('p', 'sub', '개인 자금으로 삽니다. 살 때 평판이 오르고, 평판이 높을수록 덜 오릅니다.'));
-  const list = el('div', 'list');
-  ITEMS.forEach(([id, name], i) => {
-    const owned = state.items.includes(id);
-    const short = !owned && state.personalCash < TUNE.itemPrice[i] ? ' · 개인 자금 부족' : '';
-    const b = rowButton('item', i, name, `${money(TUNE.itemPrice[i])} · 평판 +${TUNE.itemRep[i]}${short}`, owned ? '보유' : '');
-    b.disabled = Boolean(itemBlock(i));
-    if (owned) b.classList.add('owned');
-    list.append(b);
-  });
-  root.append(list);
+    el('p', 'sub', '개인 자금으로 삽니다. 살 때 평판이 오르고, 평판이 높을수록 덜 오릅니다.'), itemList());
 }
 
 function renderLog(root) {
@@ -2383,6 +2541,7 @@ function onAction(act, v, o) {
   if (act === 'dividend') return stay(() => payDividend(dividendAmount(v)));
   if (act === 'inject') return stay(() => inject(injectAmount(v)));
   if (act === 'item') return stay(() => buyItem(v));
+  if (act === 'found') return stay(foundAgency);
   if (act === 'scout') return stay(() => scout(v));
   if (act === 'watch') return stay(() => toggleWatch(v));
   if (act === 'findAge') return stay(() => ((findAge = v), (findList = findProspects(findAge, findPos))));
@@ -2490,7 +2649,7 @@ function runSelfCheck() {
   const w1 = worldStats(a, state.season, 20), w2 = worldStats(a, state.season, 20), w3 = worldStats(a, state.season, 40);
   check(JSON.stringify(w1) === JSON.stringify(w2) && w3.L[0] >= w1.L[0], '월드 선수 기록은 결정적이고 주가 지나면 늘어남');
   check([-8, 0, 8].every(sc => consentChance(sc) >= 5 && consentChance(sc) <= 95) && consentChance(4) > consentChance(-4), '선수 동의 확률 5~95%, 조건이 좋을수록 높음');
-  check(clientLimit() >= TUNE.limitBase && clientLimit() <= maxClients(), '소속 한도 범위');
+  check(clientLimit() >= Math.min(TUNE.soloLimit, TUNE.limitBase) && clientLimit() <= maxClients(), '소속 한도 범위 (혼자일 때 포함)');
   // 5단계: 투자·배당·아이템
   const fx = { lawyer: ['lawyerWage', 'lawyerCounter'], scout: ['scoutRecruit', 'scoutTips'], coach: ['coachGrow', 'coachAge', 'coachInjury'], office: ['officeLimit'] };
   check(INVEST_KEYS.every(k => investSteps(k).every((st, i, arr) => st[0] > 0 && st[1] > 0 && (i === 0 || (st[0] > arr[i - 1][0] && st[1] > arr[i - 1][1])))), '투자는 단계가 오를수록 도입비·유지비가 커져야 함');
@@ -2515,6 +2674,17 @@ function runSelfCheck() {
   }
   check(rangesOk, '잠재력 범위: 진짜 값 포함, 스카우트할수록 안쪽으로 좁아짐, 마지막은 정확');
   check(TUNE.scoutKnow.length === TUNE.scoutLv.length + 1 && TUNE.potWidth[TUNE.potWidth.length - 1] === 0, '스카우트망 단계별 기본 스카우트 횟수, 범위 폭 마지막은 0');
+  // 7단계: 유대는 0~100, 기억은 3개까지, 유대를 더해도 확률은 범위 안
+  const tb = { bond: 98, memo: [], sat: 100 };
+  for (let i = 0; i < 5; i++) addBond(tb, 5, '시험');
+  check(tb.bond === 100 && tb.memo.length === 1 && tb.memo[0].n === 2, '유대는 100에서 멈추고 바뀐 만큼만 기억');
+  for (let i = 0; i < 5; i++) addBond(tb, -30, '시험');
+  check(tb.bond === 0 && tb.memo.length === 3, '유대는 0에서 멈추고 기억은 3개까지');
+  tb.bond = 100;
+  check(keepChanceOf(tb) <= 0.95 && bondConsentBonus(tb) <= 10 && bondKeepBonus({ bond: TUNE.bondFrom }) === 0, '유대 효과: 붙잡기 95% 이하, 이적 동의 +10%p 이하, bondFrom 이하는 효과 없음');
+  check(BOND_TIERS.every(([lo], i) => i === 0 || lo < BOND_TIERS[i - 1][0]) && bondName(0) === '서먹함' && bondName(100) === '가족 같음', '유대 단계 이름');
+  check(foundChecks().length === 3 && TUNE.foundCash > TUNE.foundCost && TUNE.soloLimit < TUNE.limitBase, '회사 설립: 조건 3개, 자금 조건은 설립비보다 큼, 혼자일 때 한도가 더 작음');
+  check(Object.values(EVENT_TYPES).every(t => t.options.every(o => !o.bond || (typeof o.memo === 'string' && Math.abs(o.bond) <= 10))), '소식 선택지의 유대 변화에는 기억 문구가 있어야 함');
 }
 
 // 화면 그리기 실패: 위치를 처음으로 돌려 다시 그림 → 그래도 안 되면 지금 세이브를 백업하고 새 게임

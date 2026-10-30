@@ -24,7 +24,10 @@ const TARGETS = {
     ['dreamAny', '꿈의 구단 이적이 있었던 게임', 10, 25, '%'],
     ['transfersPerSeason', '시즌당 이적', 0.8, 2, '건'],
     ['consentAvg', '이적 제안 평균 선수 동의', 35, 60, '%'],
-    ['firstInvestS1', '1시즌 안에 첫 투자', 60, 100, '%'],
+    ['foundS1', '1시즌 안에 회사 설립', 50, 90, '%'],
+    ['firstInvestS1', '설립 뒤 1시즌 안에 첫 투자', 60, 100, '%'],
+    ['soloBusy', '혼자일 때 할 일이 있는 주', 45, 75, '%'],
+    ['bondHigh', '남은 선수 중 유대 60 이상', 30, 70, '%'],
     ['investLevels', '투자 단계 (10단계 중)', 3, 7, ''],
     ['spendShare', '번 돈 중 투자·아이템에 쓴 비율', 40, 85, '%'],
     ['deficitWeeks', '투자 유지비 때문에 적자인 주', 0, 3, '%']
@@ -50,7 +53,7 @@ function loadGame() {
       weeklyWage, commissionOf, clientIncome, clientLimit, recruit, recruitBlock, recruitChance, recruitCost, renew, renewBlock, renewTerms,
       meet, meetBlock, resolveEvent, offerFit, offerCut, counterChance, clientOf, absWeek,
       INVEST_KEYS, ITEMS, investSteps, investUpkeep, upkeepNow, weeklySpend, invest, downgrade, dividendRoom, afterTax, payDividend, inject, buyItem, netWorth,
-      potRange, scout, scoutBlock, toggleWatch, cooldownKey };`);
+      potRange, scout, scoutBlock, toggleWatch, cooldownKey, foundBlock, foundAgency };`);
   return factory(...Object.values(stubs));
 }
 
@@ -119,7 +122,7 @@ function pickTarget(G, bot, optimistic, skip, forScout) {
       const [lo, hi] = G.potRange(p);
       const pot = optimistic ? hi : (lo + hi) / 2;
       score = age <= 21 && pot - p.ability >= 10 ? chance * (pot - 40) : 0;
-    } else if (bot === 'veteran') score = age >= 26 ? chance * gain : 0;
+    } else if (bot === 'veteran') score = age >= 26 ? chance * gain - G.recruitCost(p) / 52 : 0; // 영입 비용도 따짐 (혼자 시작하면 돈이 적음)
     else score = chance * (gain + G.valueOf(p) * 0.0005) - G.recruitCost(p) / 52;
     if (score > bestScore) {
       bestScore = score;
@@ -188,6 +191,11 @@ function youthRecruit(G, m) {
 function botWeek(G, bot, m) {
   const st = G.state;
   if (bot === 'passive') return false;
+  // 회사 설립: 조건(평판·자금·수수료 ≥ 회사 운영비)을 채우면 바로 세움. 한 번뿐인 결정이라 "할 일"에는 넣지 않음
+  if (!st.founded && !G.foundBlock()) {
+    G.foundAgency();
+    m.foundWeek = m.weeks + 1;
+  }
   let acted = false;
   for (const ev of [...st.events]) {
     if (ev.type === 'offer') {
@@ -242,7 +250,7 @@ const INVEST_ORDER = { attentive: ['lawyer', 'scout', 'coach', 'office'], youth:
 function botMoney(G, bot, m) {
   const st = G.state;
   const order = workerData.order || INVEST_ORDER[bot];
-  if (!order || workerData.noMoney) return;
+  if (!order || workerData.noMoney || !st.founded) return; // 회사를 세우기 전에는 투자·배당이 없음
   const T = G.TUNE;
   const income = st.clients.reduce((n, c) => n + G.clientIncome(c), 0);
   const upkeepOf = k => (st.invest[k] ? G.investSteps(k)[st.invest[k] - 1][1] : 0);
@@ -294,17 +302,23 @@ function playGame(G, bot, seasons) {
   const st = G.state;
   const m = { weeks: 0, decisionWeeks: 0, news: 0, overload: 0, apUsed: 0, offers: 0, consentSum: 0, recruitTry: 0, firstTransfer: 0, bankrupt: 0,
     firstInvest: 0, investSpent: 0, upkeepPaid: 0, taxPaid: 0, itemSpent: 0, downgrades: 0, deficitWeeks: 0, buyWeek: {},
-    scouts: 0, scoutWeeks: 0, busyWithScout: 0, youthTry: 0, youthPotSum: 0, youthMissSum: 0 };
+    scouts: 0, scoutWeeks: 0, busyWithScout: 0, youthTry: 0, youthPotSum: 0, youthMissSum: 0, foundWeek: 0, soloWeeks: 0, soloBusy: 0, apAvail: 0 };
   const signed0 = st.stats.signed;
   for (let w = 0; w < seasons * 52; w++) {
     const news = st.events.length;
     m.news += news;
     if (news >= 3) m.overload += 1;
     const ap0 = st.ap;
+    m.apAvail += ap0;
     const transfers0 = st.stats.transfers;
     const scoutWeeks0 = m.scoutWeeks;
+    const solo = !st.founded;
     const acted = botWeek(G, bot, m);
     if (acted || news) m.decisionWeeks += 1;
+    if (solo) {
+      m.soloWeeks += 1;
+      if (acted || news) m.soloBusy += 1;
+    }
     if (acted || news || m.scoutWeeks > scoutWeeks0) m.busyWithScout += 1; // 스카우트(하고 싶을 때 하는 일)까지 넣으면
     m.apUsed += ap0 - st.ap;
     botMoney(G, bot, m);
@@ -324,11 +338,12 @@ function playGame(G, bot, seasons) {
   const k = st.stats;
   // 번 돈 = 쓴 돈 + 늘어난 자금(법인 + 개인). 쓴 돈 = 투자 도입비 + 유지비 + 배당 세금 + 아이템
   const spent = m.investSpent + m.upkeepPaid + m.taxPaid + m.itemSpent;
-  const saved = st.agencyCash + st.personalCash - 25000;
+  const saved = st.agencyCash + st.personalCash - G.TUNE.soloCash;
   const levels = G.INVEST_KEYS.reduce((n, key) => n + st.invest[key], 0);
   const maxLevels = G.INVEST_KEYS.reduce((n, key) => n + G.investSteps(key).length, 0);
   const money = INVEST_ORDER[bot] && !workerData.noMoney ? {
-    firstInvestS1: m.firstInvest && m.firstInvest <= 52 ? 100 : 0,
+    // 투자는 회사를 세운 뒤에만 가능: 세운 주부터 52주 안에 첫 투자를 했는지 (못 세운 게임은 빼고 셈)
+    firstInvestS1: !m.foundWeek ? null : m.firstInvest && m.firstInvest - m.foundWeek <= 52 ? 100 : 0,
     investLevels: levels,
     deficitWeeks: (m.deficitWeeks / m.weeks) * 100,
     spendShare: spent + Math.max(0, saved) > 0 ? (spent / (spent + Math.max(0, saved))) * 100 : null,
@@ -343,16 +358,26 @@ function playGame(G, bot, seasons) {
     youthPot: m.youthTry ? m.youthPotSum / m.youthTry : null,   // 영입하려 한 21세 이하의 진짜 잠재력 평균
     youthMiss: m.youthTry ? m.youthMissSum / m.youthTry : null  // 그때 보이던 범위 가운데와 진짜 잠재력의 차이
   } : {};
+  // 7단계: 회사 설립 시점, 혼자일 때 할 일이 있는 주, 끝날 때 남은 선수의 유대
+  const bonds = st.clients.map(c => c.bond);
+  const solo = bot === 'passive' ? {} : {
+    foundS1: m.foundWeek && m.foundWeek <= 52 ? 100 : 0,
+    foundWeek: m.foundWeek || null,
+    soloBusy: m.soloWeeks ? (m.soloBusy / m.soloWeeks) * 100 : null,
+    bondAvg: bonds.length ? bonds.reduce((a, b) => a + b, 0) / bonds.length : null,
+    bondHigh: bonds.length ? (bonds.filter(b => b >= 60).length / bonds.length) * 100 : null
+  };
   return {
     ...money,
     ...scouting,
+    ...solo,
     earned: spent + saved,
     personal: st.personalCash,
     netWorth: G.netWorth(),
     decisionWeeks: (m.decisionWeeks / m.weeks) * 100,
     newsPerWeek: m.news / m.weeks,
     overloadWeeks: (m.overload / m.weeks) * 100,
-    apUse: (m.apUsed / (m.weeks * G.TUNE.ap)) * 100,
+    apUse: m.apAvail ? (m.apUsed / m.apAvail) * 100 : 0, // 혼자일 때는 주 AP가 적음
     renewRate: k.renewTry ? (k.renewWin / k.renewTry) * 100 : null,
     recruitRate: m.recruitTry ? ((k.signed - signed0) / m.recruitTry) * 100 : null,
     lost: k.lost,
@@ -441,6 +466,12 @@ const median = (rows, key) => {
       const keys = Object.keys(G0.TUNE).filter(k => k.endsWith('Lv')).flatMap(k => G0.TUNE[k].map((_, i) => `${k.slice(0, -2)}${i + 1}`));
       console.log(`    산 시점 중앙값(시즌): ${keys.map(k => `${k} ${when(k)}`).join(', ')} | ${G0.ITEMS.map(([id]) => `${id} ${when(id)}`).join(', ')}`);
     }
+    if (rows[0].foundS1 !== undefined) {
+      const weeks = rows.map(r => r.foundWeek || Infinity).sort((a, b) => a - b);
+      const mid = weeks[Math.floor(weeks.length / 2)];
+      console.log(`    혼자 시작: 회사 설립 시점 중앙값 ${mid === Infinity ? '-' : `${mid}주`}, 1시즌 안에 설립 ${mean(rows, 'foundS1').toFixed(0)}%, 설립 못 한 게임 ${((weeks.filter(w => w === Infinity).length / rows.length) * 100).toFixed(0)}%, 혼자일 때 할 일 있는 주 ${mean(rows, 'soloBusy').toFixed(1)}%`);
+      console.log(`    유대: 남은 선수 평균 ${mean(rows, 'bondAvg').toFixed(1)}, 60 이상(끈끈함 이상) ${mean(rows, 'bondHigh').toFixed(0)}%`);
+    }
     if (rows[0].scoutsPerSeason !== undefined) {
       console.log(`    스카우트: 시즌당 ${mean(rows, 'scoutsPerSeason').toFixed(1)}번, 스카우트까지 넣은 할 일 있는 주 ${mean(rows, 'busyWithScout').toFixed(1)}%, 영입하려 한 21세 이하 진짜 잠재력 평균 ${mean(rows, 'youthPot').toFixed(1)} (보이던 범위 가운데와 차이 ${mean(rows, 'youthMiss').toFixed(1)})`);
     }
@@ -449,7 +480,9 @@ const median = (rows, key) => {
   if (summary.youth && summary.veteran) {
     // 5단계부터 자금은 투자·아이템에 쓰이므로 "번 돈"(쓴 돈 + 늘어난 자금)으로 비교
     const ratio = mean(summary.youth, 'earned') / mean(summary.veteran, 'earned');
-    console.log(`\n  ${ratio >= 0.8 && ratio <= 1.25 ? '✓' : '✗'} 유망주 전략 / 베테랑 전략 번 돈 비율 ${ratio.toFixed(2)} (목표 0.8~1.25)`);
+    // 번 돈은 몇몇 대박 게임에 크게 끌려서 평균 비율이 ±0.1쯤 흔들림 → 중앙값 비율도 같이 봄
+    const mid = median(summary.youth, 'earned') / median(summary.veteran, 'earned');
+    console.log(`\n  ${ratio >= 0.8 && ratio <= 1.25 ? '✓' : '✗'} 유망주 전략 / 베테랑 전략 번 돈 비율 ${ratio.toFixed(2)} (목표 0.8~1.25, 중앙값 비율 ${mid.toFixed(2)})`);
   }
   console.log(`\n${((Date.now() - t0) / 1000).toFixed(1)}초`);
 })();

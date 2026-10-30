@@ -68,6 +68,9 @@ button { font: inherit; color: inherit; }
 .news { margin-bottom: 8px; padding: 12px; background: var(--panel); border: 1px solid var(--warn); border-radius: 12px; }
 .news-text { margin: 0 0 4px; font-size: 14px; }
 .news-due { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
+.news-bond { margin: 0 0 6px; color: var(--muted); font-size: 12px; }
+.bond-bar { margin: 8px 0; }
+.bond-bar > i { background: var(--warn); }
 .news-actions { display: grid; gap: 6px; }
 .news-actions .btn { width: 100%; text-align: left; }
 
