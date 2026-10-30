@@ -4,7 +4,7 @@
 // ===== 1. 상수와 세계 데이터 =====
 const SAVE_KEY = 'be-the-agent:save';
 const BACKUP_KEY = 'be-the-agent:save:backup'; // 읽지 못한 세이브를 지우지 않고 보관
-const SAVE_VERSION = 11;
+const SAVE_VERSION = 12; // 13단계: 부 배치·대륙 대회 참가 구단·부상 (세계 배열은 v11과 같음)
 const WEEKS = 52;
 const SQUAD = 24;
 const WORLD_SEED = 20261030; // 구단 이름·전력은 모든 게임에서 같게 고정
@@ -52,7 +52,11 @@ const MEMO = {
   howSolo: M('혼자 일할 때 직접 찾아가 데려옴', "You went to see him yourself while working alone"),
   howScout: M('스카우트 보고서를 보고 영입', "Signed after reading a scouting report"),
   howCall: M('연락해서 영입', "Signed after you got in touch"),
-  howOld: M('예전부터 함께한 선수', "A player you have worked with for years")
+  howOld: M('예전부터 함께한 선수', "A player you have worked with for years"),
+  // 13단계 시즌 고비
+  trophy: M('우승을 함께 기뻐함', 'Celebrated a trophy together'),
+  promoted: M('승격을 함께 기뻐함', 'Celebrated promotion together'),
+  injured: M('부상 소식에 바로 달려옴', 'Rushed over when he got injured')
 };
 // 영어 셈: pl(3, 'week') → "3 weeks"
 const pl = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -776,6 +780,9 @@ for (const country of COUNTRIES) {
     country.clubs.push(list);
   }
 }
+// 13단계 승강: 나라별 구단 전체(처음 부·순위 순, 바뀌지 않음). 지금 부(club.t)와 부별 명단(country.clubs)은 state.tierOf로 다시 만듦
+for (const country of COUNTRIES) country.all = country.clubs.flat();
+const START_TIERS = CLUBS.map(c => c.t0).join(''); // 처음 부 배치 (새 게임, 예전 세이브)
 const SLOTS = CLUBS.length * SQUAD;
 const OLD_SLOTS = OLD_CLUBS * SQUAD; // 48,048: 11단계까지의 세이브 크기
 // 세계 규칙: state.wv 2 = 12단계 이후 새 게임, 1 = 예전 세이브(기존 구단 선수는 예전 규칙 그대로 만들어 같은 선수가 됨)
@@ -863,11 +870,13 @@ const companyUpkeep = () => UPKEEP_BASE + UPKEEP_PER_CLIENT * state.clients.leng
 const upkeepNow = () => (state.founded ? companyUpkeep() : TUNE.soloUpkeep[0] + TUNE.soloUpkeep[1] * state.clients.length);
 
 // 시즌 말 능력 변화: 28세까지는 잠재력 쪽으로(어릴수록 크게), 29세부터 하락. 평균 폼이 좋으면 조금 더 큼
-function growthStep(age, ability, pot, avgForm, x) {
+// 13단계: 23세 이하는 출전 비율(mins, 0~1)도 반영. 그 나이 평균 출전(TUNE.minutesMid)보다 많이 뛸수록 더 자람 (mins가 없으면 그대로)
+function growthStep(age, ability, pot, avgForm, x, mins) {
   if (age <= 28) {
     const rate = age <= 20 ? 0.3 : age <= 23 ? 0.22 : 0.12;
     const formMul = 0.7 + ((avgForm - 1) / 9) * 0.6;
-    return Math.max(0, Math.min(pot - ability, Math.round((pot - ability) * rate * formMul * (0.6 + x * 0.8))));
+    const minsMul = age <= 23 && mins !== undefined ? 1 + TUNE.minutesGrow * (mins - TUNE.minutesMid[clamp(age, 17, 23) - 17]) : 1;
+    return Math.max(0, Math.min(pot - ability, Math.round((pot - ability) * rate * formMul * minsMul * (0.6 + x * 0.8))));
   }
   if (age <= 31) return x < 0.5 ? 0 : -1;
   return -(1 + Math.floor(x * (age >= 34 ? 3 : 2)));
@@ -942,7 +951,7 @@ function newWorld(seed) {
 function newGame() {
   const seed = (Math.random() * 2 ** 32) >>> 0;
   state = {
-    version: SAVE_VERSION, seed, season: 1, week: 1, wv: 2,
+    version: SAVE_VERSION, seed, season: 1, week: 1, wv: 2, tierOf: START_TIERS, cont: null,
     agencyCash: TUNE.soloCash, rep: START_REP, ap: TUNE.soloAp, debtWeeks: 0, over: false, founded: false,
     personalCash: 0, invest: newInvest(), items: [], scouted: {}, watch: [], alumni: [], intros: {},
     news: [], needs: [], deals: newDeals(),
@@ -951,6 +960,7 @@ function newGame() {
     ui: { ...DEFAULT_UI },
     world: newWorld(seed)
   };
+  applyTiers();
   state.natCut = computeNatCut();
   state.clients = pickStartingClients();
   const who = listText(state.clients.map(c => `${getPlayer(c.s).name} (${phrase(c.how)})`));
@@ -972,7 +982,7 @@ function pickStartingClients() {
   const r = rng(hash(state.seed, 99));
   const kor = COUNTRY_BY_ID.KOR;
   const pool = [];
-  for (const club of kor.clubs.flat()) {
+  for (const club of kor.all) {
     for (let k = 0; k < SQUAD; k++) {
       const p = getPlayer(club.id * SQUAD + k);
       if (p.nat === kor && p.ability >= 45 && p.ability <= 66) pool.push(p);
@@ -1016,8 +1026,8 @@ function pickStartingClients() {
 // hunt = 이적 요청을 받아 새 구단을 알아보는 마감 절대 주차 (0 = 안 알아봄), pitch = 추천해 둔 구단 { club, until } (10단계)
 const newClient = (p, end, sat, bond, how) => ({
   s: p.s, g: p.g, end, wage: weeklyWage(p.ability), sat, met: 0, negUntil: 0, warned: 0,
-  st: newStint(p.club, worldStats(p, state.season, state.week)), hist: [], playRate: 0.6, capped: false,
-  bond, since: absWeek(), how, memo: [], tales: [], hunt: 0, pitch: null
+  st: newStint(p.club, worldStats(p, state.week)), hist: [], playRate: 0.6, capped: false,
+  bond, since: absWeek(), how, memo: [], tales: [], hunt: 0, pitch: null, out: null
 });
 // 에이전시 커리어 통계 (기록 탭·시뮬레이션용)
 const newCareerStats = () => ({ lost: 0, transfers: 0, dream: 0, callups: 0, renewTry: 0, renewWin: 0, signed: 0 });
@@ -1080,6 +1090,11 @@ function advanceWeek() {
     `The ${win.name} is open. The deadline is ${weekLabel(windowEnd(win))}, and last-minute bids pile up in that final week.`));
   if (isDeadline()) addLog(L(`이적 마감일입니다. 이번 주가 지나면 ${win.name}이 닫힙니다. 막판 제안은 이번 주 안에 답해야 합니다.`,
     `It's deadline day. The ${win.name} shuts after this week, so last-minute bids must be answered now.`));
+  // 13단계 시즌 고비: 지난주가 컵 결승·대륙 대회 결승·리그 마지막 라운드였으면 우승·승강 소식 (기록 맨 위에 보이게 마지막에)
+  const last = state.week - 1;
+  if (last === CUP_WEEKS[CUP_WEEKS.length - 1]) cupFinale();
+  if (last === CONT_WEEKS[CONT_WEEKS.length - 1]) contFinale();
+  if (last === LEAGUE_WEEKS) leagueFinale();
   checkDebt();
   saveState();
   return week.added;
@@ -1102,13 +1117,34 @@ function checkDebt() {
   }
 }
 
-// 시즌 말: 평균 폼 확정, 성장·하락, 나이 +1(시즌에서 계산), 은퇴와 새 선수 교체, 평판 반영, 결산 작성
+// 시즌 말 결산용: 이번 시즌 리그 경기를 가장 많이 뛴 구단의 최종 순위와 승강, 뛴 대회 중 우승한 것 (시즌을 넘기기 전에 계산)
+// { c: 나라, t: 부, rk: 순위, n: 팀 수, mv: 승격 1·강등 -1, tr: ['L0'(1부 우승)·'L2'(3부 우승)·'C'(컵)·'K'(대륙 대회)] }, 리그에서 못 뛰었으면 null
+// 리그 우승은 그 구단에서 리그 5경기 이상, 컵·대륙 대회 우승은 그 대회 1경기 이상 뛰었을 때만. 승강은 시즌 끝에도 그 구단 소속일 때만(무소속·이적했으면 빼고)
+function seasonFinish(c) {
+  const stints = [c.st, ...c.hist.filter(h => h.season === state.season)];
+  const main = stints.reduce((a, b) => (b.L[0] > a.L[0] ? b : a));
+  if (!main.L[0]) return null;
+  const club = CLUBS[main.club];
+  const row = tableRow(club, finalTable(club.country, club.t));
+  const zone = zoneOf(club.country, club.t, row.rk);
+  const still = !isFreeAgent(c) && clubOf(c.s) === club;
+  const tr = [];
+  for (const st of stints) {
+    const at = CLUBS[st.club];
+    if (st.L[0] >= 5 && tableRow(at, finalTable(at.country, at.t)).rk === 1) tr.push(`L${at.t}`);
+    if (st.C[0] && compRun(at, 'C').won) tr.push('C');
+    if (st.K[0] && compRun(at, 'K').won) tr.push('K');
+  }
+  return { c: club.country.i, t: club.t, rk: row.rk, n: club.country.tiers[club.t], mv: !still ? 0 : zone === 'up' ? 1 : zone === 'down' ? -1 : 0, tr: [...new Set(tr)] };
+}
+
+// 시즌 말: 평균 폼 확정, 성장·하락, 나이 +1(시즌에서 계산), 승강, 은퇴와 새 선수 교체, 평판 반영, 결산 작성
 function endSeason() {
   const w = state.world;
   const before = state.clients.map(c => {
     const p = getPlayer(c.s);
     const L = c.st.L;
-    return { name: p.ko, nk: p.nk, age: ageOf(p), ability: p.ability, value: valueOf(p), apps: L[0], goals: L[1], rating: L[0] ? L[3] / L[0] / 10 : 0, caps: c.st.N[0], nat: p.nat.id };
+    return { name: p.ko, nk: p.nk, age: ageOf(p), ability: p.ability, value: valueOf(p), apps: L[0], goals: L[1], rating: L[0] ? L[3] / L[0] / 10 : 0, caps: c.st.N[0], nat: p.nat.id, fin: seasonFinish(c) };
   });
   for (const c of state.clients) archiveStint(c);
   for (let s = 0; s < SLOTS; s++) {
@@ -1117,16 +1153,20 @@ function endSeason() {
   }
 
   // 성장·하락: 이번 시즌 나이와 평균 폼 기준. 소속 선수는 피지컬 코치 효과를 더함
+  // 23세 이하는 출전 비율도 반영: 소속 선수는 최근 출전 비율(playRate), 세계 선수는 지금 구단에서의 출전 확률
   // 같은 반복에서 국가대표 기준용 국적·능력도 모음 (선수 전체를 두 번 읽지 않게)
   const rg = rng(hash(state.seed, 6, state.season));
   const natIdx = new Uint8Array(SLOTS);
   const abil = new Uint8Array(SLOTS);
   const coached = new Set(state.invest.coach ? state.clients.map(c => c.s) : []);
+  const minutes = new Map(state.clients.map(c => [c.s, c.playRate]));
   let coachGain = 0; // 코치 덕분에 더 오르거나 덜 내려간 능력 합계 (결산 창에 표시)
   for (let s = 0; s < SLOTS; s++) {
     const r = rng(hash(state.seed, s, w.gen[s]));
     const c = coreStats(s, r);
-    let step = growthStep(state.season - c.birth, c.ability, c.pot, w.favg[s] / 2, rg());
+    const age = state.season - c.birth;
+    const mins = age > 23 ? undefined : minutes.has(s) ? minutes.get(s) : startChance(c.ability, clubLevel(clubOf(s)), 5.5);
+    let step = growthStep(age, c.ability, c.pot, w.favg[s] / 2, rg(), mins);
     if (coached.has(s)) {
       const plain = step;
       step = coachStep(step, c.pot - c.ability);
@@ -1138,8 +1178,15 @@ function endSeason() {
     natIdx[s] = nationalityFor(c.club, r).i;
   }
 
+  // 13단계 승강: 마지막 순위표로 부를 바꾸고 다음 시즌 대륙 대회 참가 구단을 정함 (5대 리그 1부·대륙 대회 우승은 결산 창에)
+  const champs = COUNTRIES.slice(0, BIG5).map(country => finalTable(country, 0)[0].club.id);
+  const contWin = CONT_GROUPS.map(group => contOf(group).final).filter(Boolean).map(f => f.club);
+  const moves = seasonMoves();
   state.week = 1;
   state.season += 1;
+  state.tierOf = moves.tierOf;
+  state.cont = moves.cont;
+  applyTiers();
 
   // 소속 선수는 33세 미만이면 이탈하지 않음 (은퇴만 함)
   const r = rng(hash(state.seed, 5, state.season));
@@ -1174,13 +1221,13 @@ function endSeason() {
       const scout = farewell && c.bond >= TUNE.alumniBond && state.alumni.length < TUNE.alumniMax;
       const rep = farewell ? gainRep(1) : 0;
       if (scout) state.alumni.push({ name: before[i].name, nk: before[i].nk, nat: before[i].nat, season: state.season - 1 });
-      rows.push({ name: before[i].name, nk: before[i].nk, ageFrom: before[i].age, retired: true, farewell, scout, seasons, bond: c.bond, rep, nat: before[i].nat });
+      rows.push({ name: before[i].name, nk: before[i].nk, ageFrom: before[i].age, retired: true, farewell, scout, seasons, bond: c.bond, rep, nat: before[i].nat, fin: before[i].fin });
       return false;
     }
     const p = getPlayer(c.s);
     const value = valueOf(p);
     const b = before[i];
-    rows.push({ name: p.ko, nk: p.nk, ageFrom: b.age, ageTo: ageOf(p), abilityFrom: b.ability, abilityTo: p.ability, valueFrom: b.value, valueTo: value, apps: b.apps, goals: b.goals, rating: b.rating, caps: b.caps });
+    rows.push({ name: p.ko, nk: p.nk, ageFrom: b.age, ageTo: ageOf(p), abilityFrom: b.ability, abilityTo: p.ability, valueFrom: b.value, valueTo: value, apps: b.apps, goals: b.goals, rating: b.rating, caps: b.caps, fin: b.fin });
     c.st = newStint(p.club);
     valueFrom += before[i].value;
     valueTo += value;
@@ -1192,9 +1239,9 @@ function endSeason() {
   const repChange = valueFrom > 0 ? clamp(Math.round(((valueTo - valueFrom) / valueFrom) * 10), -3, 3) : 0;
   if (repChange > 0) gainRep(repChange);
   else state.rep = Math.max(0, state.rep + repChange);
-  state.summary = { season: state.season - 1, rows, retired, repChange, coachGain, seen: false };
-  addLog(L(`${state.season - 1}시즌 종료. 평판 ${repChange >= 0 ? '+' : ''}${repChange}. 세계에서 ${num(retired)}명이 은퇴하거나 떠나고 새 선수가 들어왔습니다.`,
-    `Season ${state.season - 1} is over. Reputation ${repChange >= 0 ? '+' : ''}${repChange}. Around the world, ${num(retired)} players retired or left and new ones arrived.`));
+  state.summary = { season: state.season - 1, rows, retired, repChange, coachGain, champs, contWin, seen: false };
+  addLog(L(`${state.season - 1}시즌 종료. 평판 ${repChange >= 0 ? '+' : ''}${repChange}. 세계에서 ${num(retired)}명이 은퇴하거나 떠나고 새 선수가 들어왔습니다. 승격·강등한 구단은 새 시즌부터 바뀐 부에서 뜁니다.`,
+    `Season ${state.season - 1} is over. Reputation ${repChange >= 0 ? '+' : ''}${repChange}. Around the world, ${num(retired)} players retired or left and new ones arrived. Promoted and relegated clubs start the new season in their new divisions.`));
 }
 
 // ===== 영입·해지 =====
@@ -1273,12 +1320,14 @@ const TUNE = {
   limitBase: 6, limitStep: 40, limitMax: 7,   // 소속 한도: 6명에서 시작, 평판 40이 되면 7명 (8명이면 84%의 주가 바빠서 줄임)
   satStart: 70, satWarn: 35, satLeave: 20, satDecay: 1, mainMiss: 1, happyBonus: 1, keepChance: 0.75,
   meetGain: 12, meetGap: 4,
-  renewWindow: 26, renewRetry: 2, renewBase: [80, 55, 30],
+  // renewBase: 13단계에서 [80, 55, 30] → [76, 51, 26]. 이적 요청으로 아래 수준 구단에 가서 구단 수준보다 잘하는 선수가 늘어 재계약이 쉬워져서(77% → 74%)
+  renewWindow: 26, renewRetry: 2, renewBase: [76, 51, 26],
   transferCut: 0.02, dealShare: 0.25,
   eventTtl: 2, eventMax: 3,
+  // offerBase: 13단계에서 0.018 → 0.015. 이적 요청을 받아 알아보면 아래 수준 구단도 제안해 이적이 늘어서(시즌당 2.1건 → 1.8건)
   // offerFirst: 첫 시즌 첫 이적 보너스. 7단계부터 혼자 시작해 선수가 2~3명뿐이라 0.06 → 0.12.
   // 9단계부터 이적 기간(22주부터 11주)에만 붙어서 0.12 → 0.25 (1시즌 안 첫 이적·회사 설립을 8단계 수준으로)
-  offerBase: 0.018, offerStar: 0.025, offerForm: 0.015, offerFree: 0.1, offerYouth: 0.02, offerFirst: 0.25, dreamChance: 0.02, dreamReach: 4, offerRespect: 0.5,
+  offerBase: 0.015, offerStar: 0.025, offerForm: 0.015, offerFree: 0.1, offerYouth: 0.02, offerFirst: 0.25, dreamChance: 0.02, dreamReach: 4, offerRespect: 0.5,
   consentBase: 50, consentStep: 12,
   // poachStar: 몸값 $300만 이상 스타를 노리는 다른 에이전시. 7단계에서 유대가 시험받는 순간을 늘리려고 0.002 → 0.004
   playtimeChance: 0.09, raiseChance: 0.08, poachBase: 0.0018, poachStar: 0.004, poachLow: 0.04, sponsorChance: 0.05, snsChance: 0.008,
@@ -1312,7 +1361,16 @@ const TUNE = {
   // 그중 needNews곳은 뉴스로). 이적 기간 매주 signWeek건(마감 주는 deadlineBoost배) 세계 이적이 실제로 일어남.
   // 내 선수 제안이 보강이 필요한 구단에서 올 확률 needOffer, 추천(1 AP)하면 마감까지 그 선수 제안 pitchBoost배·그 구단에서 올 확률 pitchClub
   // pitchBoost 1.5면 시즌당 이적 2.25건(목표 2건 이하)이라 1.2. 이적이 늘어 선수를 덜 잃어서 windowBoost 2.8 → 2.6, poachBase 0.0015 → 0.0018
-  needSample: 400, needGap: 2, needMax: 40, needNews: 6, signWeek: 3, needOffer: 0.5, pitchBoost: 1.2, pitchClub: 0.7, newsMax: 60
+  needSample: 400, needGap: 2, needMax: 40, needNews: 6, signWeek: 3, needOffer: 0.5, pitchBoost: 1.2, pitchClub: 0.7, newsMax: 60,
+  // 13단계 경기 결과: 한 팀 평균 득점, 홈 이점, 전력 1 차이의 득점 기울기, 시즌 기세 폭(±). 1부 20팀 400시즌 시험에서
+  // 경기당 2.75골, 홈 승 47%·무 23%·원정 승 30%, 우승 승점 82(38경기), 가장 강한 팀 우승 50%, 승격팀 잔류 55%, 한 부 차이 컵 이변 26%
+  goalBase: 1.3, homeAdv: 0.3, goalStep: 0.12, formSpread: 2.5,
+  // 시즌 고비의 만족 변화: 리그 우승, 승격, 강등(빼는 값), 컵·대륙 대회 우승. 우승하면 유대 +trophyBond
+  titleSat: 5, upSat: 5, downSat: 6, cupSat: 4, trophyBond: 2,
+  // 부상으로 빠지는 주 [최소, 최대] (전문 재활을 지원하면 절반으로).
+  // 23세 이하 성장 × (1 + minutesGrow × (출전 비율 - 그 나이 평균)): minutesMid = 17~23세 세계 선수의 평균 출전 확률(새 게임에서 잰 값 0.21~0.56).
+  // 세계 평균은 그대로이고, 17세가 주전으로 뛰면(97%) 성장 +23%, 23세가 벤치(8%)면 -14%
+  injuryWeeks: [2, 6], minutesGrow: 0.3, minutesMid: [0.21, 0.26, 0.33, 0.39, 0.47, 0.51, 0.56]
 };
 // 평판 오르는 양은 평판이 높을수록 줄어듦 (30시즌 커리어 동안 천천히 오르게). 소수점은 확률로 반올림
 function gainRep(n) {
@@ -1328,7 +1386,8 @@ const maxClients = () => TUNE.limitMax + Math.max(...TUNE.officeLimit); // 세�
 
 // 지금 소속 구단: 이적한 선수는 moved[슬롯] = 구단 번호 (능력·이름은 처음 구단 기준 그대로)
 const clubOf = s => CLUBS[state.moved[s] ?? Math.floor(s / SQUAD)];
-const clubLevel = club => tierLevel(club.country, club.t) + club.off;
+// 구단 수준은 처음 부(t0) 기준으로 고정 (13단계 승강으로 부가 바뀌어도 선수단은 그대로라서. 승격팀은 위 부에서 약한 편, 강등팀은 아래 부에서 강한 편)
+const clubLevel = club => tierLevel(club.country, club.t0) + club.off;
 
 // 구단 명단: 원래 슬롯에서 떠난 선수는 빼고 이적해 온 선수는 더함
 function clubSlots(club) {
@@ -1351,6 +1410,10 @@ const CONT_NAME = { '5대 리그': ['유럽 클럽 챔피언십', 'European Club
   북중미: ['북중미 클럽 컵', 'North & Central American Club Cup'], '아시아·오세아니아': ['아시아 클럽 챔피언십', 'Asian Club Championship'], 아프리카: ['아프리카 클럽 챔피언십', 'African Club Championship'] };
 const REGION_EN = { '5대 리그': 'Big Five', 유럽: 'Europe', 남미: 'South America', 북중미: 'North & Central America', '아시아·오세아니아': 'Asia & Oceania', 아프리카: 'Africa' };
 const regionName = region => L(region, REGION_EN[region]);
+// 13단계: 유럽은 참가 구단이 많아 수준 순 32팀씩 세 대회로 나눔 (챔피언십·리그·콘퍼런스 리그). 다른 지역은 32팀 이하라 한 대회
+const CONT_SPLIT = 32;
+const CONT_LOWER = [['유럽 클럽 리그', 'European Club League'], ['유럽 콘퍼런스 리그', 'European Conference League']];
+const contTitle = (region, ci = 0) => (ci ? CONT_LOWER[ci - 1] : CONT_NAME[region]);
 const COMPS = ['L', 'C', 'K', 'N']; // 리그, 국내 컵, 대륙 대회, 국가대표
 
 // --- 9단계 이적 시장 (축구 감독 게임의 이적 기간·마감일에서 가져옴): 여름 이적 기간은 47주부터 다음 시즌 6주까지, 겨울은 22~26주.
@@ -1367,51 +1430,374 @@ function nextWindow(week = state.week) {
   return WINDOWS.map(win => ({ win, wait: (win.from - week + WEEKS) % WEEKS })).sort((a, b) => a.wait - b.wait)[0];
 }
 
+// ===== 13단계: 리그 순위표·승강·국내 컵·대륙 대회 =====
+// 결과는 모두 시드로 정해짐(같은 게임이면 언제 다시 계산해도 같음). 저장하는 것은 부 배치(state.tierOf)와 대륙 대회 참가 구단(state.cont)뿐
+// 구단 전력 = 구단 수준(고정) + 시즌 기세(시즌마다 ±TUNE.formSpread). 득점은 푸아송 분포: 한 팀 평균 TUNE.goalBase골에서
+// 전력 1 차이마다 TUNE.goalStep, 홈 경기는 TUNE.homeAdv만큼 기울어짐. 컵·토너먼트에서 비기면 승부차기
 const contSlots = country => (country.i < BIG5 ? 4 : country.level >= 66 ? 3 : country.level >= 60 ? 2 : 1);
-const inContinental = club => club.t === 0 && club.rank < contSlots(club.country);
+const CONT_GROUPS = ['유럽', '남미', '북중미', '아시아·오세아니아', '아프리카']; // 5대 리그와 유럽은 같은 대회
+const contGroup = region => (region === '5대 리그' ? '유럽' : region);
+let contSet = new Set(); // 이번 시즌 대륙 대회 참가 구단 (state.cont, applyTiers에서 채움)
+const inContinental = club => contSet.has(club.id);
 const bigStage = club => club.t === 0 && (club.country.i < BIG5 || inContinental(club));
 const compName = (key, club, nat) => (key === 'L' ? leagueName(club.country, club.t) : key === 'C' ? L(`${club.country.name} 컵`, `${club.country.name} Cup`)
-  : key === 'K' ? L(...CONT_NAME[club.country.region]) : L(`${nat.name} 국가대표`, `${nat.name} national team`));
+  : key === 'K' ? L(...contTitle(club.country.region, compRun(club, 'K').ci || 0)) : L(`${nat.name} 국가대표`, `${nat.name} national team`));
+const ordinal = n => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th'}`;
 
-function leagueGames(club, week) {
-  if (week > LEAGUE_WEEKS) return 0;
-  const total = 2 * (club.country.tiers[club.t] - 1);
-  return Math.floor((week * total) / LEAGUE_WEEKS) - Math.floor(((week - 1) * total) / LEAGUE_WEEKS);
+// 승강 팀 수: 맞닿은 두 부 중 작은 쪽이 18팀 이상이면 3팀, 12팀 이상이면 2팀, 아니면 1팀
+const moveCount = (country, t) => {
+  const n = Math.min(country.tiers[t], country.tiers[t + 1]);
+  return n >= 18 ? 3 : n >= 12 ? 2 : 1;
+};
+// 순위의 뜻: 'cont' 대륙 대회 진출권(1부), 'up' 승격, 'down' 강등, '' 그 밖
+function zoneOf(country, t, rk) {
+  if (t === 0 && rk <= contSlots(country)) return 'cont';
+  if (t > 0 && rk <= moveCount(country, t - 1)) return 'up';
+  if (t + 1 < country.tiers.length && rk > country.tiers[t] - moveCount(country, t)) return 'down';
+  return '';
 }
 
-// 컵·대륙 대회 성적은 구단·시즌마다 정해짐: 몇 경기까지 갔는지, 우승했는지
-const runCache = new Map();
-function compRun(club, season, key) {
-  const id = `${state.seed}:${club.id}:${season}:${key}`;
-  if (runCache.has(id)) return runCache.get(id);
-  let out = { games: 0, won: false };
-  if (key === 'C') {
-    const r = rng(hash(state.seed, club.id, season, 31));
-    const p = clamp(0.55 + (clubLevel(club) - tierLevel(club.country, 0)) * 0.03, 0.12, 0.85);
-    out = { games: CUP_WEEKS.length, won: true };
-    for (let g = 1; g <= CUP_WEEKS.length; g++) if (r() > p) { out = { games: g, won: false }; break; }
-  } else if (inContinental(club)) {
-    const r = rng(hash(state.seed, club.id, season, 37));
-    const p = clamp(0.3 + (clubLevel(club) - 72) * 0.03, 0.05, 0.8);
-    out = { games: 6, won: false };
-    if (r() < p + 0.15) {
-      out = { games: CONT_WEEKS.length, won: true };
-      for (let g = 7; g <= CONT_WEEKS.length; g++) if (r() > p) { out = { games: g, won: false }; break; }
+// 결과 캐시: 부 배치가 바뀌거나 다른 게임을 불러오면(applyTiers) 비움
+const seasonCache = new Map();
+const cupCache = new Map();
+const contCache = new Map();
+
+// 대륙 대회 참가 구단: 나라마다 1부 순위 상위 contSlots팀. 대회마다 4의 배수(4팀씩 조)가 되게, 수준 높은 나라의 다음 순위 구단을 더함
+// order(나라) = 그 나라 1부 구단을 순위 순으로
+function contEntrants(order) {
+  const out = [];
+  for (const group of CONT_GROUPS) {
+    const picked = [];
+    const next = [];
+    for (const country of COUNTRIES.filter(c => contGroup(c.region) === group)) {
+      const list = order(country);
+      picked.push(...list.slice(0, contSlots(country)));
+      if (list[contSlots(country)]) next.push(list[contSlots(country)]);
     }
+    next.sort((a, b) => b.country.level - a.country.level || a.country.i - b.country.i);
+    while (picked.length % 4 && next.length) picked.push(next.shift());
+    out.push(...picked.map(c => c.id));
   }
-  if (runCache.size > 20000) runCache.clear();
-  runCache.set(id, out);
   return out;
 }
 
-function weekGames(club, season, week) {
+// 부 배치를 구단(club.t)과 부별 명단(country.clubs)에 반영. 부 안에서는 처음 부·순위 순(전력 순에 가까움)
+// 대륙 대회 참가 구단이 없으면(새 게임·예전 세이브) 1부 전력 순으로 정함
+function applyTiers() {
+  for (const country of COUNTRIES) {
+    const lists = country.tiers.map(() => []);
+    for (const club of country.all) {
+      club.t = state.tierOf.charCodeAt(club.id) - 48;
+      lists[club.t].push(club);
+    }
+    country.clubs = lists;
+  }
+  if (!state.cont) state.cont = contEntrants(country => country.clubs[0]);
+  contSet = new Set(state.cont);
+  seasonCache.clear();
+  cupCache.clear();
+  contCache.clear();
+}
+
+const seasonForm = club => {
+  const r = rng(hash(state.seed, state.season, club.id, 73));
+  return (r() + r() - 1) * TUNE.formSpread;
+};
+const clubPower = club => clubLevel(club) + seasonForm(club);
+
+function shuffle(arr, r) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(r() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+function poisson(mean, r) {
+  const lim = Math.exp(-mean);
+  let k = 0;
+  for (let p = r(); p > lim && k < 9; p *= r()) k += 1;
+  return k;
+}
+// 한 경기 점수 [a 골, b 골]. home = a 쪽 홈 이점 (중립 경기장은 0)
+function playScore(pa, pb, home, r) {
+  const tilt = (TUNE.goalStep * (pa - pb) + home) / 2;
+  return [poisson(TUNE.goalBase * Math.exp(tilt), r), poisson(TUNE.goalBase * Math.exp(-tilt), r)];
+}
+// 단판 승부 (컵·대륙 대회 토너먼트): 비기면 승부차기. 승부차기는 전력이 높은 쪽이 조금 유리(최대 60%), 이긴 쪽 3~5골
+// 결과 { win, lose, gw, gl: 90분 점수(이긴 쪽 기준), kw, kl: 승부차기 점수(없으면 0) }
+function knockout(a, b, power, home, r) {
+  const pa = power.get(a.id);
+  const pb = power.get(b.id);
+  const [x, y] = playScore(pa, pb, home, r);
+  if (x !== y) return x > y ? { win: a, lose: b, gw: x, gl: y, kw: 0, kl: 0 } : { win: b, lose: a, gw: y, gl: x, kw: 0, kl: 0 };
+  const aWins = r() < 0.5 + clamp((pa - pb) * 0.01, -0.1, 0.1);
+  const kw = 3 + Math.floor(r() * 3);
+  const kl = kw - 1 - Math.floor(r() * 2);
+  return { win: aWins ? a : b, lose: aWins ? b : a, gw: x, gl: y, kw, kl };
+}
+
+// 리그 일정 (원형 방식): 라운드마다 [홈 번호, 원정 번호] 쌍. 앞 절반(팀 수 - 1라운드) 뒤 홈·원정을 바꿔 한 번 더. 홀수 팀이면 라운드마다 한 팀이 쉼
+const rrCache = new Map();
+function roundRobin(n) {
+  if (rrCache.has(n)) return rrCache.get(n);
+  const m = n % 2 ? n + 1 : n;
+  const ids = Array.from({ length: m }, (_, i) => i);
+  const half = [];
+  for (let k = 0; k < m - 1; k++) {
+    const pairs = [];
+    for (let i = 0; i < m / 2; i++) {
+      const a = ids[i];
+      const b = ids[m - 1 - i];
+      if (a < n && b < n) pairs.push((k + i) % 2 ? [b, a] : [a, b]);
+    }
+    half.push(pairs);
+    ids.splice(1, 0, ids.pop());
+  }
+  const rounds = half.concat(half.map(pairs => pairs.map(([a, b]) => [b, a])));
+  rrCache.set(n, rounds);
+  return rounds;
+}
+const roundsOf = n => 2 * ((n % 2 ? n + 1 : n) - 1);
+// 그 주까지 치른 리그 라운드 수: 1~46주에 고르게 나눔 (47주부터는 끝)
+const roundsBy = (n, week) => Math.floor((clamp(week, 0, LEAGUE_WEEKS) * roundsOf(n)) / LEAGUE_WEEKS);
+const playedRounds = (country, t) => roundsBy(country.tiers[t], state.week - 1);
+const leagueOver = () => state.week > LEAGUE_WEEKS;
+
+// 한 부의 이번 시즌: 구단 순서(시즌마다 섞음)와 라운드별 점수 g[(라운드 × 쌍 수 + 쌍) × 2 + 홈 0·원정 1]
+function tierSeason(country, t) {
+  const key = `${state.seed}:${state.season}:${country.i}:${t}`;
+  let ts = seasonCache.get(key);
+  if (ts) return ts;
+  const r = rng(hash(state.seed, state.season, country.i, t, 71));
+  const clubs = shuffle(country.clubs[t].slice(), r);
+  const power = clubs.map(clubPower);
+  const rounds = roundRobin(clubs.length);
+  const per = Math.floor(clubs.length / 2);
+  const g = new Uint8Array(rounds.length * per * 2);
+  rounds.forEach((pairs, k) => pairs.forEach(([a, b], i) => {
+    const [x, y] = playScore(power[a], power[b], TUNE.homeAdv, r);
+    g[(k * per + i) * 2] = x;
+    g[(k * per + i) * 2 + 1] = y;
+  }));
+  ts = { clubs, rounds, per, g, index: new Map(clubs.map((c, i) => [c.id, i])), tables: new Map() };
+  if (seasonCache.size > 800) seasonCache.clear();
+  seasonCache.set(key, ts);
+  return ts;
+}
+
+// 순위표 (played라운드까지): 승점 → 득실차 → 다득점 → 구단 수준 순. 줄마다 최근 5경기('W'·'D'·'L')
+function leagueTable(country, t, played = playedRounds(country, t)) {
+  const ts = tierSeason(country, t);
+  if (ts.tables.has(played)) return ts.tables.get(played);
+  const rows = ts.clubs.map(club => ({ club, p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, gd: 0, pts: 0, last: [], rk: 0 }));
+  const add = (row, f, a) => {
+    row.p += 1;
+    row.gf += f;
+    row.ga += a;
+    if (f > a) {
+      row.w += 1;
+      row.pts += 3;
+    } else if (f === a) {
+      row.d += 1;
+      row.pts += 1;
+    } else row.l += 1;
+    row.last.push(f > a ? 'W' : f === a ? 'D' : 'L');
+  };
+  for (let k = 0; k < played; k++) {
+    ts.rounds[k].forEach(([a, b], i) => {
+      const x = ts.g[(k * ts.per + i) * 2];
+      const y = ts.g[(k * ts.per + i) * 2 + 1];
+      add(rows[a], x, y);
+      add(rows[b], y, x);
+    });
+  }
+  for (const row of rows) {
+    row.gd = row.gf - row.ga;
+    row.last = row.last.slice(-5);
+  }
+  rows.sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf || clubLevel(b.club) - clubLevel(a.club) || a.club.id - b.club.id);
+  rows.forEach((row, i) => (row.rk = i + 1));
+  ts.tables.set(played, rows);
+  return rows;
+}
+const finalTable = (country, t) => leagueTable(country, t, roundsOf(country.tiers[t]));
+const tableRow = (club, table = leagueTable(club.country, club.t)) => table.find(row => row.club === club);
+
+// 이번 주 리그 경기 수 (모든 부가 짝수 팀이라 쉬는 팀이 없음)
+function leagueGames(club, week) {
+  const n = club.country.tiers[club.t];
+  return roundsBy(n, week) - roundsBy(n, week - 1);
+}
+
+// 국내 컵: 지금 부·전력 순 상위 64팀(모자라면 상위 팀이 1라운드 부전승). 라운드마다 무작위 대진, 중립 경기, 비기면 승부차기
+// runs: 구단 번호 → { mask: 뛴 라운드 비트, won, res: 라운드별 { f: 득점, a: 실점, pk: 승부차기 1 = 이김·2 = 짐 } }
+// final: 결승 { club: 우승, opp: 준우승, f, a, pf, pa (승부차기) }
+const NO_RUN = { mask: 0, won: false, res: [] };
+function markKnockout(runs, k, i) {
+  const w = runs.get(k.win.id);
+  const l = runs.get(k.lose.id);
+  w.mask |= 1 << i;
+  l.mask |= 1 << i;
+  w.res[i] = { f: k.gw, a: k.gl, pk: k.kw ? 1 : 0 };
+  l.res[i] = { f: k.gl, a: k.gw, pk: k.kw ? 2 : 0 };
+  return { club: k.win.id, opp: k.lose.id, f: k.gw, a: k.gl, pf: k.kw, pa: k.kl };
+}
+function cupOf(country) {
+  const key = `${state.seed}:${state.season}:${country.i}`;
+  let cup = cupCache.get(key);
+  if (cup) return cup;
+  const r = rng(hash(state.seed, state.season, country.i, 31));
+  const seeds = country.clubs.flat().slice(0, 64);
+  const runs = new Map(seeds.map(c => [c.id, { mask: 0, won: false, res: [] }]));
+  const power = new Map(seeds.map(c => [c.id, clubPower(c)]));
+  let waiting = seeds.slice(0, 64 - seeds.length);
+  let alive = seeds.slice(64 - seeds.length);
+  let final = null;
+  for (let round = 0; round < CUP_WEEKS.length; round++) {
+    shuffle(alive, r);
+    const next = [];
+    for (let i = 0; i + 1 < alive.length; i += 2) {
+      const k = knockout(alive[i], alive[i + 1], power, 0, r);
+      final = markKnockout(runs, k, round);
+      next.push(k.win);
+    }
+    alive = waiting.concat(next);
+    waiting = [];
+  }
+  runs.get(final.club).won = true;
+  cup = { runs, final };
+  if (cupCache.size > 300) cupCache.clear();
+  cupCache.set(key, cup);
+  return cup;
+}
+
+// 대륙 대회: 지역 참가 구단을 수준 순으로 32팀씩 나눠 대회를 만듦 (유럽은 챔피언십·리그·콘퍼런스 리그 세 대회, 다른 지역은 한 대회).
+// 대회마다 수준 순 4개 포트로 4팀씩 조 편성(같은 나라는 되도록 다른 조), 조별 홈·원정 6경기(CONT_WEEKS 앞 6주).
+// 조 순위 → 경기당 승점 → 경기당 득실 → 다득점 순 상위 8팀이 8강(1-8, 4-5, 2-7, 3-6). 8강·4강은 앞 시드 홈, 결승은 중립
+// runs: 구단 번호 → { mask, won, res, gpos: 조 순위(0부터), ci: 대회 번호(0 = 지역 최상위 대회) }, finals: 대회별 결승, final = 최상위 대회 결승
+function contOf(group) {
+  const key = `${state.seed}:${state.season}:${group}`;
+  let cont = contCache.get(key);
+  if (cont) return cont;
+  const r = rng(hash(state.seed, state.season, CONT_GROUPS.indexOf(group), 37));
+  const all = state.cont.map(id => CLUBS[id]).filter(c => contGroup(c.country.region) === group).sort((a, b) => clubLevel(b) - clubLevel(a) || a.id - b.id);
+  const runs = new Map();
+  const finals = [];
+  for (let ci = 0; ci * CONT_SPLIT < all.length; ci++) finals.push(playCont(all.slice(ci * CONT_SPLIT, (ci + 1) * CONT_SPLIT), runs, ci, r));
+  cont = { runs, finals, final: finals[0] || null };
+  if (contCache.size > 50) contCache.clear();
+  contCache.set(key, cont);
+  return cont;
+}
+function playCont(teams, runs, ci, r) {
+  for (const c of teams) runs.set(c.id, { mask: 0, won: false, res: [], gpos: 0, ci });
+  const power = new Map(teams.map(c => [c.id, clubPower(c)]));
+  const size = Math.ceil(teams.length / 4);
+  const groups = Array.from({ length: size }, () => []);
+  for (let pot = 0; pot < 4; pot++) {
+    for (const club of shuffle(teams.slice(pot * size, pot * size + size), r)) {
+      const open = groups.filter(g => g.length === pot);
+      (open.find(g => !g.some(x => x.country === club.country)) || open[0]).push(club);
+    }
+  }
+  const standings = [];
+  for (const list of groups) {
+    const rows = list.map(club => ({ club, p: 0, pts: 0, gd: 0, gf: 0 }));
+    roundRobin(list.length).forEach((pairs, k) => pairs.forEach(([a, b]) => {
+      const [x, y] = playScore(power.get(list[a].id), power.get(list[b].id), TUNE.homeAdv, r);
+      for (const [row, f, ag] of [[rows[a], x, y], [rows[b], y, x]]) {
+        row.p += 1;
+        row.gf += f;
+        row.gd += f - ag;
+        row.pts += f > ag ? 3 : f === ag ? 1 : 0;
+        const run = runs.get(row.club.id);
+        run.mask |= 1 << k;
+        run.res[k] = { f, a: ag, pk: 0 };
+      }
+    }));
+    rows.sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf || clubLevel(b.club) - clubLevel(a.club));
+    rows.forEach((row, i) => {
+      row.pos = i;
+      runs.get(row.club.id).gpos = i;
+      standings.push(row);
+    });
+  }
+  const per = (row, key) => row[key] / Math.max(1, row.p);
+  standings.sort((a, b) => a.pos - b.pos || per(b, 'pts') - per(a, 'pts') || per(b, 'gd') - per(a, 'gd') || per(b, 'gf') - per(a, 'gf') || clubLevel(b.club) - clubLevel(a.club));
+  let bracket = [0, 7, 3, 4, 1, 6, 2, 5].map(i => (standings[i] ? standings[i].club : null));
+  let final = null;
+  for (let stage = 6; stage < CONT_WEEKS.length; stage++) {
+    const next = [];
+    for (let i = 0; i < bracket.length; i += 2) {
+      const [a, b] = [bracket[i], bracket[i + 1]];
+      if (!a || !b) {
+        next.push(a || b);
+        continue;
+      }
+      const k = knockout(a, b, power, stage < CONT_WEEKS.length - 1 ? TUNE.homeAdv : 0, r);
+      final = markKnockout(runs, k, stage);
+      next.push(k.win);
+    }
+    bracket = next;
+  }
+  if (bracket[0]) runs.get(bracket[0].id).won = true;
+  return final;
+}
+
+// 이번 시즌 컵(C)·대륙 대회(K) 성적
+function compRun(club, key) {
+  if (key === 'C') return cupOf(club.country).runs.get(club.id) || NO_RUN;
+  return inContinental(club) ? contOf(contGroup(club.country.region)).runs.get(club.id) || NO_RUN : NO_RUN;
+}
+
+function weekGames(club, week) {
   const ci = CUP_WEEKS.indexOf(week);
   const ki = CONT_WEEKS.indexOf(week);
-  return {
-    L: leagueGames(club, week),
-    C: ci >= 0 && ci < compRun(club, season, 'C').games ? 1 : 0,
-    K: ki >= 0 && ki < compRun(club, season, 'K').games ? 1 : 0
-  };
+  return { L: leagueGames(club, week), C: ci < 0 ? 0 : (compRun(club, 'C').mask >> ci) & 1, K: ki < 0 ? 0 : (compRun(club, 'K').mask >> ki) & 1 };
+}
+
+// 그 주 구단 경기 결과 (구단 입장): [{ key: 'L'·'C'·'K', f: 득점, a: 실점, pk }]
+function weekResults(club, week) {
+  const out = [];
+  const ts = tierSeason(club.country, club.t);
+  const me = ts.index.get(club.id);
+  const n = ts.clubs.length;
+  for (let k = roundsBy(n, week - 1); k < roundsBy(n, week); k++) {
+    const i = ts.rounds[k].findIndex(([a, b]) => a === me || b === me);
+    const x = ts.g[(k * ts.per + i) * 2];
+    const y = ts.g[(k * ts.per + i) * 2 + 1];
+    out.push(ts.rounds[k][i][0] === me ? { key: 'L', f: x, a: y, pk: 0 } : { key: 'L', f: y, a: x, pk: 0 });
+  }
+  for (const [key, weeks] of [['C', CUP_WEEKS], ['K', CONT_WEEKS]]) {
+    const i = weeks.indexOf(week);
+    const run = i < 0 ? NO_RUN : compRun(club, key);
+    if ((run.mask >> i) & 1) out.push({ key, ...run.res[i] });
+  }
+  return out;
+}
+
+// 한 나라의 시즌 말 승강: 마지막 순위표로 위 부 하위 팀과 아래 부 상위 팀을 바꿈 (부마다 팀 수는 그대로)
+// moves = 구단 번호 → 다음 시즌 부 (바뀌는 구단만), first = 1부 최종 순위 순 구단
+function countryMoves(country) {
+  const finals = country.tiers.map((n, t) => finalTable(country, t));
+  const moves = new Map();
+  for (let t = 0; t + 1 < country.tiers.length; t++) {
+    const k = moveCount(country, t);
+    for (const row of finals[t].slice(-k)) moves.set(row.club.id, t + 1);
+    for (const row of finals[t + 1].slice(0, k)) moves.set(row.club.id, t);
+  }
+  return { moves, first: finals[0].map(row => row.club) };
+}
+// 시즌 말: 모든 나라의 승강과 다음 시즌 대륙 대회 참가 구단 (1부 최종 순위로)
+function seasonMoves() {
+  const tiers = state.tierOf.split('');
+  const firsts = new Map();
+  for (const country of COUNTRIES) {
+    const { moves, first } = countryMoves(country);
+    for (const [id, t] of moves) tiers[id] = String(t);
+    firsts.set(country, first);
+  }
+  return { tierOf: tiers.join(''), cont: contEntrants(country => firsts.get(country)) };
 }
 
 // --- 경기: 능력이 구단 수준보다 높을수록, 폼이 좋을수록 자주 뛰고 잘함 ---
@@ -1420,13 +1806,20 @@ const POS_ASSIST = { FW: 0.17, MF: 0.21, DF: 0.07, GK: 0.01 };
 const startChance = (ability, level, form) => clamp(0.6 + (ability - level) * 0.05 + (form - 5.5) * 0.03, 0.08, 0.97);
 
 // 한 경기 결과 (못 뛰면 null). hard = 대륙 대회·A매치
-function playMatch(p, level, form, r, hard) {
+// 13단계: 팀 경기 결과(res = { f, a })를 알면 골·도움은 팀 득점을 넘지 않고, 이기면 평점 +0.25·지면 -0.25 (난수 쓰는 순서는 그대로)
+function playMatch(p, level, form, r, hard, res) {
   const d = p.ability - level;
   if (r() > startChance(p.ability, level, form)) return null;
-  const rating = clamp(6.4 + d * 0.05 + (form - 5.5) * 0.12 - (hard ? 0.3 : 0) + (r() - 0.5) * 1.6, 4.5, 9.8);
+  let rating = clamp(6.4 + d * 0.05 + (form - 5.5) * 0.12 - (hard ? 0.3 : 0) + (r() - 0.5) * 1.6, 4.5, 9.8);
   const atk = POS_GOAL[p.pos] * clamp(1 + d * 0.04, 0.4, 1.8) * (0.8 + form * 0.04) * (hard ? 0.7 : 1);
-  const goals = (r() < atk ? 1 : 0) + (r() < atk * atk * 0.4 ? 1 : 0);
-  return { rating, goals, assists: r() < POS_ASSIST[p.pos] * clamp(1 + d * 0.03, 0.5, 1.6) ? 1 : 0 };
+  let goals = (r() < atk ? 1 : 0) + (r() < atk * atk * 0.4 ? 1 : 0);
+  let assists = r() < POS_ASSIST[p.pos] * clamp(1 + d * 0.03, 0.5, 1.6) ? 1 : 0;
+  if (res) {
+    goals = Math.min(goals, res.f);
+    assists = Math.min(assists, res.f - goals);
+    rating = clamp(rating + (res.f > res.a ? 0.25 : res.f < res.a ? -0.25 : 0), 4.5, 9.8);
+  }
+  return { rating, goals, assists };
 }
 
 // 기록 한 줄: [출전, 골, 도움, 평점 합 × 10]
@@ -1466,14 +1859,14 @@ function computeNatCut() {
 const natCutOf = p => state.natCut[p.nat.id] ?? 99;
 const isNationalPick = p => p.ability >= natCutOf(p);
 
-// 소속이 아닌 선수의 시즌 기록: 매번 같은 값이 나오게 시드로 계산 (폼은 평균 5.5로 봄)
-function worldStats(p, season, upto) {
+// 소속이 아닌 선수의 이번 시즌 기록: 매번 같은 값이 나오게 시드로 계산 (폼은 평균 5.5로 봄)
+function worldStats(p, upto) {
   const st = emptyStats();
-  const r = rng(hash(state.seed, p.s, p.g, season, 41));
+  const r = rng(hash(state.seed, p.s, p.g, state.season, 41));
   const level = clubLevel(p.club);
   const nt = isNationalPick(p);
   for (let w = 1; w < upto; w++) {
-    const g = weekGames(p.club, season, w);
+    const g = weekGames(p.club, w);
     for (let i = 0; i < g.L; i++) addMatch(st.L, playMatch(p, level, 5.5, r, false));
     if (g.C) addMatch(st.C, playMatch(p, level, 5.5, r, false));
     if (g.K) addMatch(st.K, playMatch(p, level, 5.5, r, true));
@@ -1483,7 +1876,8 @@ function worldStats(p, season, upto) {
 }
 
 // 소속 선수 기록 구간: 시즌·구단이 바뀌면 hist로 옮기고 새로 시작
-const newStint = (club, stats) => ({ season: state.season, club: club.id, ...(stats || emptyStats()) });
+// 13단계: t = 그때 부 (승강으로 구단의 부가 바뀌어도 지난 기록은 그 시즌 부로 보임)
+const newStint = (club, stats) => ({ season: state.season, club: club.id, t: club.t, ...(stats || emptyStats()) });
 function archiveStint(c) {
   if (COMPS.some(k => c.st[k][0] > 0) || c.st.season === state.season) c.hist.unshift(c.st);
   if (c.hist.length > 20) c.hist.length = 20;
@@ -1506,10 +1900,11 @@ function prefsOf(p) {
   const young = ageOf(p) <= 23 && p.pot - p.ability >= 8;
   const years = main === 'stable' ? 4 : young ? 2 : r() < 0.5 ? 2 : 4;
   const home = p.nat;
+  // 고향 구단 후보는 처음 부·순위 순 상위 12팀 (승강으로 바뀌지 않게 고정된 순서)
   let pool = main === 'home'
-    ? home.clubs.flat().slice(0, 12)
+    ? home.all.slice(0, 12)
     : CLUBS.filter(c => clubLevel(c) >= p.pot - 6 && clubLevel(c) <= p.pot + 8 && (abroad === 'no' ? c.country === home : abroad === 'yes' ? c.country !== home : true));
-  if (!pool.length) pool = home.clubs[0];
+  if (!pool.length) pool = home.all.filter(c => c.t0 === 0);
   const pref = { main, abroad, years, wageMul: main === 'money' ? 1.25 : main === 'stable' ? 0.95 : 1.1, dream: pool[Math.floor(r() * pool.length)].id };
   if (prefCache.size > 5000) prefCache.clear();
   prefCache.set(id, pref);
@@ -1609,7 +2004,7 @@ function albumTile(c, key) {
 // 후배 소개: 같은 나라 구단에서 20세 이하·잠재력 여유 10 이상·영입 확률 20% 이상, 아직 내 선수가 아닌 선수 중 잠재력이 가장 높은 선수
 function findJunior(p) {
   let best = null;
-  for (const club of p.nat.clubs.flat()) {
+  for (const club of p.nat.all) {
     for (const s of clubSlots(club)) {
       const j = getPlayer(s);
       if (j.nat !== p.nat || ageOf(j) > 20 || j.pot - j.ability < 10 || clientOf(s) || recruitChance(j) < 20) continue;
@@ -1657,9 +2052,13 @@ const RENEW_YEARS = [2, 4];
 
 function renewTerms(c, p, level, years = 2) {
   const [names, mul] = RENEW_LEVELS[level];
-  const label = L(...names);
+  // 13단계: 지금 주급이 적정 주급보다 많으면(이적하며 올랐을 때) 깎지 않음. 그때는 지금 주급 유지 · +10% · +20%
+  const fair = weeklyWage(marketAbility(p)) * mul;
+  const keep = (c.wage || 0) * (1 + (mul - 1) * 0.4);
+  const fromNow = keep > fair;
+  const label = !fromNow ? L(...names) : level === 0 ? L('지금 주급 유지', 'Keep current wage') : L(`지금 주급 +${Math.round((mul - 1) * 40)}% 요구`, `Ask +${Math.round((mul - 1) * 40)}% on current`);
   // 변호사가 있으면 같은 수락 확률로 주급을 더 받아냄
-  const wage = Math.round((weeklyWage(marketAbility(p)) * mul * (1 + TUNE.lawyerWage[state.invest.lawyer])) / 50) * 50;
+  const wage = Math.round(((fromNow ? keep : fair) * (1 + TUNE.lawyerWage[state.invest.lawyer])) / 50) * 50;
   const age = ageOf(p);
   const clubLikes = age <= 23 ? (years === 4 ? 10 : 0) : age >= 30 ? (years === 2 ? 10 : -10) : 0;
   const chance = clamp(Math.round(TUNE.renewBase[level] + Math.min(15, state.rep / 4) + (p.ability - clubLevel(p.club)) * 2 - (isFreeAgent(c) ? 10 : 0) + clubLikes), 10, 95);
@@ -1711,7 +2110,10 @@ function makeOffer(c, p) {
   const r = Math.random;
   const pref = prefsOf(p);
   const dream = CLUBS[pref.dream];
-  const lo = Math.max(clubLevel(p.club), p.ability - 8);
+  // 13단계: 새 구단을 알아보는 선수(이적 요청)·무소속 선수는 지금보다 낮은 수준의 구단에서도 제안이 옴 (뛸 곳을 찾는 이적).
+  // 예전에는 벤치 선수가 이적을 요청해도 지금 구단 수준 이상에서만 제안이 와서 제안이 하나도 없을 때가 많았음
+  const stepDown = c.hunt >= absWeek() || isFreeAgent(c);
+  const lo = stepDown ? p.ability - 8 : Math.max(clubLevel(p.club), p.ability - 8);
   const hi = p.ability + 3;
   // 10단계: 내가 추천해 둔 구단, 그 포지션 보강이 필요한 구단(수준이 맞을 때)이 먼저 제안함
   const pitched = pitching(c) ? CLUBS[c.pitch.club] : null;
@@ -1729,8 +2131,10 @@ function makeOffer(c, p) {
     if (!pool.length) return null;
     club = pool[Math.floor(r() * pool.length)];
   }
-  const base = Math.max(c.wage, weeklyWage(Math.max(marketAbility(p), Math.round(clubLevel(club)))));
-  const wage = Math.round((base * (1.1 + r() * 0.3)) / 50) * 50;
+  // 13단계: 지금보다 낮은 수준 구단은 지금 주급을 맞춰 주지 않음 (능력에 맞는 주급의 0.9~1.2배). 뛸 곳을 찾는 대신 돈은 덜 받을 수 있음
+  const down = clubLevel(club) < clubLevel(p.club);
+  const base = weeklyWage(Math.max(marketAbility(p), Math.round(clubLevel(club))));
+  const wage = Math.round(((down ? base : Math.max(c.wage, base)) * (down ? 0.9 + r() * 0.3 : 1.1 + r() * 0.3)) / 50) * 50;
   const fee = isFreeAgent(c) ? 0 : Math.round((valueOf(p) * (0.8 + r() * 0.5)) / 5000) * 5000;
   // late = 이적 마감일에 온 막판 제안 (그 주 안에 답해야 함), from = 'pitch'(내가 추천한 구단)·'need'(보강이 필요한 구단)
   return { club: club.id, wage, fee, years: 2 + Math.floor(r() * 3), late: isDeadline(), from };
@@ -1821,9 +2225,13 @@ const SAY = (ko, en) => () => L(ko, en); // 선수의 말 한 줄
 function offerHead(p, d) {
   const club = CLUBS[d.club];
   const dream = club.id === prefsOf(p).dream;
+  // 13단계: 제안한 구단의 리그 순위도 ("잉글랜드 1부 3위")
+  const played = playedRounds(club.country, club.t);
+  const row = played ? tableRow(club) : null;
+  const rk = row ? (leagueOver() ? [` 최종 ${row.rk}위`, `, finished ${ordinal(row.rk)}`] : [` ${row.rk}위`, `, ${ordinal(row.rk)}`]) : ['', ''];
   return {
-    ko: `${d.from === 'pitch' ? '추천해 둔 ' : d.from === 'need' ? `${POS_NAME[p.pos][0]} 보강이 필요한 ` : ''}${dream ? '꿈의 구단 ' : ''}${club.ko}(${club.country.ko} ${club.t + 1}부)`,
-    en: `${club.en} (${club.country.en} Div. ${club.t + 1}${dream ? ', his dream club' : ''}${d.from === 'pitch' ? ', the club you pitched him to' : d.from === 'need' ? `, short of a ${POS_NAME[p.pos][1]}` : ''})`
+    ko: `${d.from === 'pitch' ? '추천해 둔 ' : d.from === 'need' ? `${POS_NAME[p.pos][0]} 보강이 필요한 ` : ''}${dream ? '꿈의 구단 ' : ''}${club.ko}(${club.country.ko} ${club.t + 1}부${rk[0]})`,
+    en: `${club.en} (${club.country.en} Div. ${club.t + 1}${rk[1]}${dream ? ', his dream club' : ''}${d.from === 'pitch' ? ', the club you pitched him to' : d.from === 'need' ? `, short of a ${POS_NAME[p.pos][1]}` : ''})`
   };
 }
 const feeText = d => (d.fee ? L(`이적료 ${money(d.fee)}`, `a ${money(d.fee)} fee`) : L('자유 이적', 'free transfer'));
@@ -1914,7 +2322,8 @@ const EVENT_TYPES = {
     def: 2
   },
   playtime: {
-    chance: (c, p) => (c.playRate < 0.45 && state.week <= LEAGUE_WEEKS ? TUNE.playtimeChance * (prefsOf(p).main === 'play' ? 1.5 : 1) : 0),
+    // 다쳤거나 쉬는 중, 무소속이면 출전 불만이 오지 않음
+    chance: (c, p) => (c.playRate < 0.45 && state.week <= LEAGUE_WEEKS && !c.out && !isFreeAgent(c) ? TUNE.playtimeChance * (prefsOf(p).main === 'play' ? 1.5 : 1) : 0),
     text: (p, d) => vary(d, [
       () => L(`${p.name} 선수가 출전 시간이 부족하다며 불만을 털어놓았습니다.`, `${p.name} has opened up about his lack of playing time.`),
       () => L(`${p.name} 선수가 경기가 끝나자마자 전화를 걸어왔습니다. 또 벤치였습니다.`, `${p.name} rang you the moment the final whistle went. He was on the bench again.`),
@@ -2012,13 +2421,21 @@ const EVENT_TYPES = {
     def: 2
   },
   injury: {
-    chance: () => TUNE.injuryChance * (1 - TUNE.coachInjury[state.invest.coach]),
-    make: c => ({ cost: Math.max(1000, Math.round(c.wage / 100) * 100) }),
-    text: (p, d) => vary(d, [
-      () => L(`${p.name} 선수가 훈련 중 다쳤습니다.`, `${p.name} picked up an injury in training.`),
-      () => L(`${p.name} 선수가 경기 도중 발목을 잡고 쓰러졌습니다. 구단은 몇 주 걸릴 수 있다고 합니다.`, `${p.name} went down clutching his ankle during the match. The club says it could take a few weeks.`),
-      () => L(`${p.name} 선수의 허벅지 근육이 올라왔습니다. 무리하면 더 길어질 수 있습니다.`, `${p.name} has tweaked his thigh. Pushing it could make it worse.`)
-    ]),
+    // 13단계: 다치면 wk주 동안 경기에 못 나감 (c.out). 전문 재활을 지원하면 그 절반을 앞당기고, 구단에만 맡기면 1주 더 걸림
+    chance: c => (c.out ? 0 : TUNE.injuryChance * (1 - TUNE.coachInjury[state.invest.coach])),
+    make: c => {
+      const wk = randInt(TUNE.injuryWeeks[0], TUNE.injuryWeeks[1], Math.random);
+      c.out = { w: absWeek() + wk, k: 'inj' };
+      return { cost: Math.max(1000, Math.round(c.wage / 100) * 100), wk };
+    },
+    text: (p, d) => {
+      const wk = d.wk ? L(`${d.wk}주`, pl(d.wk, 'week')) : L('몇 주', 'a few weeks');
+      return vary(d, [
+        () => L(`${p.name} 선수가 훈련 중 다쳤습니다. ${wk} 정도 경기에 못 나갑니다.`, `${p.name} picked up an injury in training and will miss about ${wk}.`),
+        () => L(`${p.name} 선수가 경기 도중 발목을 잡고 쓰러졌습니다. 구단은 ${wk} 정도 걸린다고 봅니다.`, `${p.name} went down clutching his ankle during the match. The club expects him out for about ${wk}.`),
+        () => L(`${p.name} 선수의 허벅지 근육이 올라왔습니다. ${wk} 동안 쉬어야 하고, 무리하면 더 길어질 수 있습니다.`, `${p.name} has tweaked his thigh. He needs ${wk} off, and pushing it could make it worse.`)
+      ]);
+    },
     quote: (p, d) => vary(d, [
       SAY('괜찮아요, 금방 돌아올 거예요… 그런데 솔직히 좀 무서워요.', 'I\'m fine, I\'ll be back soon... but honestly, I\'m a bit scared.'),
       SAY('하필 지금이에요. 이제 막 자리를 잡았는데.', 'Why now? I\'d only just won my place.'),
@@ -2026,10 +2443,23 @@ const EVENT_TYPES = {
       SAY('재활은 혼자 하면 너무 외로워요. 가끔 들러 주실 수 있어요?', 'Rehab on your own is so lonely. Could you drop by now and then?')
     ], 1),
     options: [
-      { label: () => L('전문 재활을 지원한다', 'Pay for specialist rehab'), bond: 4, memo: M('다쳤을 때 재활을 지원함', 'Paid for his rehab when he was injured'), cost: d => d.cost,
-        run: (c, p) => ((state.world.form[c.s] = Math.max(state.world.form[c.s], 5)), addSat(c, 6), L(`${p.name} 재활 지원: 폼 회복, 만족 +6`, `${p.name}'s rehab is funded: form restored, morale +6`)) },
-      { label: () => L('구단 의료진에 맡긴다', 'Leave it to the club medics'), bond: -2, memo: M('다쳤을 때 구단에만 맡김', 'Left his injury entirely to the club'),
-        run: (c, p) => ((state.world.form[c.s] = Math.max(1, state.world.form[c.s] - 3)), addSat(c, -3), L(`${p.name} 회복이 더딥니다 (폼 -3, 만족 -3).`, `${p.name} is recovering slowly (form -3, morale -3).`)) }
+      { label: (p, d) => L(`전문 재활을 지원한다${d.wk ? ` (복귀 ${Math.ceil(d.wk / 2)}주 앞당김)` : ''}`, `Pay for specialist rehab${d.wk ? ` (back ${pl(Math.ceil(d.wk / 2), 'week')} sooner)` : ''}`),
+        bond: 4, memo: M('다쳤을 때 재활을 지원함', 'Paid for his rehab when he was injured'), cost: d => d.cost,
+        run: (c, p, d) => {
+          const back = d.wk ? Math.ceil(d.wk / 2) : 0;
+          if (c.out && c.out.k === 'inj') c.out.w = Math.max(absWeek(), c.out.w - back);
+          state.world.form[c.s] = Math.max(state.world.form[c.s], 5);
+          addSat(c, 6);
+          return back ? L(`${p.name} 재활 지원: 복귀 ${back}주 앞당김, 폼 회복, 만족 +6`, `${p.name}'s rehab is funded: back ${pl(back, 'week')} sooner, form restored, morale +6`)
+            : L(`${p.name} 재활 지원: 폼 회복, 만족 +6`, `${p.name}'s rehab is funded: form restored, morale +6`);
+        } },
+      { label: (p, d) => L(`구단 의료진에 맡긴다${d.wk ? ' (복귀 1주 늦어짐)' : ''}`, `Leave it to the club medics${d.wk ? ' (back a week later)' : ''}`), bond: -2, memo: M('다쳤을 때 구단에만 맡김', 'Left his injury entirely to the club'),
+        run: (c, p, d) => {
+          if (c.out && c.out.k === 'inj' && d.wk) c.out.w += 1;
+          state.world.form[c.s] = Math.max(1, state.world.form[c.s] - 3);
+          addSat(c, -3);
+          return L(`${p.name} 회복이 더딥니다 (폼 -3, 만족 -3).`, `${p.name} is recovering slowly (form -3, morale -3).`);
+        } }
     ],
     def: 1
   },
@@ -2102,8 +2532,14 @@ const EVENT_TYPES = {
       SAY('돌아오면 두 배로 뛸게요. 약속해요.', 'When I\'m back I\'ll work twice as hard. I promise.')
     ], 1),
     options: [
-      { label: () => L('휴가를 허락한다', 'Let him go'), bond: 5, memo: M('가족 일에 휴가를 허락함', 'Let him take time off for his family'),
-        run: (c, p) => ((state.world.form[c.s] = Math.max(1, state.world.form[c.s] - 1)), addSat(c, 8), L(`${p.name} 휴가 허락 (폼 -1, 만족 +8).`, `${p.name} goes home for a few days (form -1, morale +8).`)) },
+      // 13단계: 허락하면 이번 주 경기에 빠짐 (선수의 말처럼)
+      { label: () => L('휴가를 허락한다 (이번 주 경기 결장)', "Let him go (misses this week's games)"), bond: 5, memo: M('가족 일에 휴가를 허락함', 'Let him take time off for his family'),
+        run: (c, p) => {
+          if (!c.out) c.out = { w: absWeek() + 1, k: 'fam' };
+          state.world.form[c.s] = Math.max(1, state.world.form[c.s] - 1);
+          addSat(c, 8);
+          return L(`${p.name} 휴가 허락: 이번 주 경기에 빠집니다 (폼 -1, 만족 +8).`, `${p.name} goes home for a few days and misses this week's games (form -1, morale +8).`);
+        } },
       { label: () => L('거절한다', 'Say no'), bond: -5, memo: M('가족 일에 휴가를 거절함', 'Refused him time off for his family'),
         run: (c, p) => (addSat(c, -6), L(`${p.name} 선수가 서운해합니다 (만족 -6).`, `${p.name} feels let down (morale -6).`)) }
     ],
@@ -2355,36 +2791,44 @@ function resolveEvent(id, index, auto = false) {
   return opt.go ? (opt.go === true ? ev.s : ev.d[opt.go]) : null;
 }
 
-// 소속 선수 한 주 경기: 이번 주 경기와 A매치를 기록하고 요약 문구를 돌려줌
-function playClientWeek(c, p, week) {
-  const g = weekGames(p.club, state.season, week);
+// 경기 결과 한 마디 (구단 입장): "2-1 승", "1-1 무(승부차기 승)" / "W 2-1", "D 1-1, won on pens"
+function resultWord(res) {
+  const score = `${res.f}-${res.a}`;
+  if (res.f !== res.a) return res.f > res.a ? L(`${score} 승`, `W ${score}`) : L(`${score} 패`, `L ${score}`);
+  if (res.pk) return res.pk === 1 ? L(`${score} 무(승부차기 승)`, `D ${score}, won on pens`) : L(`${score} 무(승부차기 패)`, `D ${score}, lost on pens`);
+  return L(`${score} 무`, `D ${score}`);
+}
+const COMP_SHORT = { L: ['리그', 'league'], C: ['컵', 'cup'], K: ['대륙', 'continental'] };
+
+// 소속 선수 한 주 경기: 구단 경기 결과에 맞춰 출전·골·평점을 기록하고 요약 문구를 돌려줌
+// "김민수 7.4(1골) [리그 2-1 승 · 컵 1-1 무(승부차기 승)]". away = 부상('inj')·휴가('fam')면 경기도 A매치도 없이 그 사실만. 무소속이면 구단 경기 없음
+function playClientWeek(c, p, week, away) {
+  if (away) return away === 'inj' ? L(`${p.name} 부상으로 결장`, `${p.name} out injured`) : L(`${p.name} 휴가로 결장`, `${p.name} away on leave`);
+  const results = isFreeAgent(c) ? [] : weekResults(p.club, week);
   const level = clubLevel(p.club);
   const form = state.world.form[c.s];
   let games = 0;
   let played = 0;
   let sum = 0;
   let goals = 0;
-  const run = (key, n, lv, hard) => {
-    for (let i = 0; i < n; i++) {
-      games += 1;
-      const m = playMatch(p, lv, form, Math.random, hard);
-      addMatch(c.st[key], m);
-      if (m) {
-        played += 1;
-        sum += m.rating;
-        goals += m.goals;
-      }
+  const play = (key, lv, hard, res) => {
+    games += 1;
+    const m = playMatch(p, lv, form, Math.random, hard, res);
+    addMatch(c.st[key], m);
+    if (m) {
+      played += 1;
+      sum += m.rating;
+      goals += m.goals;
     }
   };
-  run('L', g.L, level, false);
-  run('C', g.C, level, false);
-  run('K', g.K, level, true);
+  for (const res of results) play(res.key, level, res.key === 'K', res);
   if (games) c.playRate = c.playRate * 0.75 + (played / games) * 0.25;
   let call = '';
   if (NT_WEEKS.includes(week) && isNationalPick(p)) {
     const first = !c.capped;
     c.capped = true;
-    run('N', 2, natCutOf(p) + 2, true);
+    play('N', natCutOf(p) + 2, true);
+    play('N', natCutOf(p) + 2, true);
     addSat(c, first ? 6 : 3);
     if (first) {
       addBond(c, 5, MEMO.firstCap);
@@ -2396,7 +2840,11 @@ function playClientWeek(c, p, week) {
   }
   if (!games && !call) return '';
   const goalText = goals ? L(`(${goals}골)`, ` (${pl(goals, 'goal')})`) : '';
-  return `${p.name} ${played ? `${(sum / played).toFixed(1)}${goalText}` : games ? L('결장', "didn't play") : ''}${call}`;
+  const team = Object.entries(COMP_SHORT).map(([key, name]) => {
+    const list = results.filter(r => r.key === key);
+    return list.length ? `${L(...name)} ${list.map(resultWord).join(', ')}` : '';
+  }).filter(Boolean);
+  return `${p.name} ${played ? `${(sum / played).toFixed(1)}${goalText}` : games ? L('결장', "didn't play") : ''}${team.length ? ` [${team.join(' · ')}]` : ''}${call}`;
 }
 
 // 주말 처리: 경기, 만족도 변화(성향 반영), 무소속 전환, 이탈, 답 없는 소식 정리, 새 소식
@@ -2408,9 +2856,15 @@ function weeklyClients() {
   for (const c of [...state.clients]) {
     const p = getPlayer(c.s);
     const pref = prefsOf(p);
+    // 13단계: 부상·휴가(c.out = { w: 다시 뛸 수 있는 절대 주차, k: 'inj'·'fam' }) 중에는 그 주 경기에 못 나감
+    const away = c.out && now - 1 < c.out.w ? c.out.k : '';
     if (week >= 1) {
-      const line = playClientWeek(c, p, week);
+      const line = playClientWeek(c, p, week, away);
       if (line) lines.push(line);
+    }
+    if (c.out && c.out.w <= now) {
+      if (c.out.k === 'inj') addLog(L(`${p.name} 선수가 부상에서 회복했습니다. 이번 주부터 다시 뛸 수 있습니다.`, `${p.name} has recovered from injury and is available again this week.`));
+      c.out = null;
     }
     const left = c.end - now;
     let d = -TUNE.satDecay;
@@ -2806,6 +3260,92 @@ function countDeal(p, fee, to) {
   if (fee > state.deals.fee) Object.assign(state.deals, { fee, nm: p.ko, nk: p.nk, to });
 }
 
+// --- 13단계 시즌 고비: 컵 결승(44주)·대륙 대회 결승(45주)·리그 마지막 라운드(46주) 다음 주 ---
+// 5대 리그·내 선수 나라의 우승 소식과, 내 선수 구단의 우승(만족·유대·평판)·승격(만족·유대)·강등(만족 -)
+const clientTag = (c, p) => ({ s: c.s, g: c.g, nm: p.ko, nk: p.nk, my: 1 });
+const clientClubs = () => state.clients.filter(c => !isFreeAgent(c)).map(c => {
+  const p = getPlayer(c.s);
+  return { c, p, club: p.club };
+});
+function celebrate(c, sat, memo, rep) {
+  addSat(c, sat);
+  addBond(c, TUNE.trophyBond, memo);
+  return rep ? gainRep(1) : 0;
+}
+const gainText = (sat, rep, bond = TUNE.trophyBond) => L(`만족 ${sat > 0 ? '+' : ''}${sat}${bond ? `, 유대 +${bond}` : ''}${rep ? `, 평판 +${rep}` : ''}`,
+  `morale ${sat > 0 ? '+' : ''}${sat}${bond ? `, bond +${bond}` : ''}${rep ? `, reputation +${rep}` : ''}`);
+
+function cupFinale() {
+  const mine = clientClubs();
+  for (const country of new Set([...COUNTRIES.slice(0, BIG5), ...mine.map(x => x.club.country)])) {
+    const f = cupOf(country).final;
+    const fan = mine.find(x => x.club.id === f.club);
+    pushNews({ k: 'cup', club: f.club, opp: f.opp, t: CLUBS[f.club].t, tb: CLUBS[f.opp].t, ga: f.f, gb: f.a, pa: f.pf, pb: f.pa, ...(fan ? clientTag(fan.c, fan.p) : {}) });
+  }
+  for (const { c, p, club } of mine) {
+    if (!compRun(club, 'C').won) continue;
+    const rep = celebrate(c, TUNE.cupSat, MEMO.trophy, true);
+    addLog(L(`${p.name} 선수의 소속팀 ${named(club.name, '이', '가')} ${club.country.name} 컵 우승을 차지했습니다 (${gainText(TUNE.cupSat, rep)}).`,
+      `${p.name}'s club ${club.name} have won the ${club.country.name} Cup (${gainText(TUNE.cupSat, rep)}).`));
+  }
+}
+
+function contFinale() {
+  const mine = clientClubs();
+  // 결승 소식: 지역 최상위 대회가 뉴스 맨 위에 오게 거꾸로 넣음 (유럽은 세 대회)
+  const items = [];
+  for (const group of CONT_GROUPS) {
+    contOf(group).finals.forEach((f, ci) => {
+      if (!f) return;
+      const fan = mine.find(x => x.club.id === f.club);
+      items.push({ k: 'cont', club: f.club, opp: f.opp, ci, t: CLUBS[f.club].t, tb: CLUBS[f.opp].t, ga: f.f, gb: f.a, pa: f.pf, pb: f.pa, ...(fan ? clientTag(fan.c, fan.p) : {}) });
+    });
+  }
+  items.reverse().forEach(pushNews);
+  for (const { c, p, club } of mine) {
+    if (!compRun(club, 'K').won) continue;
+    const rep = celebrate(c, TUNE.titleSat, MEMO.trophy, true);
+    addLog(L(`${p.name} 선수의 소속팀 ${named(club.name, '이', '가')} ${compName('K', club)} 정상에 올랐습니다 (${gainText(TUNE.titleSat, rep)}).`,
+      `${p.name}'s club ${club.name} are ${compName('K', club)} champions (${gainText(TUNE.titleSat, rep)}).`));
+  }
+}
+
+function leagueFinale() {
+  const mine = clientClubs();
+  const shown = new Set();
+  const champ = country => {
+    if (shown.has(country)) return;
+    shown.add(country);
+    const [a, b] = finalTable(country, 0);
+    const fan = mine.find(x => x.club === a.club);
+    pushNews({ k: 'champ', club: a.club.id, t: 0, pts: a.pts, gap: a.pts - b.pts, ...(fan ? clientTag(fan.c, fan.p) : {}) });
+  };
+  COUNTRIES.slice(0, BIG5).forEach(champ);
+  const told = new Set();
+  for (const { c, p, club } of mine) {
+    if (club.t === 0) champ(club.country);
+    const row = tableRow(club, finalTable(club.country, club.t));
+    const zone = zoneOf(club.country, club.t, row.rk);
+    const where = leagueName(club.country, club.t);
+    if (row.rk === 1 && club.t === 0) {
+      const rep = celebrate(c, TUNE.titleSat, MEMO.trophy, true);
+      addLog(L(`${p.name} 선수의 소속팀 ${named(club.name, '이', '가')} ${where} 우승을 차지했습니다 (${gainText(TUNE.titleSat, rep)}).`,
+        `${p.name}'s club ${club.name} are ${where} champions (${gainText(TUNE.titleSat, rep)}).`));
+    } else if (zone === 'up') {
+      const rep = celebrate(c, TUNE.upSat, MEMO.promoted, row.rk === 1); // 아래 부 우승이면 평판도
+      if (!told.has(club)) pushNews({ k: 'up', club: club.id, t: club.t, rk: row.rk, ...clientTag(c, p) });
+      addLog(L(`${p.name} 선수의 소속팀 ${named(club.name, '이', '가')} ${where} ${row.rk === 1 ? '우승으로' : `${row.rk}위로`} 승격을 확정했습니다. 다음 시즌은 ${club.t}부에서 뜁니다 (${gainText(TUNE.upSat, rep)}).`,
+        `${p.name}'s club ${club.name} ${row.rk === 1 ? 'won' : `finished ${ordinal(row.rk)} in`} ${where} and are promoted to Div. ${club.t} (${gainText(TUNE.upSat, rep)}).`));
+    } else if (zone === 'down') {
+      addSat(c, -TUNE.downSat);
+      if (!told.has(club)) pushNews({ k: 'down', club: club.id, t: club.t, rk: row.rk, ...clientTag(c, p) });
+      addLog(L(`${p.name} 선수의 소속팀 ${named(club.name, '이', '가')} ${where} ${row.rk}위로 강등됐습니다. 다음 시즌은 ${club.t + 2}부에서 뜁니다 (만족 -${TUNE.downSat}).`,
+        `${p.name}'s club ${club.name} finished ${ordinal(row.rk)} in ${where} and are relegated to Div. ${club.t + 2} (morale -${TUNE.downSat}).`));
+    }
+    told.add(club);
+  }
+}
+
 // 내 선수 추천: 보강이 필요한 구단에, 그 포지션의 내 선수를 1 AP로 추천. 마감까지 그 선수 제안이 잦아지고 그 구단에서 올 가능성이 높음
 // pitchFit = 이 선수가 이 구단에 맞는지 (빈 문자열이면 맞음), pitchBlock = 지금 추천할 수 있는지 (AP·이미 추천함까지)
 function pitchFit(c, need) {
@@ -2936,7 +3476,7 @@ function serialize() {
 function deserialize(text) {
   const d = JSON.parse(text);
   const int = v => Number.isInteger(v);
-  if (!d || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, SAVE_VERSION].includes(d.version)) throw new Error(L('지원하지 않는 버전입니다', 'unsupported save version'));
+  if (!d || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, SAVE_VERSION].includes(d.version)) throw new Error(L('지원하지 않는 버전입니다', 'unsupported save version'));
   // v10까지는 12단계 전 세계(선수 48,048명), v11부터는 지금 세계
   const oldWorld = d.version < 11;
   if (d.slots !== (oldWorld ? OLD_SLOTS : SLOTS)) throw new Error(L('세계 구성이 다른 세이브입니다', 'this save is from a different world'));
@@ -2963,7 +3503,7 @@ function deserialize(text) {
   const intOr = (v, fallback) => (int(v) ? v : fallback);
   // 기록 한 구간: { season, club, L/C/K/N: [출전, 골, 도움, 평점합×10] }
   const cleanStint = st => (st && int(st.season) && int(st.club) && st.club >= 0 && st.club < CLUBS.length && COMPS.every(k => Array.isArray(st[k]) && st[k].length === 4 && st[k].every(n => int(n) && n >= 0))
-    ? { season: st.season, club: st.club, ...Object.fromEntries(COMPS.map(k => [k, st[k].slice()])) } : null);
+    ? { season: st.season, club: st.club, ...(int(st.t) && st.t >= 0 && st.t < 6 ? { t: st.t } : {}), ...Object.fromEntries(COMPS.map(k => [k, st[k].slice()])) } : null);
   const natCut = {};
   if (d.natCut && typeof d.natCut === 'object') for (const [id, v] of Object.entries(d.natCut)) if (COUNTRY_BY_ID[id] && int(v)) natCut[id] = v;
   const stats = newCareerStats();
@@ -2988,8 +3528,11 @@ function deserialize(text) {
   // 10단계 세계 뉴스: 아는 종류만, 구단·슬롯 번호가 맞는 것만. 보강 필요는 v9까지 없음(null = 불러온 뒤 다시 계산)
   const clubOk = v => int(v) && v >= 0 && v < CLUBS.length;
   const NEWS_KINDS = { need: n => clubOk(n.club) && STARTERS[n.pos], sign: n => clubOk(n.from) && clubOk(n.to) && int(n.s), mine: n => clubOk(n.from) && clubOk(n.to) && int(n.s),
-    close: n => int(n.win) && WINDOWS[n.win], call: n => int(n.s) && COUNTRY_BY_ID[n.nat] };
-  const NEWS_NUMS = ['w', 'club', 'gap', 'avg', 's', 'g', 'from', 'to', 'fee', 'age', 'ab', 'win', 'n'];
+    close: n => int(n.win) && WINDOWS[n.win], call: n => int(n.s) && COUNTRY_BY_ID[n.nat],
+    // 13단계: 리그 우승, 내 선수 구단 승격·강등, 컵·대륙 대회 결승
+    champ: n => clubOk(n.club) && int(n.pts), up: n => clubOk(n.club) && int(n.t) && int(n.rk), down: n => clubOk(n.club) && int(n.t) && int(n.rk),
+    cup: n => clubOk(n.club) && clubOk(n.opp) && int(n.ga) && int(n.gb), cont: n => clubOk(n.club) && clubOk(n.opp) && int(n.ga) && int(n.gb) && (n.ci === undefined || (int(n.ci) && n.ci >= 0 && n.ci <= CONT_LOWER.length)) };
+  const NEWS_NUMS = ['w', 'club', 'gap', 'avg', 's', 'g', 'from', 'to', 'fee', 'age', 'ab', 'win', 'n', 'opp', 'ga', 'gb', 'pa', 'pb', 'pts', 't', 'tb', 'rk', 'my', 'ci'];
   const news = (Array.isArray(d.news) ? d.news : []).filter(n => n && int(n.w) && NEWS_KINDS[n.k] && NEWS_KINDS[n.k](n)).slice(0, TUNE.newsMax).map(n => {
     const out = { k: n.k, nm: typeof n.nm === 'string' ? n.nm.slice(0, 30) : '', nk: nkOk(n.nk) };
     for (const key of NEWS_NUMS) if (Number.isFinite(n[key])) out[key] = n[key];
@@ -3001,11 +3544,17 @@ function deserialize(text) {
   const needs = Array.isArray(d.needs) ? d.needs.filter(n => n && clubOk(n.club) && STARTERS[n.pos] && int(n.until)).slice(0, TUNE.needMax)
     .map(n => ({ club: n.club, pos: n.pos, gap: int(n.gap) ? n.gap : 0, avg: int(n.avg) ? n.avg : 0, until: n.until })) : null;
   const deals = d.deals && int(d.deals.n) ? { n: d.deals.n, fee: Number.isFinite(d.deals.fee) ? d.deals.fee : 0, nm: typeof d.deals.nm === 'string' ? d.deals.nm.slice(0, 30) : '', nk: nkOk(d.deals.nk), to: clubOk(d.deals.to) ? d.deals.to : -1 } : newDeals();
+  // 13단계: 부 배치(구단마다 0~5 한 글자, 부마다 팀 수가 맞아야 함)와 대륙 대회 참가 구단(1부 구단만, 중복 없이).
+  // 없거나(예전 세이브) 맞지 않으면 처음 배치와 1부 전력 순 (불러온 뒤 applyTiers에서 채움)
+  const tiersOk = typeof d.tierOf === 'string' && d.tierOf.length === CLUBS.length && /^[0-5]+$/.test(d.tierOf)
+    && COUNTRIES.every(country => country.tiers.every((n, t) => country.all.filter(c => d.tierOf.charCodeAt(c.id) - 48 === t).length === n));
+  const tierOf = tiersOk ? d.tierOf : START_TIERS;
+  const cont = tiersOk && Array.isArray(d.cont) && d.cont.length <= 400 && new Set(d.cont).size === d.cont.length && d.cont.every(id => clubOk(id) && tierOf[id] === '0') ? d.cont.slice() : null;
   // 알려진 필드만 옮김 (모르는 값이 상태에 섞이지 않게)
   return {
     version: SAVE_VERSION, seed: d.seed, season: d.season, week: d.week,
     // 세계 규칙(12단계): 예전 세이브는 1(기존 구단 선수를 예전 규칙으로 만듦), 새 게임은 2
-    wv: oldWorld ? 1 : d.wv === 1 ? 1 : 2,
+    wv: oldWorld ? 1 : d.wv === 1 ? 1 : 2, tierOf, cont,
     agencyCash: d.agencyCash, rep: clamp(Math.round(d.rep), 0, 100),
     ap: int(d.ap) ? clamp(d.ap, 0, d.founded === false ? TUNE.soloAp : TUNE.ap) : d.founded === false ? TUNE.soloAp : TUNE.ap,
     debtWeeks: int(d.debtWeeks) ? clamp(d.debtWeeks, 0, DEBT_LIMIT) : 0,
@@ -3026,21 +3575,25 @@ function deserialize(text) {
       // 9단계: 이적 요청을 받아 새 구단을 알아보는 마감 주 (v8까지는 없음 = 0)
       hunt: int(c.hunt) && c.hunt > 0 ? c.hunt : 0,
       // 10단계: 추천해 둔 구단 (v9까지는 없음)
-      pitch: c.pitch && int(c.pitch.club) && c.pitch.club >= 0 && c.pitch.club < CLUBS.length && int(c.pitch.until) ? { club: c.pitch.club, until: c.pitch.until } : null
+      pitch: c.pitch && int(c.pitch.club) && c.pitch.club >= 0 && c.pitch.club < CLUBS.length && int(c.pitch.until) ? { club: c.pitch.club, until: c.pitch.until } : null,
+      // 13단계: 부상·휴가 (다시 뛸 수 있는 절대 주차)
+      out: c.out && int(c.out.w) && (c.out.k === 'inj' || c.out.k === 'fam') ? { w: c.out.w, k: c.out.k } : null
     })),
     cooldowns, logs: d.logs.map(String).slice(0, 80), summary, moved, events, nextEventId,
-    natCut: Object.keys(natCut).length ? natCut : null, stats, ui: cleanUi(d.ui), world
+    natCut: Object.keys(natCut).length ? natCut : null, stats, ui: cleanUi(d.ui, tierOf), world
   };
 }
 
 // 화면 위치 값 검사: 범위를 벗어나면 그 단계부터 기본값
-function cleanUi(raw) {
+// tierOf = 불러오는 세이브의 부 배치 (없으면 지금 배치)
+function cleanUi(raw, tierOf) {
   const u = raw && typeof raw === 'object' ? raw : {};
   const index = (v, n) => (Number.isInteger(v) && v >= 0 && v < n ? v : null);
   const tab = ['clients', 'world', 'agency', 'log', 'news'].includes(u.tab) ? u.tab : 'clients';
   const country = index(u.country, COUNTRIES.length);
   const tier = country === null ? null : index(u.tier, COUNTRIES[country].tiers.length);
-  const club = tier === null ? null : COUNTRIES[country].clubs[tier].some(c => c.id === u.club) ? u.club : null;
+  const tierAt = id => (tierOf ? tierOf.charCodeAt(id) - 48 : CLUBS[id].t);
+  const club = tier !== null && Number.isInteger(u.club) && CLUBS[u.club] && CLUBS[u.club].country.i === country && tierAt(u.club) === tier ? u.club : null;
   return { tab, country, tier, club, player: index(u.player, SLOTS) };
 }
 
@@ -3073,7 +3626,7 @@ function fillWages() {
   for (const c of state.clients) {
     const p = getPlayer(c.s);
     if (c.wage === null) c.wage = weeklyWage(p.ability);
-    if (!c.st) c.st = newStint(p.club, worldStats(p, state.season, state.week));
+    if (!c.st) c.st = newStint(p.club, worldStats(p, state.week));
     if (c.since === null) c.since = Math.min(absWeek(), (Math.min(c.st.season, ...c.hist.map(h => h.season)) - 1) * WEEKS + 1);
   }
 }
@@ -3097,6 +3650,7 @@ function loadState() {
   if (!raw) return 'none';
   try {
     state = deserialize(raw);
+    applyTiers();
     fillWages();
     return 'ok';
   } catch (e) {
@@ -3135,10 +3689,12 @@ function importSave(file) {
     const previous = state;
     try {
       state = deserialize(String(reader.result));
+      applyTiers();
       fillWages();
       render();
     } catch (e) {
       state = previous;
+      applyTiers();
       render();
       toast(L(`불러오지 못했습니다: ${e.message}`, `Couldn't load the file: ${e.message}`));
       return;
@@ -3320,15 +3876,26 @@ function clientCard(c) {
   const top = el('span', 'card-top');
   top.append(posTag(p.pos), el('strong', 'name', p.name));
   if (isNationalPick(p)) top.append(el('span', 'badge mine', L('국가대표', 'International')));
+  const out = outText(c);
+  if (out) top.append(el('span', c.out.k === 'inj' ? 'badge bad' : 'badge warn', out));
   top.append(el('span', 'abil', String(p.ability)));
   const stats = el('span', 'stats');
   stats.append(stat(L('잠재력', 'Potential'), potText(p)), stat(L('폼', 'Form'), formNode(p)), stat(L('몸값', 'Value'), money(valueOf(p))), stat(L('계약 만료', 'Contract'), contractNode(c.end)));
   const foot = el('span', 'card-foot');
   foot.append(satNode(c), ' · ', bondNode(c), isFreeAgent(c) ? L(' · 무소속: 수수료 없음', ' · Free agent: no commission') : L(` · 주급 ${cash(c.wage)} · 내 수수료 주 ${cash(commissionOf(c.wage))}`, ` · wage ${cash(c.wage)} · your cut ${cash(commissionOf(c.wage))}/wk`));
-  card.append(top, el('span', 'meta', `${L(`${ageOf(p)}세`, `${ageOf(p)}`)} · ${p.nat.name} · ${p.club.name} · ${leagueName(p.club.country, p.club.t)}`),
+  card.append(top, el('span', 'meta', `${L(`${ageOf(p)}세`, `${ageOf(p)}`)} · ${p.nat.name} · ${clubLine(c, p)}`),
     abilityBar(p.ability), stats, el('span', 'card-line', statLine(c.st)), foot);
   return card;
 }
+
+// 13단계: 소속 구단 한 줄 "런던 크라운 · 잉글랜드 1부 3위" (무소속이면 "무소속 (전 소속 런던 크라운)")
+function clubLine(c, p) {
+  if (c && isFreeAgent(c)) return L(`무소속 (전 소속 ${p.club.name})`, `Free agent (last club ${p.club.name})`);
+  const rank = rankText(p.club);
+  return `${p.club.name} · ${leagueName(p.club.country, p.club.t)}${rank ? L(` ${rank}`, ` · ${rank}`) : ''}`;
+}
+// 부상·휴가 표시: "부상 3주" / "휴가" (끝났으면 빈 문자열)
+const outText = c => (c.out && c.out.w > absWeek() ? (c.out.k === 'inj' ? L(`부상 ${c.out.w - absWeek()}주`, `Injured ${c.out.w - absWeek()}w`) : L('휴가', 'On leave')) : '');
 
 // 선수 입장 점검표: ✓/✗ 줄과 한 줄 결론
 function checkList(checks, score, extra) {
@@ -3433,7 +4000,8 @@ function marketLine() {
 }
 
 // --- 세계 뉴스 화면 (10단계): 저장된 뉴스 데이터로 문장을 만듦. 같은 종류도 뉴스마다 정해진 여러 문장 중 하나 ---
-const NEWS_TAG = { need: ['보강 필요', 'Needs'], sign: ['영입', 'Signing'], mine: ['내 선수 이적', 'Your player'], close: ['이적 시장 결산', 'Window closed'], call: ['국가대표', 'Call-up'] };
+const NEWS_TAG = { need: ['보강 필요', 'Needs'], sign: ['영입', 'Signing'], mine: ['내 선수 이적', 'Your player'], close: ['이적 시장 결산', 'Window closed'], call: ['국가대표', 'Call-up'],
+  champ: ['리그 우승', 'Champions'], up: ['승격', 'Promoted'], down: ['강등', 'Relegated'], cup: ['컵 우승', 'Cup winners'], cont: ['대륙 대회 우승', 'Continental champions'] };
 // 저장해 둔 선수 이름: 이름 키가 있으면 지금 언어로, 없으면(예전 세이브) 저장한 이름 그대로
 const storedName = (nm, nk) => (nk && nameFromKey(nk)) || nm;
 // 뉴스 속 선수 이름: 지금도 같은 선수면 지금 이름, 은퇴해 슬롯 주인이 바뀌었으면 저장해 둔 이름
@@ -3479,6 +4047,50 @@ const NEWS_LINES = {
   call: [
     (nat, name) => L(`${nat.ko} 국가대표 명단이 발표됐습니다. 내 선수 ${named(name, '이', '가')} 처음으로 이름을 올렸습니다.`, `The ${nat.en} squad has been announced, and your player ${name} is in it for the first time.`),
     (nat, name) => L(`${name}, 생애 첫 ${nat.ko} 국가대표 발탁. 감독은 "꾸준함을 높이 샀다"고 말했습니다.`, `${name} earns his first ${nat.en} call-up. The coach praised his "consistency".`)
+  ],
+  // 13단계: 리그 우승 (1부). 내 선수 구단이면 선수 이름을 넣은 문장
+  champ: [
+    (id, n) => (n.gap ? L(`${named(clubKo(id), '이', '가')} 리그 우승을 차지했습니다. 승점 ${n.pts}점으로 2위와 ${n.gap}점 차입니다.`, `${clubEn(id)} have won the league on ${n.pts} points, ${n.gap} clear of second place.`)
+      : L(`${named(clubKo(id), '이', '가')} 2위와 승점이 같았지만 골 득실에서 앞서 리그 우승을 차지했습니다 (승점 ${n.pts}).`, `${clubEn(id)} have won the league on goal difference after finishing level with second place on ${n.pts} points.`)),
+    (id, n) => L(`${clubKo(id)}, 리그 정상에 올랐습니다. 마지막 라운드가 끝나고 우승 트로피를 들어 올렸습니다 (승점 ${n.pts}).`, `${clubEn(id)} are the champions. They lifted the trophy after the final round (${n.pts} points).`),
+    (id, n) => L(`이번 시즌 ${CLUBS[id].country.ko} 1부 챔피언은 ${CLUBS[id].ko}입니다. 승점 ${n.pts}점으로 시즌을 마쳤습니다.`, `This season's ${CLUBS[id].country.en} champions are ${CLUBS[id].en}, who finished on ${n.pts} points.`)
+  ],
+  champMine: [
+    (id, n, name) => L(`내 선수 ${name}의 소속팀 ${named(clubKo(id), '이', '가')} 리그 우승을 차지했습니다! 승점 ${n.pts}점입니다.`, `Your player ${name}'s club ${clubEn(id)} have won the league with ${n.pts} points!`),
+    (id, n, name) => L(`${name}, 리그 챔피언! ${named(CLUBS[id].ko, '이', '가')} 승점 ${n.pts}점으로 ${CLUBS[id].country.ko} 1부 정상에 올랐습니다.`, `${name} is a league champion! ${CLUBS[id].en} finished top of the ${CLUBS[id].country.en} top flight on ${n.pts} points.`)
+  ],
+  // 내 선수 구단의 승격·강등 (n.t = 그 시즌 부, n.rk = 마지막 순위)
+  up: [
+    (id, n, name) => L(`내 선수 ${name}의 소속팀 ${named(CLUBS[id].ko, '이', '가')} ${CLUBS[id].country.ko} ${n.t + 1}부 ${n.rk === 1 ? '우승으로' : `${n.rk}위로`} ${n.t}부 승격을 확정했습니다.`,
+      `Your player ${name}'s club ${CLUBS[id].en} ${n.rk === 1 ? 'won' : `finished ${ordinal(n.rk)} in`} ${CLUBS[id].country.en} Div. ${n.t + 1} and are promoted to Div. ${n.t}.`),
+    (id, n, name) => L(`${named(CLUBS[id].ko, '이', '가')} 승격합니다. 내 선수 ${name}도 다음 시즌 ${CLUBS[id].country.ko} ${n.t}부 무대에 섭니다.`, `${CLUBS[id].en} are going up. Your player ${name} will play in ${CLUBS[id].country.en} Div. ${n.t} next season.`)
+  ],
+  down: [
+    (id, n, name) => L(`${named(CLUBS[id].ko, '이', '가')} ${CLUBS[id].country.ko} ${n.t + 1}부 ${n.rk}위로 강등됐습니다. 내 선수 ${name}의 다음 시즌 무대는 ${n.t + 2}부입니다.`,
+      `${CLUBS[id].en} finished ${ordinal(n.rk)} and are relegated from ${CLUBS[id].country.en} Div. ${n.t + 1}. Your player ${name} faces Div. ${n.t + 2} football next season.`),
+    (id, n, name) => L(`${named(CLUBS[id].ko, '이', '가')} 끝내 강등을 피하지 못했습니다. 내 선수 ${named(name, '은', '는')} 고개를 숙인 채 경기장을 떠났습니다.`, `${CLUBS[id].en} couldn't escape the drop. Your player ${name} left the pitch with his head bowed.`)
+  ],
+  // 컵·대륙 대회 결승 (n.t·n.tb = 그때 두 구단의 부, 점수는 우승팀 기준, 비기면 승부차기 n.pa-n.pb)
+  cup: [
+    (id, n, name, a, b, sc) => (n.pa || n.pb ? L(`${CLUBS[id].country.ko} 컵 결승: ${named(a.ko, '이', '가')} ${named(b.ko, '과', '와')} ${n.ga}-${n.gb}로 비긴 뒤 승부차기 ${n.pa}-${n.pb}로 우승했습니다.`, `${CLUBS[id].country.en} Cup final: ${a.en} drew ${n.ga}-${n.gb} with ${b.en}, then won ${n.pa}-${n.pb} on penalties.`)
+      : L(`${CLUBS[id].country.ko} 컵 결승: ${named(a.ko, '이', '가')} ${named(b.ko, '을', '를')} ${named(sc, '으로')} 꺾고 우승했습니다.`, `${CLUBS[id].country.en} Cup final: ${a.en} beat ${b.en} ${sc}.`)),
+    (id, n, name, a, b, sc) => (n.t > n.tb || n.t > 0 ? L(`이변입니다. ${CLUBS[id].country.ko} ${n.t + 1}부 ${named(CLUBS[id].ko, '이', '가')} 컵 결승에서 ${named(b.ko, '을', '를')} 꺾고 우승했습니다 (${sc}${n.pa || n.pb ? `, 승부차기 ${n.pa}-${n.pb}` : ''}).`,
+      `Upset! ${CLUBS[id].country.en} Div. ${n.t + 1} side ${CLUBS[id].en} have won the Cup, beating ${b.en} in the final (${sc}${n.pa || n.pb ? `, ${n.pa}-${n.pb} on penalties` : ''}).`)
+      : L(`${named(a.ko, '이', '가')} ${CLUBS[id].country.ko} 컵을 들어 올렸습니다. 결승 상대 ${b.ko}, 점수 ${sc}${n.pa || n.pb ? `(승부차기 ${n.pa}-${n.pb})` : ''}.`, `${a.en} have lifted the ${CLUBS[id].country.en} Cup, beating ${b.en} ${sc} in the final${n.pa || n.pb ? ` (${n.pa}-${n.pb} on penalties)` : ''}.`))
+  ],
+  cupMine: [
+    (id, n, name, a, b, sc) => L(`내 선수 ${name}의 소속팀 ${named(CLUBS[id].ko, '이', '가')} ${CLUBS[id].country.ko} 컵 정상에 올랐습니다. 결승에서 ${b.ko}에 ${sc}${n.pa || n.pb ? `(승부차기 ${n.pa}-${n.pb})` : ''} 승리.`,
+      `Your player ${name}'s club ${CLUBS[id].en} have won the ${CLUBS[id].country.en} Cup, beating ${b.en} ${sc} in the final${n.pa || n.pb ? ` (${n.pa}-${n.pb} on penalties)` : ''}.`)
+  ],
+  cont: [
+    (id, n, name, a, b, sc, comp) => (n.pa || n.pb ? L(`${comp[0]} 결승: ${named(a.ko, '이', '가')} ${named(b.ko, '과', '와')} ${n.ga}-${n.gb}로 비긴 뒤 승부차기 ${n.pa}-${n.pb}로 대륙 정상에 올랐습니다.`, `${comp[1]} final: ${a.en} drew ${n.ga}-${n.gb} with ${b.en} and won ${n.pa}-${n.pb} on penalties to become continental champions.`)
+      : L(`${comp[0]} 결승: ${named(a.ko, '이', '가')} ${named(b.ko, '을', '를')} ${named(sc, '으로')} 꺾고 대륙 정상에 올랐습니다.`, `${comp[1]} final: ${a.en} beat ${b.en} ${sc} to become continental champions.`)),
+    (id, n, name, a, b, sc, comp) => L(`${named(CLUBS[id].ko, '이', '가')} ${comp[0]} 우승 트로피를 들었습니다. 결승 상대는 ${CLUBS[n.opp].country.ko}의 ${CLUBS[n.opp].ko}, 점수는 ${sc}${n.pa || n.pb ? `(승부차기 ${n.pa}-${n.pb})` : ''}입니다.`,
+      `${CLUBS[id].en} have lifted the ${comp[1]} trophy, beating ${CLUBS[n.opp].en} of ${CLUBS[n.opp].country.en} ${sc} in the final${n.pa || n.pb ? ` (${n.pa}-${n.pb} on penalties)` : ''}.`)
+  ],
+  contMine: [
+    (id, n, name, a, b, sc, comp) => L(`내 선수 ${name}의 소속팀 ${named(CLUBS[id].ko, '이', '가')} ${comp[0]} 정상에 올랐습니다! 결승에서 ${CLUBS[n.opp].ko}에 ${sc}${n.pa || n.pb ? `(승부차기 ${n.pa}-${n.pb})` : ''} 승리.`,
+      `Your player ${name}'s club ${CLUBS[id].en} are ${comp[1]} champions! They beat ${CLUBS[n.opp].en} ${sc} in the final${n.pa || n.pb ? ` (${n.pa}-${n.pb} on penalties)` : ''}.`)
   ]
 };
 
@@ -3491,6 +4103,21 @@ function newsText(n) {
     return { tag: L(...NEWS_TAG[n.k]), text: pick(NEWS_LINES[n.k])(n.to, n.from, newsName(n), n), go };
   }
   if (n.k === 'call') return { tag: L(...NEWS_TAG.call), text: pick(NEWS_LINES.call)(COUNTRY_BY_ID[n.nat], newsName(n)), go: state.world.gen[n.s] === n.g ? ['player', n.s] : null };
+  // 13단계: 우승·승강·결승. my = 내 선수 구단 소식 (선수 이름이 들어간 문장, 누르면 선수 상세)
+  const tag = NEWS_TAG[n.k] ? L(...NEWS_TAG[n.k]) : '';
+  const fan = n.my ? newsName(n) : '';
+  const goFan = n.my && state.world.gen[n.s] === n.g ? ['player', n.s] : ['clubAt', n.club];
+  if (n.k === 'champ') return { tag, text: n.my ? pick(NEWS_LINES.champMine)(n.club, n, fan) : pick(NEWS_LINES.champ)(n.club, n), go: goFan };
+  if (n.k === 'up' || n.k === 'down') return { tag, text: pick(NEWS_LINES[n.k])(n.club, n, fan), go: goFan };
+  if (n.k === 'cup' || n.k === 'cont') {
+    // 컵은 부를, 대륙 대회는 나라를 구단 이름에 붙임 ("3부 요크 시티", "스페인의 마드리드 레알레스")
+    const label = (id, t) => (n.k === 'cup' ? { ko: `${t + 1}부 ${CLUBS[id].ko}`, en: `${CLUBS[id].en} (Div. ${t + 1})` }
+      : { ko: `${CLUBS[id].country.ko}의 ${CLUBS[id].ko}`, en: `${CLUBS[id].en} (${CLUBS[id].country.en})` });
+    const a = label(n.club, n.t ?? CLUBS[n.club].t);
+    const b = label(n.opp, n.tb ?? CLUBS[n.opp].t);
+    const lines = n.my ? NEWS_LINES[`${n.k}Mine`] : NEWS_LINES[n.k];
+    return { tag, text: pick(lines)(n.club, n, fan, a, b, `${n.ga}-${n.gb}`, contTitle(CLUBS[n.club].country.region, n.ci || 0)), go: goFan };
+  }
   const win = WINDOWS[n.win];
   const who = storedName(n.nm, n.nk);
   const top = n.n && n.to >= 0 ? L(` 가장 비싼 이적은 ${named(CLUBS[n.to].ko, '으로')} 간 ${who}(${money(n.fee)})입니다.`, ` The biggest deal took ${who} to ${CLUBS[n.to].en} for ${money(n.fee)}.`) : '';
@@ -3502,7 +4129,7 @@ function newsRow(n) {
   const t = newsText(n);
   const box = el('div', `nitem nitem-${n.k}`);
   const body = t.go ? actButton('nbody', t.go[0], t.go[1]) : el('div', 'nbody');
-  body.append(el('span', `ntag ntag-${n.k}`, t.tag), el('span', 'ntext', t.text), el('small', 'nmeta', weekLabel(n.w)));
+  body.append(el('span', `ntag ntag-${n.k}${n.my ? ' ntag-my' : ''}`, t.tag), el('span', 'ntext', t.text), el('small', 'nmeta', weekLabel(n.w)));
   box.append(body);
   if (n.k === 'need') {
     const need = state.needs.find(x => x.club === n.club && x.pos === n.pos);
@@ -3534,7 +4161,7 @@ function newsBox() {
   if (!state.news.length) return null;
   const chance = n => n.k === 'need' && state.needs.some(x => x.club === n.club && x.pos === n.pos) && state.clients.some(c => !pitchFit(c, n));
   const first = state.news.find(chance);
-  const mine = state.news.filter(n => n !== first && (n.k === 'mine' || n.k === 'call'));
+  const mine = state.news.filter(n => n !== first && (n.k === 'mine' || n.k === 'call' || n.my));
   const rest = state.news.filter(n => n !== first && !mine.includes(n) && !chance(n));
   const top = [first, ...mine, ...rest].filter(Boolean).slice(0, 3);
   const box = el('section', 'panel news-box');
@@ -3631,29 +4258,58 @@ function renderWorld(root) {
     country.clubs.forEach((clubs, t) => {
       const avg = clubs.reduce((n, club) => n + clubAverage(club), 0) / clubs.length;
       const mine = clubs.reduce((n, club) => n + clientCountIn(club), 0);
-      list.append(rowButton('tier', t, leagueName(country, t), L(`${clubs.length}팀 · 평균 능력 ${avg.toFixed(0)}`, `${clubs.length} teams · average ability ${avg.toFixed(0)}`), mine ? MINE(mine) : ''));
+      // 13단계: 선두(리그가 끝났으면 우승) 구단
+      const top = playedRounds(country, t) ? leagueTable(country, t)[0].club.name : '';
+      const lead = top ? (leagueOver() ? L(` · 우승 ${top}`, ` · champions ${top}`) : L(` · 선두 ${top}`, ` · leaders ${top}`)) : '';
+      list.append(rowButton('tier', t, leagueName(country, t), L(`${clubs.length}팀 · 평균 능력 ${avg.toFixed(0)}${lead}`, `${clubs.length} teams · average ability ${avg.toFixed(0)}${lead}`), mine ? MINE(mine) : ''));
     });
     root.append(list);
     return;
   }
-  const clubs = country.clubs[ui.tier];
   if (ui.club === null) {
-    root.append(actButton('back', 'up', undefined, `← ${country.name}`), el('h1', 'title', leagueName(country, ui.tier)), el('p', 'sub', L(`${clubs.length}팀 · 전력 순`, `${clubs.length} teams · by strength`)));
-    const list = el('div', 'list');
-    clubs.forEach((club, i) => {
-      const mine = clientCountIn(club);
-      list.append(rowButton('club', club.id, `${i + 1}. ${club.name}`, L(`평균 능력 ${clubAverage(club).toFixed(0)}`, `Average ability ${clubAverage(club).toFixed(0)}`), mine ? MINE(mine) : ''));
-    });
-    root.append(list);
+    renderTable(root, country, ui.tier);
     return;
   }
   renderClub(root, CLUBS[ui.club]);
 }
 
+// 13단계 순위표: 순위·구단·경기·득실·승점. 줄 왼쪽 색 = 대륙 대회 진출권·승격·강등, 내 선수 구단은 배지
+function renderTable(root, country, t) {
+  const n = country.tiers[t];
+  const played = playedRounds(country, t);
+  const rounds = roundsOf(n);
+  const status = !played ? L('개막 전 · 전력 순', 'Pre-season · by strength') : played >= rounds ? L('최종 순위', 'Final table') : L(`${played}/${rounds}라운드`, `Round ${played} of ${rounds}`);
+  const rules = [t === 0 ? L(`상위 ${contSlots(country)}팀 대륙 대회`, `top ${contSlots(country)} to continental`) : L(`상위 ${moveCount(country, t - 1)}팀 승격`, `top ${moveCount(country, t - 1)} promoted`),
+    t + 1 < country.tiers.length ? L(`하위 ${moveCount(country, t)}팀 강등`, `bottom ${moveCount(country, t)} relegated`) : ''].filter(Boolean).join(' · ');
+  root.append(actButton('back', 'up', undefined, `← ${country.name}`), el('h1', 'title', leagueName(country, t)), el('p', 'sub', `${L(`${n}팀`, `${n} teams`)} · ${status} · ${rules}`));
+  const table = el('div', 'ltable');
+  const head = el('div', 'lt-row lt-head');
+  head.append(el('span', 'lt-rk', '#'), el('span', 'lt-name', L('구단', 'Club')), el('span', 'lt-num', L('경기', 'P')), el('span', 'lt-num', L('득실', 'GD')), el('span', 'lt-pts', L('승점', 'Pts')));
+  table.append(head);
+  for (const row of leagueTable(country, t)) {
+    const zone = played ? zoneOf(country, t, row.rk) : '';
+    const b = actButton(`lt-row${zone ? ` z-${zone}` : ''}`, 'club', row.club.id);
+    const name = el('span', 'lt-name');
+    name.append(el('span', 'lt-club', row.club.name));
+    const mine = clientCountIn(row.club);
+    if (mine) name.append(el('span', 'badge mine', MINE(mine)));
+    b.append(el('span', 'lt-rk', String(row.rk)), name, el('span', 'lt-num', String(row.p)), el('span', 'lt-num', row.gd > 0 ? `+${row.gd}` : String(row.gd)), el('span', 'lt-pts', String(row.pts)));
+    table.append(b);
+  }
+  const legend = el('p', 'lt-legend');
+  for (const [z, ko, en] of [['cont', '대륙 대회', 'Continental'], ['up', '승격', 'Promotion'], ['down', '강등', 'Relegation']]) {
+    if ((z === 'cont' && t === 0) || (z === 'up' && t > 0) || (z === 'down' && t + 1 < country.tiers.length)) legend.append(el('span', `lt-key z-${z}`, L(ko, en)));
+  }
+  root.append(table, legend);
+}
+
 function renderClub(root, club) {
   const slots = clubSlots(club);
+  const level = Math.round(clubLevel(club));
   root.append(actButton('back', 'up', undefined, `← ${leagueName(club.country, club.t)}`), el('h1', 'title', club.name),
-    el('p', 'sub', L(`${leagueName(club.country, club.t)} · 선수 ${slots.length}명 · 평균 능력 ${clubAverage(club).toFixed(0)} · 선수를 누르면 상세`, `${leagueName(club.country, club.t)} · ${slots.length} players · average ability ${clubAverage(club).toFixed(0)} · tap a player for details`)));
+    el('p', 'sub', L(`${leagueName(club.country, club.t)} · 구단 수준 ${level} · 선수 ${slots.length}명 · 평균 능력 ${clubAverage(club).toFixed(0)} · 선수를 누르면 상세`,
+      `${leagueName(club.country, club.t)} · club level ${level} · ${slots.length} players · average ability ${clubAverage(club).toFixed(0)} · tap a player for details`)));
+  root.append(seasonPanel(club));
   const need = state.needs.find(n => n.club === club.id);
   if (need) {
     const box = el('div', 'panel need-panel');
@@ -3669,6 +4325,34 @@ function renderClub(root, club) {
     list.append(playerRow(p, L(`계약 ${weekLabel(client ? client.end : contractEnd(p, now))}`, `contract to ${weekLabel(client ? client.end : contractEnd(p, now))}`)));
   }
   root.append(list);
+}
+
+// 13단계 구단의 이번 시즌: 리그 순위·승점·전적·최근 5경기, 국내 컵·대륙 대회 진행 상황
+function seasonPanel(club) {
+  const box = el('div', 'panel season-panel');
+  box.append(el('strong', '', L(`${state.season}시즌`, `Season ${state.season}`)));
+  const league = leagueName(club.country, club.t);
+  if (!playedRounds(club.country, club.t)) box.append(el('p', 'panel-line', L(`${league} 개막 전`, `${league} hasn't kicked off yet`)));
+  else {
+    const row = tableRow(club);
+    const zone = zoneOf(club.country, club.t, row.rk);
+    const done = leagueOver();
+    const word = done && row.rk === 1 ? L('우승', 'champions') : { cont: done ? L('대륙 대회 진출', 'continental place') : L('대륙 대회 진출권', 'continental place'),
+      up: done ? L('승격', 'promoted') : L('승격권', 'promotion place'), down: done ? L('강등', 'relegated') : L('강등권', 'relegation zone') }[zone];
+    const gd = row.gd > 0 ? `+${row.gd}` : String(row.gd);
+    // 순위 뒤 구역(대륙 대회·승격·강등)만 색으로
+    const line = el('p', 'panel-line', L(`리그 ${done ? '최종 ' : ''}${row.rk}위`, `League: ${done ? 'finished ' : ''}${ordinal(row.rk)}`));
+    if (word) line.append(' ', el('span', zone === 'down' ? 'down' : 'up', `(${word})`));
+    line.append(L(` · 승점 ${row.pts} · ${row.p}경기 ${row.w}승 ${row.d}무 ${row.l}패 · 득실 ${gd}`, ` · ${row.pts} pts · P${row.p} W${row.w} D${row.d} L${row.l} · GD ${gd}`));
+    box.append(line);
+    const guide = el('p', 'form-guide');
+    guide.append(el('span', 'fg-label', L('최근 5경기', 'Last 5')));
+    for (const r of row.last) guide.append(el('span', `fg fg-${r}`, L({ W: '승', D: '무', L: '패' }[r], r)));
+    box.append(guide);
+  }
+  box.append(el('p', 'panel-line', `${compName('C', club)}: ${compStatus(club, 'C')}`));
+  if (inContinental(club)) box.append(el('p', 'panel-line', `${compName('K', club)}: ${compStatus(club, 'K')}`));
+  return box;
 }
 
 // 선수 한 줄 (구단 명단·관심 선수·찾기 결과). 누르면 상세. tail = 줄 끝에 붙는 글
@@ -3724,16 +4408,38 @@ function segButton(act, value, label, on) {
   return b;
 }
 
-// 대회 진행 상태: 지금까지 치른 경기로 판단 (앞으로 결과는 미리 보여 주지 않음)
+// 대회 단계 이름 [한국어, 영어 제목, 영어 문장 속]: 컵 라운드 0~5, 대륙 대회 6~8 = 8강·4강·결승 (0~5는 조별리그)
+const CUP_STAGES = [['1라운드', 'Round 1', 'Round 1'], ['2라운드', 'Round 2', 'Round 2'], ['16강', 'Round of 16', 'the Round of 16'],
+  ['8강', 'Quarter-finals', 'the quarter-finals'], ['4강', 'Semi-finals', 'the semi-finals'], ['결승', 'Final', 'the final']];
+const stageOf = (key, i) => (key === 'K' ? CUP_STAGES[i - 3] : CUP_STAGES[i]);
+
+// 대회 진행 상태: 지금까지 치른 경기로만 판단 (앞으로 결과는 미리 보여 주지 않음)
 function compStatus(club, key) {
-  const run = compRun(club, state.season, key);
-  const weeks = key === 'C' ? CUP_WEEKS : CONT_WEEKS;
   if (key === 'K' && !inContinental(club)) return '';
-  const played = weeks.filter((w, i) => w < state.week && i < run.games).length;
-  if (played < run.games || weeks[run.games - 1] >= state.week) return played ? L(`진행 중 (${played}경기)`, `in progress (${pl(played, 'game')})`) : L('시작 전', 'not started');
+  const run = compRun(club, key);
+  if (!run.mask) return L('참가하지 않음', 'not entered');
+  const weeks = key === 'C' ? CUP_WEEKS : CONT_WEEKS;
+  const mine = weeks.map((w, i) => i).filter(i => (run.mask >> i) & 1);
+  const played = mine.filter(i => weeks[i] < state.week).length;
+  const next = mine.find(i => weeks[i] >= state.week);
+  if (next !== undefined) {
+    if (key === 'K' && next < 6) return played ? L(`조별리그 ${played}경기`, `group stage, ${pl(played, 'game')} played`) : L('조별리그 시작 전', 'group stage to come');
+    const [ko, , enIn] = stageOf(key, next);
+    if (!played) return next === 0 ? L(`${ko} 시작 전`, `${enIn} to come`) : L(`${ko}부터 출전`, `enters in ${enIn}`);
+    if (key === 'K' && next === 6) return L(`조 ${run.gpos + 1}위로 8강 진출`, `through to the quarter-finals (${ordinal(run.gpos + 1)} in group)`);
+    return L(`${ko} 진출`, `through to ${enIn}`);
+  }
   if (run.won) return L('우승', 'Winners');
-  if (key === 'K') return run.games <= 6 ? L('조별리그 탈락', 'out in the group stage') : [L('8강 탈락', 'out in the quarter-finals'), L('4강 탈락', 'out in the semi-finals'), L('결승 패배', 'lost the final')][run.games - 7];
-  return run.games === CUP_WEEKS.length ? L('결승 패배', 'lost the final') : L(`${run.games}라운드 탈락`, `out in round ${run.games}`);
+  const last = mine[mine.length - 1];
+  if (key === 'K' && last < 6) return L(`조별리그 탈락 (조 ${run.gpos + 1}위)`, `out in the group stage (${ordinal(run.gpos + 1)} in group)`);
+  return last === weeks.length - 1 ? L('결승 패배', 'lost the final') : L(`${stageOf(key, last)[0]} 탈락`, `out in ${stageOf(key, last)[2]}`);
+}
+
+// 리그 순위 한 마디: "3위" / "3rd" (리그가 아직 시작 전이면 빈 문자열). final이면 "최종 3위"
+function rankText(club) {
+  if (!playedRounds(club.country, club.t)) return '';
+  const row = tableRow(club);
+  return leagueOver() ? L(`최종 ${row.rk}위`, `finished ${ordinal(row.rk)}`) : L(`${row.rk}위`, ordinal(row.rk));
 }
 
 // 기록 표: 대회별 경기·골·도움·평점
@@ -3744,9 +4450,10 @@ function statsTable(st, club, nat, withStatus) {
   table.append(head);
   for (const key of COMPS) {
     const row = st[key];
-    if (!row[0] && key !== 'L' && !(key === 'K' && inContinental(club))) continue;
+    // 컵은 참가한 시즌이면, 대륙 대회는 참가 구단이면 경기가 없어도 줄을 보여 줌
+    if (!row[0] && key !== 'L' && !(key === 'K' && inContinental(club)) && !(key === 'C' && withStatus && compRun(club, 'C').mask)) continue;
     const tr = el('tr');
-    const status = withStatus && key !== 'L' && key !== 'N' ? compStatus(club, key) : '';
+    const status = !withStatus || key === 'N' ? '' : key === 'L' ? rankText(club) : compStatus(club, key);
     tr.append(el('td', '', compName(key, club, nat) + (status ? ` · ${status}` : '')), el('td', '', String(row[0])), el('td', '', String(row[1])), el('td', '', String(row[2])), el('td', '', avgRating(row)));
     table.append(tr);
   }
@@ -3762,7 +4469,7 @@ function careerTable(hist, nat) {
   for (const st of hist) {
     const club = CLUBS[st.club];
     const tr = el('tr');
-    tr.append(el('td', '', String(st.season)), el('td', '', `${club.name} (${leagueName(club.country, club.t)})`),
+    tr.append(el('td', '', String(st.season)), el('td', '', `${club.name} (${leagueName(club.country, st.t ?? club.t)})`),
       el('td', '', L(`${st.L[0]}경기 ${st.L[1]}골`, `${st.L[0]} apps ${st.L[1]} gls`)), el('td', '', avgRating(st.L)), el('td', '', `${st.K[0]} · ${st.N[0]}`));
     table.append(tr);
   }
@@ -3861,15 +4568,21 @@ function renderPlayer(root, s) {
   const head = el('div', 'detail-head');
   head.append(posTag(p.pos), el('h1', 'title', p.name), el('span', 'abil', String(p.ability)));
   root.append(actButton('back', 'up', undefined, BACK()), head,
-    el('p', 'sub', `${L(`${ageOf(p)}세`, `Age ${ageOf(p)}`)} · ${p.nat.name} · ${p.club.name} · ${leagueName(p.club.country, p.club.t)}`), abilityBar(p.ability));
+    el('p', 'sub', `${L(`${ageOf(p)}세`, `Age ${ageOf(p)}`)} · ${p.nat.name} · ${clubLine(client, p)}`), abilityBar(p.ability));
   const info = el('div', 'stats detail-stats');
+  // 13단계: 구단 수준과 그 구단에서의 출전 확률(폼 보통 기준)을 보여 줌 (출전·재계약·제안이 모두 이 차이로 정해짐)
+  const level = clubLevel(p.club);
   info.append(stat(L('잠재력', 'Potential'), potText(p)), stat(L('폼', 'Form'), formNode(p)), stat(L('지난 시즌 평균 폼', 'Avg form last season'), (state.world.favg[s] / 2).toFixed(1)),
-    stat(L('몸값', 'Value'), money(valueOf(p))), stat(L('주급', 'Wage'), cash(wage)), stat(L('계약 만료', 'Contract'), contractNode(client ? client.end : contractEnd(p, absWeek()))));
+    stat(L('몸값', 'Value'), money(valueOf(p))), stat(L('주급', 'Wage'), cash(wage)), stat(L('계약 만료', 'Contract'), contractNode(client ? client.end : contractEnd(p, absWeek()))),
+    stat(L('구단 수준', 'Club level'), String(Math.round(level))), stat(L('출전 확률', 'Starts'), `${Math.round(startChance(p.ability, level, 5.5) * 100)}%`));
   if (client) info.append(stat(L('만족', 'Morale'), satNode(client)));
   root.append(info);
+  if (client && outText(client)) root.append(el('p', client.out.k === 'inj' ? 'note bad' : 'note', client.out.k === 'inj'
+    ? L(`부상 중입니다. ${client.out.w - absWeek()}주 뒤부터 다시 뛸 수 있습니다.`, `He is injured and can play again in ${pl(client.out.w - absWeek(), 'week')}.`)
+    : L('가족 일로 휴가 중이라 이번 주 경기에 빠집니다.', "He is on family leave and misses this week's games.")));
   if (client) root.append(el('h2', 'section', L('선수와의 관계', 'Your relationship')), bondBlock(client));
 
-  root.append(el('h2', 'section', L(`${state.season}시즌 기록`, `Season ${state.season} stats`)), statsTable(client ? client.st : worldStats(p, state.season, state.week), p.club, p.nat, true),
+  root.append(el('h2', 'section', L(`${state.season}시즌 기록`, `Season ${state.season} stats`)), statsTable(client ? client.st : worldStats(p, state.week), p.club, p.nat, true),
     el('p', isNationalPick(p) ? 'sub up' : 'sub', nationalLine(p)));
   if (client && client.hist.length) root.append(el('h2', 'section', L('지난 기록', 'Career history')), careerTable(client.hist, p.nat));
   root.append(el('h2', 'section', L('성향과 원하는 조건', 'Priorities and wishes')), prefsBlock(p, client));
@@ -4068,6 +4781,21 @@ function render() {
   else renderClients(root);
 }
 
+// 13단계 결산 창 한 줄: "잉글랜드 2부 우승 · 1부 승격 · 컵 우승" (예전 세이브나 리그에서 못 뛴 선수는 빈 문자열)
+function finText(fin) {
+  const country = fin && Number.isInteger(fin.c) ? COUNTRIES[fin.c] : null;
+  if (!country || !Number.isInteger(fin.t) || !Number.isInteger(fin.rk) || !Array.isArray(fin.tr)) return '';
+  const title = fin.rk === 1 && fin.tr.includes(`L${fin.t}`);
+  const parts = [title ? L(`${country.name} ${fin.t + 1}부 우승`, `${country.name} Div. ${fin.t + 1} champions`) : L(`${country.name} ${fin.t + 1}부 ${fin.rk}위`, `${ordinal(fin.rk)} in ${country.name} Div. ${fin.t + 1}`)];
+  if (fin.mv === 1) parts.push(L(`${fin.t}부로 승격`, `promoted to Div. ${fin.t}`));
+  if (fin.mv === -1) parts.push(L(`${fin.t + 2}부로 강등`, `relegated to Div. ${fin.t + 2}`));
+  for (const tr of fin.tr) {
+    if (title && tr === `L${fin.t}`) continue;
+    parts.push(tr === 'C' ? L('컵 우승', 'Cup winners') : tr === 'K' ? L('대륙 대회 우승', 'continental champions') : L(`${Number(tr.slice(1)) + 1}부 우승`, `Div. ${Number(tr.slice(1)) + 1} champions`));
+  }
+  return parts.join(' · ');
+}
+
 // 시즌 결산 창
 function openSummary() {
   const sm = state.summary;
@@ -4094,11 +4822,20 @@ function openSummary() {
       li.append(L(` ${row.ageFrom}→${row.ageTo}세${ability} · 몸값 ${money(row.valueFrom)} → `, ` age ${row.ageFrom}→${row.ageTo}${ability} · value ${money(row.valueFrom)} → `), el('span', diff > 0 ? 'up' : diff < 0 ? 'down' : '', money(row.valueTo)));
       if (row.apps !== undefined) li.append(el('span', 'summary-stats', L(`리그 ${row.apps}경기 ${row.goals}골 · 평점 ${row.apps ? row.rating.toFixed(1) : '-'}${row.caps ? ` · 국가대표 ${row.caps}경기` : ''}`, `League: ${row.apps} apps, ${pl(row.goals, 'goal')} · rating ${row.apps ? row.rating.toFixed(1) : '-'}${row.caps ? ` · ${pl(row.caps, 'cap')}` : ''}`)));
     }
+    // 13단계: 구단 최종 순위·승강·우승
+    const fin = finText(row.fin);
+    if (fin) li.append(el('span', `summary-stats ${row.fin.tr.length || row.fin.mv > 0 ? 'up' : row.fin.mv < 0 ? 'down' : ''}`, fin));
     list.append(li);
   }
   const rep = sm.repChange === undefined ? '' : L(`평판 ${sm.repChange >= 0 ? '+' : ''}${sm.repChange}. `, `Reputation ${sm.repChange >= 0 ? '+' : ''}${sm.repChange}. `);
   const coach = Number.isInteger(sm.coachGain) && sm.coachGain > 0 ? L(`피지컬 코치 덕분에 소속 선수 능력 +${sm.coachGain}. `, `Your fitness coach added +${sm.coachGain} ability across your players. `) : '';
-  $('summary-body').replaceChildren(list, el('p', 'sub', L(`${rep}${coach}세계에서 ${num(sm.retired)}명이 은퇴하거나 떠나고 새 선수가 들어왔습니다.`, `${rep}${coach}Around the world, ${num(sm.retired)} players retired or left and new ones arrived.`)));
+  // 13단계: 5대 리그 1부와 대륙 대회 우승 구단
+  const champs = Array.isArray(sm.champs) ? sm.champs.filter(id => CLUBS[id]) : [];
+  const contWin = Array.isArray(sm.contWin) ? sm.contWin.filter(id => CLUBS[id]) : [];
+  const world = [];
+  if (champs.length) world.push(el('p', 'sub', L(`5대 리그 우승: ${champs.map(id => `${CLUBS[id].country.name} ${CLUBS[id].name}`).join(' · ')}.`, `Big Five champions: ${champs.map(id => `${CLUBS[id].name} (${CLUBS[id].country.name})`).join(' · ')}.`)));
+  if (contWin.length) world.push(el('p', 'sub', L(`대륙 대회 우승: ${contWin.map(id => `${regionName(contGroup(CLUBS[id].country.region))} ${CLUBS[id].name}`).join(' · ')}.`, `Continental champions: ${contWin.map(id => `${CLUBS[id].name} (${regionName(contGroup(CLUBS[id].country.region))})`).join(' · ')}.`)));
+  $('summary-body').replaceChildren(list, el('p', 'sub', L(`${rep}${coach}세계에서 ${num(sm.retired)}명이 은퇴하거나 떠나고 새 선수가 들어왔습니다.`, `${rep}${coach}Around the world, ${num(sm.retired)} players retired or left and new ones arrived.`)), ...world);
   const dialog = $('summary');
   if (!dialog.open) dialog.showModal();
 }
@@ -4308,7 +5045,7 @@ function runSelfCheck() {
   const tc = { end: absWeek() + 10, sat: 70, wage: 5000 };
   check(RENEW_LEVELS.every((_, i) => RENEW_YEARS.every(y => { const t = renewTerms(tc, a, i, y); return t.chance >= 10 && t.chance <= 95 && t.wage > 0; })), '재계약 확률은 10~95%');
   check(renewTerms(tc, a, 0).chance >= renewTerms(tc, a, 2).chance, '많이 요구할수록 성공 확률이 낮아야 함');
-  const w1 = worldStats(a, state.season, 20), w2 = worldStats(a, state.season, 20), w3 = worldStats(a, state.season, 40);
+  const w1 = worldStats(a, 20), w2 = worldStats(a, 20), w3 = worldStats(a, 40);
   check(JSON.stringify(w1) === JSON.stringify(w2) && w3.L[0] >= w1.L[0], '월드 선수 기록은 결정적이고 주가 지나면 늘어남');
   check([-8, 0, 8].every(sc => consentChance(sc) >= 5 && consentChance(sc) <= 95) && consentChance(4) > consentChance(-4), '선수 동의 확률 5~95%, 조건이 좋을수록 높음');
   check(clientLimit() >= Math.min(TUNE.soloLimit, TUNE.limitBase) && clientLimit() <= maxClients(), '소속 한도 범위 (혼자일 때 포함)');
@@ -4383,6 +5120,49 @@ function runSelfCheck() {
       state.week = week0;
     }
   }
+  // 13단계: 리그 일정은 모든 팀이 서로 홈·원정 한 번씩, 한 라운드에 한 번만. 모든 부는 짝수 팀(쉬는 팀 없음)
+  check([3, 4, 10, 16, 28].every(n => {
+    const rounds = roundRobin(n);
+    const seen = new Set();
+    const ok = rounds.length === roundsOf(n) && rounds.every(pairs => new Set(pairs.flat()).size === pairs.length * 2);
+    rounds.flat().forEach(([a, b]) => seen.add(`${a}-${b}`));
+    return ok && seen.size === n * (n - 1);
+  }) && COUNTRIES.every(c => c.tiers.every(n => n % 2 === 0)), '리그 일정: 홈·원정 한 번씩, 라운드마다 한 경기');
+  const eng = COUNTRIES[0];
+  const club0 = eng.clubs[0][0];
+  check(Array.from({ length: WEEKS }, (_, i) => leagueGames(club0, i + 1)).reduce((a, b) => a + b, 0) === roundsOf(eng.tiers[0]), '리그 경기 수: 46주 동안 라운드 수만큼');
+  const table = finalTable(eng, 0);
+  check(table.length === eng.tiers[0] && table.every((row, i) => row.rk === i + 1 && row.p === roundsOf(eng.tiers[0]) && row.w + row.d + row.l === row.p && row.pts === row.w * 3 + row.d)
+    && table.reduce((n, row) => n + row.gd, 0) === 0 && finalTable(eng, 0) === table && leagueTable(eng, 0, 0).every(row => row.pts === 0), '순위표: 승점·득실 합, 같은 결과');
+  // 승강: 부마다 팀 수 그대로, 아래 부 우승팀은 올라가고 위 부 꼴찌는 내려감
+  check([eng, COUNTRY_BY_ID.CYP].every(country => {
+    const { moves } = countryMoves(country);
+    const tierOf = id => (moves.has(id) ? moves.get(id) : CLUBS[id].t);
+    return country.tiers.every((n, t) => country.all.filter(c => tierOf(c.id) === t).length === n)
+      && moves.get(finalTable(country, 1)[0].club.id) === 0 && moves.get(finalTable(country, 0)[country.tiers[0] - 1].club.id) === 1;
+  }), '승강: 부마다 팀 수 그대로');
+  // 컵·대륙 대회: 우승 구단은 하나, 결승까지 뜀. 대륙 대회 참가 구단은 조별리그 6경기
+  check([eng, COUNTRY_BY_ID.KOR, COUNTRY_BY_ID.FRO].every(country => {
+    const cup = cupOf(country);
+    const winners = [...cup.runs.values()].filter(run => run.won);
+    return winners.length === 1 && (winners[0].mask >> (CUP_WEEKS.length - 1)) & 1 && cup.final && cup.runs.get(cup.final.club).won && cup.runs.size === Math.min(64, country.all.length);
+  }), '국내 컵: 우승 구단 하나');
+  check(CONT_GROUPS.every(group => {
+    const cont = contOf(group);
+    return cont.finals.every((f, ci) => {
+      const runs = [...cont.runs.values()].filter(run => run.ci === ci);
+      return f && runs.length <= CONT_SPLIT && runs.filter(run => run.won).length === 1 && runs.every(run => (run.mask & 63) === 63) && runs.filter(run => (run.mask >> 6) & 1).length === Math.min(8, runs.length)
+        && runs.filter(run => run.gpos === 0).every(run => (run.mask >> 6) & 1);
+    });
+  }) && state.cont.length % 4 === 0 && contOf('유럽').finals.length === 3, '대륙 대회: 대회마다 우승 하나, 조별리그 6경기, 8강 8팀(조 1위는 모두 진출), 유럽은 세 대회');
+  const week1 = state.week;
+  try {
+    state.week = 1;
+    check(compStatus(club0, 'C') !== L('우승', 'Winners') && rankText(club0) === '', '시즌 시작 전에는 결과를 미리 보여 주지 않음');
+  } finally {
+    state.week = week1;
+  }
+  check(playScore(80, 60, 0, rng(3)).every(g => g >= 0 && g <= 9) && resultWord({ f: 1, a: 1, pk: 1 }) === L('1-1 무(승부차기 승)', 'D 1-1, won on pens'), '경기 점수와 결과 글');
 }
 
 // 화면 그리기 실패: 위치를 처음으로 돌려 다시 그림 → 그래도 안 되면 지금 세이브를 백업하고 새 게임

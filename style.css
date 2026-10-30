@@ -40,6 +40,9 @@
   --pos-DF: #067647;
   --pos-GK: #a15c07;
   --empty: #cbd2dc;     /* 빈 하트, 시트 손잡이 */
+  --zone-cont: #175cd3; /* 순위표: 대륙 대회 진출권 */
+  --zone-up: #12b76a;   /* 승격 */
+  --zone-down: #c8261c; /* 강등 */
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
   --backdrop: rgba(16, 24, 40, 0.45);
   --toast-bg: #101828;
@@ -132,6 +135,53 @@ button.nbody { min-height: 44px; cursor: pointer; }
 .nmeta { margin: 0; color: var(--muted); font-size: 12px; }
 .nitem .option { margin-top: 6px; }
 .need-panel { border-color: var(--accent-ink); }
+/* 13단계 뉴스: 우승·결승은 노랑, 승격 초록, 강등 빨강, 내 선수 구단 소식은 채운 배지 */
+.ntag-champ, .ntag-cup, .ntag-cont { color: var(--warn-ink); border-color: var(--warn); }
+.ntag-up { color: var(--accent-ink); border-color: var(--accent-ink); }
+.ntag-down { color: var(--bad); border-color: var(--bad); }
+.ntag-my { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+.ntag-my.ntag-down { color: #ffffff; background: var(--bad); border-color: var(--bad); }
+
+/* 리그 순위표 (13단계): 줄 왼쪽 색 = 대륙 대회 진출권(파랑)·승격(초록)·강등(빨강), 줄을 누르면 구단 */
+.ltable { display: grid; margin-bottom: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; }
+.lt-row {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) 34px 40px 40px;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 10px 0 6px;
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-left: 4px solid transparent;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.lt-head { min-height: 32px; border-top: 0; color: var(--muted); font-size: 12px; font-weight: 600; cursor: default; }
+.lt-rk { color: var(--muted); text-align: right; padding-right: 2px; }
+.lt-name { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.lt-club { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lt-num, .lt-pts { text-align: right; }
+.lt-pts { font-weight: 800; }
+.lt-row.z-cont { border-left-color: var(--zone-cont); }
+.lt-row.z-up { border-left-color: var(--zone-up); }
+.lt-row.z-down { border-left-color: var(--zone-down); }
+.lt-legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 0 0 12px; color: var(--muted); font-size: 12px; }
+.lt-key::before { content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 4px; border-radius: 2px; vertical-align: -1px; }
+.lt-key.z-cont::before { background: var(--zone-cont); }
+.lt-key.z-up::before { background: var(--zone-up); }
+.lt-key.z-down::before { background: var(--zone-down); }
+/* 구단 화면의 이번 시즌: 순위·전적 줄과 최근 5경기 (승 초록·무 회색·패 빨강) */
+.season-panel .panel-line { margin-top: 4px; }
+.form-guide { display: flex; align-items: center; gap: 4px; margin: 6px 0 2px; }
+.fg-label { margin-right: 4px; color: var(--muted); font-size: 12px; }
+.fg { display: inline-grid; place-items: center; min-width: 24px; height: 24px; padding: 0 4px; border-radius: 6px; font-size: 12px; font-weight: 700; }
+.fg-W { background: var(--accent); color: var(--on-accent); }
+.fg-D { background: var(--sunk); color: var(--muted); }
+.fg-L { background: var(--bad); color: #ffffff; }
 
 /* 관계 이야기 (디자인 시안 A): 따뜻한 색 카드, 선수의 말, 함께한 이야기 줄 */
 .news.tale { border-color: var(--warm); background: linear-gradient(180deg, var(--warm-soft), var(--panel) 55%); }
