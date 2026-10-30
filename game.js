@@ -4,7 +4,7 @@
 // ===== 1. 상수와 세계 데이터 =====
 const SAVE_KEY = 'be-the-agent:save';
 const BACKUP_KEY = 'be-the-agent:save:backup'; // 읽지 못한 세이브를 지우지 않고 보관
-const SAVE_VERSION = 2;
+const SAVE_VERSION = 3;
 const WEEKS = 52;
 const SQUAD = 24;
 const WORLD_SEED = 20261030; // 구단 이름·전력은 모든 게임에서 같게 고정
@@ -298,7 +298,7 @@ function getPlayer(s) {
   const r = rng(hash(state.seed, s, g));
   const core = coreStats(s, r);
   const nat = nationalityFor(core.club, r);
-  return { s, g, club: core.club, nat, name: makeName(nat, r), pos: POS_BY_SLOT[s % SQUAD], ability: core.ability, pot: core.pot, birth: core.birth, start: (born - 1) * WEEKS + 1 };
+  return { s, g, club: clubOf(s), nat, name: makeName(nat, r), pos: POS_BY_SLOT[s % SQUAD], ability: core.ability, pot: core.pot, birth: core.birth, start: (born - 1) * WEEKS + 1 };
 }
 
 // 주급: 능력에 따라 가파르게 오름 (능력 40 ≈ $210, 60 ≈ $5K, 80 ≈ $126K)
@@ -381,7 +381,7 @@ function newGame() {
   state = {
     version: SAVE_VERSION, seed, season: 1, week: 1,
     agencyCash: START_CASH, rep: START_REP, ap: AP_PER_WEEK, debtWeeks: 0, over: false,
-    clients: [], cooldowns: {}, logs: [], summary: null,
+    clients: [], cooldowns: {}, logs: [], summary: null, moved: {}, events: [], nextEventId: 1,
     ui: { ...DEFAULT_UI },
     world: newWorld(seed)
   };
@@ -425,8 +425,11 @@ function pickStartingClients() {
     const total = chosen.reduce((n, p) => n + weeklyWage(p.ability), 0);
     if (chosen.length === 5 && total >= 12000 && total <= 16000) break;
   }
-  return chosen.map(p => ({ s: p.s, g: p.g, end: contractEnd(p, 1), wage: weeklyWage(p.ability) }));
+  return chosen.map(p => newClient(p, contractEnd(p, 1), SAT_START));
 }
+
+// 소속 선수 기록: 슬롯·세대·계약 만료·주급·만족·마지막 면담·재협상 가능 주·만료 알림 보낸 계약
+const newClient = (p, end, sat) => ({ s: p.s, g: p.g, end, wage: weeklyWage(p.ability), sat, met: 0, negUntil: 0, warned: 0 });
 
 function addLog(text) {
   state.logs.unshift(`${state.season}시즌 ${state.week}주 · ${text}`);
@@ -449,7 +452,7 @@ function advanceWeek() {
   }
 
   // 주간 정산: 수수료 수입 - 운영비
-  const income = state.clients.reduce((n, c) => n + commissionOf(c.wage), 0);
+  const income = state.clients.reduce((n, c) => n + clientIncome(c), 0);
   const upkeep = upkeepNow();
   state.agencyCash += income - upkeep;
 
@@ -458,6 +461,7 @@ function advanceWeek() {
   state.ap = AP_PER_WEEK;
   const now = absWeek();
   for (const key of Object.keys(state.cooldowns)) if (state.cooldowns[key] <= now) delete state.cooldowns[key];
+  const news = weeklyClients();
 
   const moved = state.clients
     .filter(c => w.delta[c.s] !== 0)
@@ -466,6 +470,7 @@ function advanceWeek() {
   addLog(`정산 ${signedCash(income - upkeep)} (수수료 ${cash(income)}, 운영비 ${cash(upkeep)})`);
   checkDebt();
   saveState();
+  return news;
 }
 
 // 자금이 마이너스면 평판 -1, 8주 이어지면 파산
@@ -521,6 +526,7 @@ function endSeason() {
       w.delta[s] = 0;
       w.favg[s] = 11;
       w.grow[s] = 0;
+      delete state.moved[s];
       retired += 1;
     }
   }
@@ -579,7 +585,7 @@ function recruit(s) {
   state.agencyCash -= cost;
   if (Math.random() * 100 < recruitChance(p)) {
     const gain = 1 + Math.floor((p.ability - 40) / 15);
-    state.clients.push({ s, g: p.g, end: contractEnd(p, absWeek()), wage: weeklyWage(p.ability) });
+    state.clients.push(newClient(p, contractEnd(p, absWeek()), 75));
     state.rep = Math.min(100, state.rep + gain);
     addLog(`${p.name} 영입 성공 (비용 ${cash(cost)}, 평판 +${gain})`);
     toast(`${p.name} 선수와 계약했습니다.`);
@@ -597,10 +603,360 @@ function release(s) {
   const p = getPlayer(s);
   if (!confirm(`${p.name} 선수와 계약을 해지할까요? 평판이 1 내려갑니다.`)) return false;
   state.clients.splice(i, 1);
+  state.events = state.events.filter(e => e.s !== s || e.type === 'tip');
   state.rep = Math.max(0, state.rep - 1);
   addLog(`${p.name} 선수와 계약을 해지했습니다 (평판 -1).`);
   saveState();
   return true;
+}
+
+// ===== 6-2. 만족도·협상·소식 (3단계) =====
+const SAT_START = 70;
+const SAT_WARN = 35;
+const SAT_LEAVE = 20;        // 주말에 만족이 20 미만이면 에이전시를 떠남
+const MEET_GAIN = 12;
+const MEET_GAP = 4;          // 같은 선수 면담은 4주에 한 번
+const RENEW_WINDOW = 26;     // 계약 만료 26주 전부터 재계약 협상 가능
+const RENEW_RETRY = 2;       // 협상 결렬 후 2주 뒤 다시
+const TRANSFER_CUT = 0.02;   // 이적료의 2%
+const DEAL_SHARE = 0.25;     // 계약 성사 수수료 = 새 주급 × 52주 × 8% × 0.25 (약 1주치 주급)
+const EVENT_TTL = 2;         // 소식은 2주 안에 답하지 않으면 기본 선택으로 처리
+const EVENT_MAX = 3;
+
+// 지금 소속 구단: 이적한 선수는 moved[슬롯] = 구단 번호 (능력·이름은 처음 구단 기준 그대로)
+const clubOf = s => CLUBS[state.moved[s] ?? Math.floor(s / SQUAD)];
+const clubLevel = club => tierLevel(club.country, club.t) + club.off;
+
+// 구단 명단: 원래 슬롯에서 떠난 선수는 빼고 이적해 온 선수는 더함
+function clubSlots(club) {
+  const list = [];
+  for (let k = 0; k < SQUAD; k++) {
+    const s = club.id * SQUAD + k;
+    if (state.moved[s] === undefined) list.push(s);
+  }
+  for (const [s, id] of Object.entries(state.moved)) if (id === club.id) list.push(Number(s));
+  return list;
+}
+
+// 구단이 보는 실력: 23세 이하는 잠재력의 40%를 미리 쳐줌 (유망주 계약이 커지는 이유)
+const marketAbility = p => (ageOf(p) <= 23 ? Math.round(p.ability + (p.pot - p.ability) * 0.4) : p.ability);
+const clientOf = s => state.clients.find(c => c.s === s);
+const isFreeAgent = c => c.end < absWeek();
+const clientIncome = c => (isFreeAgent(c) ? 0 : commissionOf(c.wage));
+const dealFee = wage => Math.round(wage * WEEKS * FEE_RATE * DEAL_SHARE);
+const addSat = (c, n) => (c.sat = clamp(c.sat + n, 0, 100));
+
+function removeClient(c, reason, repLoss) {
+  state.clients = state.clients.filter(x => x !== c);
+  state.events = state.events.filter(e => e.s !== c.s || e.type === 'tip');
+  state.rep = Math.max(0, state.rep - repLoss);
+  addLog(`${getPlayer(c.s).name} 선수가 ${reason} (평판 -${repLoss}).`);
+}
+
+// 면담: 1 AP, 만족 +12, 같은 선수는 4주에 한 번
+function meetBlock(c) {
+  if (state.ap < 1) return '이번 주 행동력(AP)을 다 썼습니다';
+  const since = absWeek() - c.met;
+  if (c.met && since < MEET_GAP) return `${MEET_GAP - since}주 뒤에 다시 면담할 수 있습니다`;
+  return '';
+}
+
+function meet(s) {
+  const c = clientOf(s);
+  const block = c ? meetBlock(c) : '소속 선수가 아닙니다';
+  if (block) return toast(block);
+  state.ap -= 1;
+  c.met = absWeek();
+  addSat(c, MEET_GAIN);
+  addLog(`${getPlayer(s).name} 선수와 면담했습니다 (만족 +${MEET_GAIN} → ${c.sat}).`);
+  saveState();
+}
+
+// 재계약: [이름, 주급 배율, 기본 성공률]
+const RENEW_LEVELS = [['적정 주급', 1, 80], ['인상 요구 +25%', 1.25, 55], ['크게 요구 +50%', 1.5, 30]];
+
+function renewTerms(c, p, level) {
+  const [label, mul, base] = RENEW_LEVELS[level];
+  const wage = Math.round((weeklyWage(marketAbility(p)) * mul) / 50) * 50;
+  const chance = clamp(Math.round(base + Math.min(15, state.rep / 4) + (p.ability - clubLevel(p.club)) * 2 - (isFreeAgent(c) ? 10 : 0)), 10, 95);
+  return { label, wage, chance, fee: dealFee(wage) };
+}
+
+function renewBlock(c) {
+  const left = c.end - absWeek();
+  if (left > RENEW_WINDOW) return `계약 만료 ${RENEW_WINDOW}주 전부터 협상할 수 있습니다 (남은 ${left}주)`;
+  if (state.ap < 1) return '이번 주 행동력(AP)을 다 썼습니다';
+  if (c.negUntil > absWeek()) return `구단이 ${c.negUntil - absWeek()}주 뒤에 다시 만나자고 합니다`;
+  return '';
+}
+
+function renew(s, level) {
+  const c = clientOf(s);
+  const block = c ? renewBlock(c) : '소속 선수가 아닙니다';
+  if (block) return toast(block);
+  const p = getPlayer(s);
+  const t = renewTerms(c, p, level);
+  state.ap -= 1;
+  if (Math.random() * 100 < t.chance) {
+    c.wage = t.wage;
+    c.end = absWeek() + WEEKS * 2 + randInt(0, WEEKS, Math.random);
+    addSat(c, 10);
+    state.agencyCash += t.fee;
+    state.rep = Math.min(100, state.rep + 1);
+    addLog(`${p.name} 재계약 성공: 주급 ${cash(t.wage)}, ${weekLabel(c.end)}까지, 수수료 +${cash(t.fee)}`);
+    toast(`재계약 성공! 수수료 +${cash(t.fee)}`);
+  } else {
+    c.negUntil = absWeek() + RENEW_RETRY;
+    addSat(c, -8);
+    addLog(`${p.name} 재계약 협상 결렬 (만족 -8). ${RENEW_RETRY}주 뒤 다시 협상할 수 있습니다.`);
+    toast('구단이 조건을 거절했습니다.');
+  }
+  saveState();
+}
+
+// 이적 제안: 지금 구단 이상, 선수 능력 근처 수준의 구단에서 옴
+function makeOffer(c, p) {
+  const r = Math.random;
+  const lo = Math.max(clubLevel(p.club), p.ability - 8);
+  const hi = p.ability + 3;
+  const pool = CLUBS.filter(club => club !== p.club && clubLevel(club) >= lo && clubLevel(club) <= hi);
+  if (!pool.length) return null;
+  const club = pool[Math.floor(r() * pool.length)];
+  const base = Math.max(c.wage, weeklyWage(Math.max(marketAbility(p), Math.round(clubLevel(club)))));
+  const wage = Math.round((base * (1.1 + r() * 0.3)) / 50) * 50;
+  const fee = isFreeAgent(c) ? 0 : Math.round((valueOf(p) * (0.8 + r() * 0.5)) / 5000) * 5000;
+  return { club: club.id, wage, fee };
+}
+
+const offerCut = d => Math.round(d.fee * TRANSFER_CUT) + dealFee(d.wage);
+const counterChance = () => clamp(Math.round(45 + state.rep / 5), 45, 80);
+
+function transfer(c, d) {
+  const p = getPlayer(c.s);
+  const from = p.club;
+  const to = CLUBS[d.club];
+  if (to.id === Math.floor(c.s / SQUAD)) delete state.moved[c.s];
+  else state.moved[c.s] = to.id;
+  const gain = offerCut(d);
+  c.wage = d.wage;
+  c.end = absWeek() + WEEKS * 2 + randInt(0, WEEKS * 2, Math.random);
+  addSat(c, 15);
+  state.agencyCash += gain;
+  state.rep = Math.min(100, state.rep + 2);
+  toast(`이적 성사! 수수료 +${cash(gain)}`);
+  return `${p.name} 이적: ${from.name} → ${to.name} (${leagueName(to.country, to.t)}), 주급 ${cash(d.wage)}, 수수료 +${cash(gain)}, 평판 +2`;
+}
+
+function counterOffer(c, p, d) {
+  if (Math.random() * 100 < counterChance()) {
+    return `더 요구해서 조건이 올랐습니다. ${transfer(c, { club: d.club, wage: Math.round((d.wage * 1.2) / 50) * 50, fee: Math.round(d.fee * 1.1) })}`;
+  }
+  addSat(c, -5);
+  return `${CLUBS[d.club].name}이(가) 제안을 거둬들였습니다 (${p.name} 만족 -5).`;
+}
+
+// 소식 종류: chance(c, p) 주간 확률, text, options[{ label, ap, cost, go, run }], def = 답이 없을 때 고르는 번호
+const EVENT_TYPES = {
+  offer: {
+    chance: (c, p) => 0.02 + (p.ability >= clubLevel(p.club) + 3 ? 0.04 : 0) + (state.world.form[c.s] >= 8 ? 0.02 : 0) + (isFreeAgent(c) ? 0.1 : 0) + (ageOf(p) <= 21 && p.pot - p.ability >= 10 ? 0.03 : 0),
+    make: makeOffer,
+    text: (p, d) => `${CLUBS[d.club].name}(${leagueName(CLUBS[d.club].country, CLUBS[d.club].t)})에서 ${p.name} 선수 영입을 제안했습니다. 주급 ${cash(d.wage)}, ${d.fee ? `이적료 ${money(d.fee)}` : '자유 이적'}. 성사되면 내 수수료 ${cash(offerCut(d))}.`,
+    options: [
+      { label: () => '수락한다', run: (c, p, d) => transfer(c, d) },
+      { label: () => `더 요구한다 (성공 ${counterChance()}%)`, run: counterOffer },
+      { label: () => '거절한다', run: (c, p) => (addSat(c, -3), `${p.name} 이적 제안을 거절했습니다 (만족 -3).`) }
+    ],
+    def: 2
+  },
+  playtime: {
+    chance: c => (state.world.form[c.s] <= 4 ? 0.03 : 0),
+    text: p => `${p.name} 선수가 출전 시간이 부족하다며 불만을 털어놓았습니다.`,
+    options: [
+      { label: () => '면담하며 다독인다', ap: 1, run: (c, p) => (c.met = absWeek(), addSat(c, 10), `${p.name} 선수를 다독였습니다 (만족 +10).`) },
+      { label: () => '구단에 출전 보장을 요구한다 (반반)', run: (c, p) => (Math.random() < 0.5 ? (addSat(c, 12), `구단이 출전을 약속했습니다 (${p.name} 만족 +12).`) : (addSat(c, -4), `구단이 요구를 무시했습니다 (${p.name} 만족 -4).`)) },
+      { label: () => '참으라고 한다', run: (c, p) => (addSat(c, -8), `${p.name} 선수가 서운해합니다 (만족 -8).`) }
+    ],
+    def: 2
+  },
+  raise: {
+    chance: (c, p) => (!isFreeAgent(c) && weeklyWage(marketAbility(p)) >= c.wage * 1.4 ? 0.08 : 0),
+    text: (p, d, c) => `${p.name} 선수가 실력에 비해 주급(${cash(c.wage)})이 적다며 재계약을 원합니다. 지금 평가면 주급 ${cash(weeklyWage(marketAbility(p)))} 정도입니다.`,
+    options: [
+      { label: () => '재계약 협상을 준비한다', go: true, run: (c, p) => (addSat(c, 2), `${p.name} 선수에게 재계약을 준비하겠다고 했습니다 (만족 +2).`) },
+      { label: () => '다음에 하자고 달랜다', run: (c, p) => (addSat(c, -6), `${p.name} 선수가 실망했습니다 (만족 -6).`) }
+    ],
+    def: 1
+  },
+  sponsor: {
+    chance: (c, p) => (state.world.form[c.s] >= 8 && valueOf(p) >= 500000 ? 0.05 : 0),
+    make: (c, p) => ({ cut: Math.max(1000, Math.round(valueOf(p) * 0.01 / 100) * 100) }),
+    text: (p, d) => `스포츠 브랜드가 요즘 폼이 좋은 ${p.name} 선수에게 광고를 제안했습니다. 내 몫은 ${cash(d.cut)}입니다.`,
+    options: [
+      { label: () => '계약한다', run: (c, p, d) => (state.agencyCash += d.cut, state.rep = Math.min(100, state.rep + 1), addSat(c, 3), `${p.name} 광고 계약: 자금 +${cash(d.cut)}, 평판 +1, 만족 +3`) },
+      { label: () => '거절한다', run: (c, p) => `${p.name} 광고 제안을 거절했습니다.` }
+    ],
+    def: 1
+  },
+  sns: {
+    chance: () => 0.008,
+    text: p => `${p.name} 선수의 SNS 글이 논란이 됐습니다.`,
+    options: [
+      { label: () => '사과문을 함께 낸다 ($1,000)', cost: () => 1000, run: (c, p) => (addSat(c, 2), `${p.name} 선수와 사과문을 냈습니다 (만족 +2).`) },
+      { label: () => '법적으로 대응한다 ($5,000)', cost: () => 5000, run: (c, p) => (state.rep = Math.min(100, state.rep + 1), addSat(c, 6), `${p.name} 선수를 감쌌습니다 (평판 +1, 만족 +6).`) },
+      { label: () => '무시한다', run: (c, p) => (state.rep = Math.max(0, state.rep - 2), addSat(c, -4), `${p.name} 논란을 내버려 뒀습니다 (평판 -2, 만족 -4).`) }
+    ],
+    def: 2
+  },
+  injury: {
+    chance: () => 0.008,
+    make: c => ({ cost: Math.max(1000, Math.round(c.wage / 100) * 100) }),
+    text: p => `${p.name} 선수가 훈련 중 다쳤습니다.`,
+    options: [
+      { label: (p, d) => `전문 재활을 지원한다 (${cash(d.cost)})`, cost: d => d.cost, run: (c, p) => (state.world.form[c.s] = Math.max(state.world.form[c.s], 5), addSat(c, 6), `${p.name} 재활 지원: 폼 회복, 만족 +6`) },
+      { label: () => '구단 의료진에 맡긴다', run: (c, p) => (state.world.form[c.s] = Math.max(1, state.world.form[c.s] - 3), addSat(c, -3), `${p.name} 회복이 더딥니다 (폼 -3, 만족 -3).`) }
+    ],
+    def: 1
+  },
+  interview: {
+    chance: (c, p) => (valueOf(p) >= 300000 ? 0.015 : 0),
+    text: p => `방송사에서 ${p.name} 선수 인터뷰를 요청했습니다.`,
+    options: [
+      { label: () => '인터뷰에 응한다', ap: 1, run: (c, p) => (state.rep = Math.min(100, state.rep + 1), addSat(c, 2), `${p.name} 인터뷰가 화제가 됐습니다 (평판 +1, 만족 +2).`) },
+      { label: () => '거절한다', run: (c, p) => `${p.name} 인터뷰를 거절했습니다.` }
+    ],
+    def: 1
+  },
+  poach: {
+    chance: c => (c.sat < 50 ? 0.05 : 0),
+    text: p => `다른 에이전시가 ${p.name} 선수에게 접근하고 있습니다.`,
+    options: [
+      { label: () => '직접 만나 붙잡는다', ap: 1, run: (c, p) => (c.met = absWeek(), addSat(c, 15), `${p.name} 선수를 붙잡았습니다 (만족 +15).`) },
+      { label: (p, d, c) => `보너스를 준다 (${cash(c.wage)})`, cost: (d, c) => c.wage, run: (c, p) => (addSat(c, 12), `${p.name} 선수에게 보너스를 줬습니다 (만족 +12).`) },
+      {
+        label: () => '그냥 둔다 (반반)',
+        run: (c, p) => {
+          if (Math.random() < 0.5) {
+            removeClient(c, '다른 에이전시로 옮겼습니다', 2);
+            return '';
+          }
+          addSat(c, -5);
+          return `${p.name} 선수가 일단 남았지만 흔들립니다 (만족 -5).`;
+        }
+      }
+    ],
+    def: 2
+  },
+  family: {
+    chance: () => 0.008,
+    text: p => `${p.name} 선수가 가족 일로 며칠 쉬고 싶어 합니다.`,
+    options: [
+      { label: () => '휴가를 허락한다', run: (c, p) => (state.world.form[c.s] = Math.max(1, state.world.form[c.s] - 1), addSat(c, 8), `${p.name} 휴가 허락 (폼 -1, 만족 +8).`) },
+      { label: () => '거절한다', run: (c, p) => (addSat(c, -6), `${p.name} 선수가 서운해합니다 (만족 -6).`) }
+    ],
+    def: 1
+  },
+  callup: {
+    chance: (c, p) => (p.ability >= 70 && state.world.form[c.s] >= 7 ? 0.02 : 0),
+    text: p => `${p.name} 선수가 ${p.nat.name} 국가대표로 뽑혔습니다!`,
+    options: [{ label: () => '축하 메시지를 보낸다', run: (c, p) => (state.rep = Math.min(100, state.rep + 2), addSat(c, 5), `${p.name} 국가대표 발탁 (평판 +2, 만족 +5).`) }],
+    def: 0
+  },
+  expiring: {
+    chance: c => (c.warned !== c.end && c.end - absWeek() <= 8 && c.end >= absWeek() ? 1 : 0),
+    make: c => ((c.warned = c.end), {}),
+    text: (p, d, c) => `${p.name} 선수 계약이 ${c.end - absWeek()}주 뒤에 끝납니다. 끝나면 무소속이 되어 수수료가 끊깁니다.`,
+    options: [
+      { label: () => '재계약 협상하러 간다', go: true, run: (c, p) => `${p.name} 재계약을 준비합니다.` },
+      { label: () => '나중에', run: () => '' }
+    ],
+    def: 1
+  },
+  tip: {
+    text: (p, d) => `아는 스카우트가 ${p.club.name}의 ${ageOf(p)}세 ${p.pos} ${p.name}(능력 ${p.ability}, 잠재력 ${p.pot})를 추천했습니다.`,
+    options: [
+      { label: () => '선수를 보러 간다', go: true, run: (c, p) => `${p.name} 선수를 살펴봅니다.` },
+      { label: () => '넘긴다', run: () => '' }
+    ],
+    def: 1
+  }
+};
+
+// 유망주 추천: 무작위 300명 중 20세 이하, 잠재력 여유 12 이상, 영입 확률 25% 이상
+function findTip() {
+  for (let i = 0; i < 300; i++) {
+    const s = Math.floor(Math.random() * SLOTS);
+    const p = getPlayer(s);
+    if (ageOf(p) <= 20 && p.pot - p.ability >= 12 && !clientOf(s) && recruitChance(p) >= 25) return s;
+  }
+  return null;
+}
+
+function pushEvent(type, s, d) {
+  state.events.push({ id: state.nextEventId++, type, s, g: state.world.gen[s], until: absWeek() + EVENT_TTL, d: d || {} });
+}
+
+// 소식 답하기: AP·비용을 확인하고 결과를 기록. 반환값: 화면 이동할 선수 슬롯 또는 null
+function resolveEvent(id, index, auto = false) {
+  const ev = state.events.find(e => e.id === id);
+  if (!ev) return null;
+  const type = EVENT_TYPES[ev.type];
+  const opt = type.options[index];
+  const c = ev.type === 'tip' ? null : clientOf(ev.s);
+  if (!opt || (ev.type !== 'tip' && !c)) {
+    state.events = state.events.filter(e => e !== ev);
+    return null;
+  }
+  const p = getPlayer(ev.s);
+  const cost = opt.cost ? opt.cost(ev.d, c) : 0;
+  if (!auto && opt.ap && state.ap < opt.ap) return toast('이번 주 행동력(AP)을 다 썼습니다'), null;
+  if (!auto && cost > state.agencyCash) return toast(`자금이 부족합니다 (${cash(cost)} 필요)`), null;
+  state.events = state.events.filter(e => e !== ev);
+  if (opt.ap) state.ap -= opt.ap;
+  state.agencyCash -= cost;
+  const result = opt.run(c, p, ev.d);
+  if (result) addLog(auto ? `(답하지 않아 기본 처리) ${result}` : result);
+  return opt.go ? ev.s : null;
+}
+
+// 주말 처리: 만족도 변화, 무소속 전환, 이탈, 답 없는 소식 정리, 새 소식
+function weeklyClients() {
+  const now = absWeek();
+  const w = state.world;
+  for (const c of [...state.clients]) {
+    const left = c.end - now;
+    let d = -1;
+    if (w.form[c.s] >= 8) d += 1;
+    if (w.form[c.s] <= 3) d -= 1;
+    if (left < 0) d -= 2;
+    else if (left <= 8) d -= 1;
+    addSat(c, d);
+    if (left === -1) addLog(`${getPlayer(c.s).name} 선수 계약이 끝나 무소속이 됐습니다. 재계약하거나 이적시키기 전까지 수수료가 없습니다.`);
+    if (c.sat < SAT_LEAVE) removeClient(c, '불만이 쌓여 에이전시를 떠났습니다', 2);
+  }
+  for (const ev of state.events.filter(e => e.until < now)) resolveEvent(ev.id, EVENT_TYPES[ev.type].def, true);
+
+  let added = 0;
+  for (const c of state.clients) {
+    if (state.events.length >= EVENT_MAX) break;
+    if (state.events.some(e => e.s === c.s)) continue;
+    const p = getPlayer(c.s);
+    for (const [key, type] of Object.entries(EVENT_TYPES)) {
+      if (key === 'tip' || Math.random() >= type.chance(c, p)) continue;
+      const d = type.make ? type.make(c, p) : {};
+      if (d === null) continue;
+      pushEvent(key, c.s, d);
+      added += 1;
+      break;
+    }
+  }
+  if (state.events.length < EVENT_MAX && state.rep >= 10 && Math.random() < 0.06) {
+    const s = findTip();
+    if (s !== null) {
+      pushEvent('tip', s);
+      added += 1;
+    }
+  }
+  return added;
 }
 
 // ===== 7. 저장·불러오기 =====
@@ -630,11 +986,11 @@ function serialize() {
   return JSON.stringify({ ...state, slots: SLOTS, world });
 }
 
-// 1단계(v1) 세이브도 읽음: 성장치 0, 행동력·빚·재제안 기록 기본값, 주급은 불러온 뒤 채움
+// 1·2단계(v1·v2) 세이브도 읽음: 없는 값은 기본값(성장치 0, 만족 70 등), 주급은 불러온 뒤 채움
 function deserialize(text) {
   const d = JSON.parse(text);
   const int = v => Number.isInteger(v);
-  if (!d || (d.version !== 1 && d.version !== SAVE_VERSION)) throw new Error('지원하지 않는 버전입니다');
+  if (!d || ![1, 2, SAVE_VERSION].includes(d.version)) throw new Error('지원하지 않는 버전입니다');
   if (d.slots !== SLOTS) throw new Error('세계 구성이 다른 세이브입니다');
   if (!int(d.seed) || !int(d.season) || d.season < 1 || !int(d.week) || d.week < 1 || d.week > WEEKS) throw new Error('날짜 정보가 올바르지 않습니다');
   if (!Number.isFinite(d.agencyCash) || !Number.isFinite(d.rep) || !Array.isArray(d.logs)) throw new Error('기본 정보가 올바르지 않습니다');
@@ -655,6 +1011,15 @@ function deserialize(text) {
     for (const [key, until] of Object.entries(d.cooldowns)) if (int(until)) cooldowns[key] = until;
   }
   const summary = d.summary && typeof d.summary === 'object' && Array.isArray(d.summary.rows) ? d.summary : null;
+  const moved = {};
+  if (d.moved && typeof d.moved === 'object') {
+    for (const [s, id] of Object.entries(d.moved)) if (int(Number(s)) && Number(s) >= 0 && Number(s) < SLOTS && int(id) && id >= 0 && id < CLUBS.length) moved[s] = id;
+  }
+  const events = (Array.isArray(d.events) ? d.events : []).filter(e => e && int(e.id) && EVENT_TYPES[e.type] && int(e.s) && e.s >= 0 && e.s < SLOTS && int(e.until))
+    .map(e => ({ id: e.id, type: e.type, s: e.s, g: int(e.g) ? e.g : 0, until: e.until, d: e.d && typeof e.d === 'object' ? e.d : {} }))
+    .filter(e => e.type !== 'offer' || (int(e.d.club) && e.d.club >= 0 && e.d.club < CLUBS.length && Number.isFinite(e.d.wage) && Number.isFinite(e.d.fee)));
+  const nextEventId = Math.max(int(d.nextEventId) ? d.nextEventId : 1, ...events.map(e => e.id + 1));
+  const intOr = (v, fallback) => (int(v) ? v : fallback);
   // 알려진 필드만 옮김 (모르는 값이 상태에 섞이지 않게)
   return {
     version: SAVE_VERSION, seed: d.seed, season: d.season, week: d.week,
@@ -662,8 +1027,11 @@ function deserialize(text) {
     ap: int(d.ap) ? clamp(d.ap, 0, AP_PER_WEEK) : AP_PER_WEEK,
     debtWeeks: int(d.debtWeeks) ? clamp(d.debtWeeks, 0, DEBT_LIMIT) : 0,
     over: d.over === true,
-    clients: d.clients.map(c => ({ s: c.s, g: c.g, end: c.end, wage: Number.isFinite(c.wage) ? c.wage : null })),
-    cooldowns, logs: d.logs.map(String).slice(0, 80), summary, ui: cleanUi(d.ui), world
+    clients: d.clients.map(c => ({
+      s: c.s, g: c.g, end: c.end, wage: Number.isFinite(c.wage) ? c.wage : null,
+      sat: Number.isFinite(c.sat) ? clamp(Math.round(c.sat), 0, 100) : SAT_START, met: intOr(c.met, 0), negUntil: intOr(c.negUntil, 0), warned: intOr(c.warned, 0)
+    })),
+    cooldowns, logs: d.logs.map(String).slice(0, 80), summary, moved, events, nextEventId, ui: cleanUi(d.ui), world
   };
 }
 
@@ -849,7 +1217,7 @@ function abilityBar(ability) {
   return bar;
 }
 
-const weeklyIncome = () => state.clients.reduce((n, c) => n + commissionOf(c.wage), 0);
+const weeklyIncome = () => state.clients.reduce((n, c) => n + clientIncome(c), 0);
 
 function renderHeader() {
   $('hdr-date').textContent = `${state.season}시즌 · ${state.week}주`;
@@ -861,6 +1229,10 @@ function renderHeader() {
 }
 
 // 소속 선수 카드 (누르면 상세)
+function satNode(c) {
+  return el('span', c.sat < SAT_WARN ? 'bad' : c.sat < 50 ? 'warn' : '', `만족 ${c.sat}`);
+}
+
 function clientCard(c) {
   const p = getPlayer(c.s);
   const card = actButton('card', 'player', c.s);
@@ -868,14 +1240,47 @@ function clientCard(c) {
   top.append(posTag(p.pos), el('strong', 'name', p.name), el('span', 'abil', String(p.ability)));
   const stats = el('span', 'stats');
   stats.append(stat('잠재력', String(p.pot)), stat('폼', formNode(p)), stat('몸값', money(valueOf(p))), stat('계약 만료', contractNode(c.end)));
+  const foot = el('span', 'card-foot');
+  foot.append(satNode(c), isFreeAgent(c) ? ' · 무소속: 수수료 없음' : ` · 주급 ${cash(c.wage)} · 내 수수료 주 ${cash(commissionOf(c.wage))}`);
   card.append(top, el('span', 'meta', `${ageOf(p)}세 · ${p.nat.name} · ${p.club.name} · ${leagueName(p.club.country, p.club.t)}`),
-    abilityBar(p.ability), stats, el('span', 'card-foot', `주급 ${cash(c.wage)} · 내 수수료 주 ${cash(commissionOf(c.wage))}`));
+    abilityBar(p.ability), stats, foot);
+  return card;
+}
+
+// 이번 주 소식 카드: 선택지마다 AP·비용 표시, 모자라면 버튼을 막음
+function newsCard(ev) {
+  const type = EVENT_TYPES[ev.type];
+  const p = getPlayer(ev.s);
+  const c = clientOf(ev.s);
+  const card = el('article', 'news');
+  card.append(el('p', 'news-text', type.text(p, ev.d, c)), el('p', 'news-due', ev.until > absWeek() ? `${ev.until - absWeek()}주 안에 답하지 않으면 "${type.options[type.def].label(p, ev.d, c)}"` : '이번 주까지 답해야 합니다'));
+  const actions = el('div', 'news-actions');
+  type.options.forEach((opt, i) => {
+    const cost = opt.cost ? opt.cost(ev.d, c) : 0;
+    const tags = [opt.ap ? `${opt.ap} AP` : '', cost ? cash(cost) : ''].filter(Boolean).join(' · ');
+    const b = actButton('btn', 'event', ev.id, opt.label(p, ev.d, c) + (tags && !opt.label(p, ev.d, c).includes('$') ? ` (${tags})` : ''));
+    b.dataset.o = String(i);
+    b.disabled = (opt.ap && state.ap < opt.ap) || cost > state.agencyCash;
+    actions.append(b);
+  });
+  card.append(actions);
   return card;
 }
 
 function renderClients(root) {
   root.append(el('h1', 'title', '내 선수'),
     el('p', 'sub', `${state.clients.length}/${CLIENT_LIMIT}명 · 주간 수수료 ${cash(weeklyIncome())} · 운영비 ${cash(upkeepNow())}`));
+  // 소식 카드를 못 그리면(잘못된 데이터) 그 소식만 버리고 화면은 계속 그림
+  const cards = [];
+  for (const ev of [...state.events]) {
+    try {
+      cards.push(newsCard(ev));
+    } catch (e) {
+      console.warn('소식을 그리지 못해 버립니다:', ev.type, e.message);
+      state.events = state.events.filter(x => x !== ev);
+    }
+  }
+  if (cards.length) root.append(el('h2', 'section', `이번 주 소식 ${cards.length}건`), ...cards);
   const latest = el('div', 'latest');
   state.logs.slice(0, 2).forEach(line => latest.append(el('span', '', line)));
   if (state.logs.length) root.append(latest);
@@ -886,12 +1291,11 @@ function renderClients(root) {
 
 // 리그: 국가 → 부 → 구단 → 선수
 function clubAverage(club) {
-  let sum = 0;
-  for (let k = 0; k < SQUAD; k++) sum += getPlayer(club.id * SQUAD + k).ability;
-  return sum / SQUAD;
+  const slots = clubSlots(club);
+  return slots.reduce((n, s) => n + getPlayer(s).ability, 0) / slots.length;
 }
 
-const clientCountIn = club => state.clients.filter(c => Math.floor(c.s / SQUAD) === club.id).length;
+const clientCountIn = club => state.clients.filter(c => clubOf(c.s) === club).length;
 
 function rowButton(act, value, label, sub, badge) {
   const main = el('span', 'row-main');
@@ -908,7 +1312,7 @@ function renderWorld(root) {
     for (const region of REGIONS) {
       const list = el('div', 'list');
       for (const c of COUNTRIES.filter(x => x.region === region)) {
-        const mine = state.clients.filter(cl => CLUBS[Math.floor(cl.s / SQUAD)].country === c).length;
+        const mine = state.clients.filter(cl => clubOf(cl.s).country === c).length;
         list.append(rowButton('country', c.i, c.name, `${c.tiers.length}부 · ${c.clubs.flat().length}팀`, mine ? `내 선수 ${mine}` : ''));
       }
       root.append(el('h2', 'section', region), list);
@@ -942,15 +1346,14 @@ function renderWorld(root) {
 }
 
 function renderClub(root, club) {
+  const slots = clubSlots(club);
   root.append(actButton('back', 'up', undefined, `← ${leagueName(club.country, club.t)}`), el('h1', 'title', club.name),
-    el('p', 'sub', `${leagueName(club.country, club.t)} · 선수 ${SQUAD}명 · 평균 능력 ${clubAverage(club).toFixed(0)} · 선수를 누르면 상세`));
+    el('p', 'sub', `${leagueName(club.country, club.t)} · 선수 ${slots.length}명 · 평균 능력 ${clubAverage(club).toFixed(0)} · 선수를 누르면 상세`));
   const now = absWeek();
-  const mine = new Map(state.clients.map(c => [c.s, c]));
-  const players = Array.from({ length: SQUAD }, (_, k) => getPlayer(club.id * SQUAD + k))
-    .sort((a, b) => POS_ORDER[a.pos] - POS_ORDER[b.pos] || b.ability - a.ability);
+  const players = slots.map(getPlayer).sort((a, b) => POS_ORDER[a.pos] - POS_ORDER[b.pos] || b.ability - a.ability);
   const list = el('div', 'list');
   for (const p of players) {
-    const client = mine.get(p.s);
+    const client = clientOf(p.s);
     const row = actButton(client ? 'player mine' : 'player', 'player', p.s);
     const top = el('span', 'player-top');
     top.append(posTag(p.pos), el('strong', 'name', p.name), el('span', 'player-age', `${ageOf(p)}세 · ${p.nat.name}`));
@@ -964,10 +1367,35 @@ function renderClub(root, club) {
   root.append(list);
 }
 
-// 선수 상세: 소속이면 해지, 아니면 영입 제안
+// 소속 선수 상세: 면담, 재계약 협상, 해지
+function clientActions(box, c, p) {
+  box.append(el('p', 'sub', isFreeAgent(c)
+    ? '계약이 끝나 무소속입니다. 재계약하거나 이적 제안을 받아야 수수료가 다시 들어옵니다.'
+    : `내 수수료는 주 ${cash(commissionOf(c.wage))}(주급의 ${FEE_RATE * 100}%)입니다.`));
+  const meetMsg = meetBlock(c);
+  const meetBtn = actButton('btn primary', 'meet', c.s, `면담 (1 AP, 만족 +${MEET_GAIN})`);
+  meetBtn.disabled = Boolean(meetMsg);
+  box.append(meetBtn);
+  if (meetMsg) box.append(el('p', 'note', meetMsg));
+
+  box.append(el('h2', 'section', '재계약 협상 (1 AP)'));
+  const renewMsg = renewBlock(c);
+  if (renewMsg) box.append(el('p', 'note', renewMsg));
+  else {
+    RENEW_LEVELS.forEach((_, i) => {
+      const t = renewTerms(c, p, i);
+      const b = actButton('btn wide', 'renew', c.s, `${t.label}: 주급 ${cash(t.wage)} · 성공 ${t.chance}% · 수수료 ${cash(t.fee)}`);
+      b.dataset.o = String(i);
+      box.append(b);
+    });
+    box.append(el('p', 'sub', '성공하면 2~3시즌 계약, 만족 +10, 평판 +1. 결렬되면 만족 -8, 2주 뒤 다시 협상할 수 있습니다.'));
+  }
+  box.append(el('h2', 'section', '계약 해지'), actButton('btn danger', 'release', c.s, '계약 해지 (평판 -1)'));
+}
+
 function renderPlayer(root, s) {
   const p = getPlayer(s);
-  const client = state.clients.find(c => c.s === s);
+  const client = clientOf(s);
   const wage = client ? client.wage : weeklyWage(p.ability);
   const head = el('div', 'detail-head');
   head.append(posTag(p.pos), el('h1', 'title', p.name), el('span', 'abil', String(p.ability)));
@@ -976,12 +1404,11 @@ function renderPlayer(root, s) {
   const info = el('div', 'stats detail-stats');
   info.append(stat('잠재력', String(p.pot)), stat('폼', formNode(p)), stat('지난 시즌 평균 폼', (state.world.favg[s] / 2).toFixed(1)),
     stat('몸값', money(valueOf(p))), stat('주급', cash(wage)), stat('계약 만료', contractNode(client ? client.end : contractEnd(p, absWeek()))));
+  if (client) info.append(stat('만족', satNode(client)));
   root.append(info);
   const box = el('div', 'detail-actions');
-  if (client) {
-    box.append(el('p', 'sub', `소속 선수입니다. 내 수수료는 주 ${cash(commissionOf(wage))}(주급의 ${FEE_RATE * 100}%)입니다.`),
-      actButton('btn danger', 'release', s, '계약 해지 (평판 -1)'));
-  } else {
+  if (client) clientActions(box, client, p);
+  else {
     const block = recruitBlock(p);
     const b = actButton('btn primary', 'recruit', s, '영입 제안 (1 AP)');
     b.disabled = Boolean(block);
@@ -1012,6 +1439,7 @@ function render() {
   const root = $('view');
   root.replaceChildren();
   document.querySelectorAll('.tab').forEach(b => b.setAttribute('aria-current', b.dataset.tab === state.ui.tab ? 'page' : 'false'));
+  document.querySelector('.tab[data-tab=clients]').textContent = state.events.length ? `내 선수 (${state.events.length})` : '내 선수';
   if (state.ui.player !== null) renderPlayer(root, state.ui.player);
   else if (state.ui.tab === 'world') renderWorld(root);
   else if (state.ui.tab === 'log') renderLog(root);
@@ -1095,7 +1523,15 @@ function onPopState(e) {
   window.scrollTo(0, e.state.scroll || 0);
 }
 
-function onAction(act, v) {
+// 행동 후 같은 화면을 다시 그리고 스크롤 위치 유지
+function stay(fn) {
+  const y = window.scrollY;
+  fn();
+  render();
+  window.scrollTo(0, y);
+}
+
+function onAction(act, v, o) {
   if (act === 'export') return exportSave();
   if (act === 'backup') return exportBackup();
   if (act === 'import') return $('import-file').click();
@@ -1104,12 +1540,14 @@ function onAction(act, v) {
     if (confirm('진행 중인 게임을 지우고 새로 시작할까요? 되돌릴 수 없습니다.')) startNewGame();
     return;
   }
-  if (act === 'recruit') {
-    const y = window.scrollY;
-    recruit(v);
-    render();
-    window.scrollTo(0, y);
-    return;
+  if (act === 'recruit') return stay(() => recruit(v));
+  if (act === 'meet') return stay(() => meet(v));
+  if (act === 'renew') return stay(() => renew(v, o));
+  if (act === 'event') {
+    const go = resolveEvent(v, o);
+    saveState();
+    if (go !== null) return navigate({ player: go });
+    return stay(() => {});
   }
   if (act === 'release') {
     if (release(v)) goUp();
@@ -1124,10 +1562,11 @@ function onAction(act, v) {
 
 function bindEvents() {
   $('btn-next').addEventListener('click', () => {
-    advanceWeek();
+    const news = advanceWeek();
     render();
     if (state.over) openGameOver();
     else if (state.summary && !state.summary.seen) openSummary();
+    else if (news) toast(`새 소식 ${news}건이 있습니다. 내 선수 탭에서 답해 주세요.`);
   });
   document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => {
     if (state.ui.tab === b.dataset.tab && state.ui.player === null) {
@@ -1139,7 +1578,7 @@ function bindEvents() {
   window.addEventListener('popstate', onPopState);
   $('view').addEventListener('click', e => {
     const b = e.target.closest('[data-act]');
-    if (b && !b.disabled) onAction(b.dataset.act, b.dataset.v === undefined ? undefined : Number(b.dataset.v));
+    if (b && !b.disabled) onAction(b.dataset.act, b.dataset.v === undefined ? undefined : Number(b.dataset.v), Number(b.dataset.o));
   });
   $('summary-close').addEventListener('click', () => $('summary').close());
   $('summary').addEventListener('close', () => {
@@ -1189,6 +1628,11 @@ function runSelfCheck() {
   check(badUi.tab === 'clients' && badUi.country === null && badUi.tier === null && badUi.club === null && badUi.player === null, '잘못된 화면 위치는 기본값으로');
   const okUi = cleanUi({ tab: 'world', country: 0, tier: 3, club: CLUBS[0].id, player: 10 });
   check(okUi.country === 0 && okUi.tier === 3 && okUi.club === null && okUi.player === 10, '다른 부의 구단 번호는 버림');
+  check(Object.values(EVENT_TYPES).every(t => t.options[t.def] && t.options.every(o => typeof o.run === 'function')), '소식마다 기본 선택지가 있어야 함');
+  check(dealFee(10000) === 10400 && offerCut({ fee: 1000000, wage: 10000 }) === 30400, '계약·이적 수수료 계산');
+  const tc = { end: absWeek() + 10, sat: 70, wage: 5000 };
+  check(RENEW_LEVELS.every((_, i) => { const t = renewTerms(tc, a, i); return t.chance >= 10 && t.chance <= 95 && t.wage > 0; }), '재계약 확률은 10~95%');
+  check(renewTerms(tc, a, 0).chance >= renewTerms(tc, a, 2).chance, '많이 요구할수록 성공 확률이 낮아야 함');
 }
 
 // 화면 그리기 실패: 위치를 처음으로 돌려 다시 그림 → 그래도 안 되면 지금 세이브를 백업하고 새 게임
