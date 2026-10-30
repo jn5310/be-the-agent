@@ -2,6 +2,25 @@
 
 AI 코딩 도구가 이 리포를 이어서 작업할 때 읽는 문서입니다. 코드는 이 문서에 복사하지 않습니다. 코드는 `index.html`, `style.css`, `game.js`를 직접 읽으세요.
 
+## 0. 지금 상태 (새 세션은 여기부터)
+
+- **완료:** 1~4단계. 4단계는 PR #5(`phase4-stats-prefs`)로 리뷰 대기 중입니다. 머지되기 전이면 이 브랜치에서 이어서 작업하거나, 머지 후 `main`에서 새 브랜치를 만듭니다.
+- **사이트:** https://jn5310.github.io/be-the-agent/ (Pages가 `main`에서 자동 배포, 머지 후 1~2분)
+- **버전:** 세이브 `SAVE_VERSION = 4`, `index.html`은 `?v=5`. 다음 배포 때 `?v=6`으로 올립니다.
+- **규모:** `game.js` 약 2,100줄, 58개국 123개 리그, 구단 2,002개, 선수 48,048명.
+- **마지막 밸런스 검증 (1,000판 × 3시즌, 성실한 봇):** 재미 지표 13개 모두 목표 안 (8장 표). 할 일이 있는 주 74.2%, 재계약 70.3%, 영입 48.4%, 선수를 잃은 게임 31.1%, 파산 0%.
+
+### 다음에 할 일 (추천 순서)
+1. **자금 쓸 곳:** 법인 투자(변호사·스카우트망·사무실 확장·피지컬 코치)와 개인 아이템. 지금은 6시즌이면 자금이 약 $6.3M까지 쌓이기만 해서 가장 시급합니다. 6장 수치는 프로토타입 기준이라 그대로 쓰지 않습니다. 지금 경제에 비해 너무 싸고, 사무실 확장의 "선수 +3·AP +1"은 지금 한도(6~7명)·AP 2와 맞지 않으니 시뮬레이션으로 다시 정합니다.
+2. **유망주 찾기:** 검색, 관심 목록, 잠재력을 범위로 보여 주고 스카우트(AP)로 좁히기. 사용자가 가장 좋아하는 "유망주를 골라내는 재미"입니다.
+3. **진행 편의와 목표:** 빠른 진행(4주씩 또는 다음 소식까지), 시즌 시상, 시즌 목표·업적.
+4. **기존 큰 기획:** 고교 시찰, 경쟁 에이전시, 세계 뉴스, 60세 은퇴 엔딩.
+
+### 알려진 문제·주의
+- "할 일이 있는 주"가 74.2%로 목표 상한(75%) 근처입니다. 기능을 더하면 넘기 쉬우니, 매주 일을 늘리는 기능은 다른 곳을 줄이면서 넣습니다.
+- 유망주 위주로 하면 3시즌 안 국가대표 소집이 4%로 낮습니다(6시즌이면 29%). 유망주가 크는 데 시간이 걸리기 때문입니다.
+- 시뮬레이션 봇은 단순한 규칙이라, 숫자는 "재미의 하한선 점검"으로 보고 직접 플레이한 느낌과 함께 판단합니다.
+
 ## 1. 작업 규칙
 
 1. **게임 파일은 3개만:** `index.html`, `style.css`, `game.js`. 외부 라이브러리, CDN, 웹 폰트, 빌드 도구를 쓰지 않습니다. 오프라인에서도 그대로 동작해야 합니다. 개발용 밸런스 시뮬레이터 `tools/sim.js`(Node)는 게임에서 불러오지 않습니다.
@@ -29,7 +48,7 @@ AI 코딩 도구가 이 리포를 이어서 작업할 때 읽는 문서입니다
 
 ### 최종 목표 (이후 단계에서 구현)
 - 법인 자금과 개인 자금 분리, 배당 시 세금 15%
-- 주당 행동력 3 AP
+- 주당 행동력 AP (4단계부터 2 AP, `TUNE.ap`)
 - 이적·재계약 협상, 신규 선수 영입
 - 고교 주말리그 시찰로 유망주 발굴
 - 법인 투자(변호사, 스카우트망, 사무실 확장, 피지컬 코치)와 개인 아이템
@@ -99,7 +118,7 @@ AI 코딩 도구가 이 리포를 이어서 작업할 때 읽는 문서입니다
 | 5. 상태 | `newGame`, `newWorld`, `pickStartingClients`, `addLog` |
 | 6. 주간 진행 | `advanceWeek`, `checkDebt`, `endSeason`, 영입·해지(`recruitChance`, `recruitCost`, `recruitBlock`, `recruit`, `release`) |
 | 6-2. 만족도·협상·소식·경기 | `TUNE`, `clientLimit`, `gainRep`, 일정(`leagueGames`, `compRun`, `weekGames`), 경기(`playMatch`, `worldStats`, `playClientWeek`), 국가대표(`computeNatCut`, `natCutFrom`), 성향(`prefsOf`, `fitChecks`, `fitScore`, `consentChance`), `meet`, `renewTerms`, `renew`, `makeOffer`, `acceptOffer`, `transfer`, `keepClient`, `EVENT_TYPES`, `resolveEvent`, `weeklyClients` |
-| 7. 저장·불러오기 | `serialize`/`deserialize`(검증, v1 변환), `fillWages`, `saveState`, `loadState`, `exportSave`, `importSave` |
+| 7. 저장·불러오기 | `serialize`/`deserialize`(검증, v1~v3 변환), `cleanUi`, `backupSave`, `fillWages`, `saveState`, `loadState`, `exportSave`, `exportBackup`, `importSave` |
 | 8. 화면 | `render`, `renderClients`, `newsCard`, `checkList`, `renderWorld`, `renderClub`, `renderPlayer`, `statsTable`, `careerTable`, `prefsBlock`, `renewPanel`, `clientActions`, `renderLog`, `openSummary`, `openGameOver`, `navigate`, `goUp`, `bindEvents` |
 | 9. 자가 검증 | `runSelfCheck`, `boot` |
 
