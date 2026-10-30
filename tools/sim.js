@@ -49,7 +49,8 @@ function loadGame() {
     return { get state() { return state; }, TUNE, SLOTS, EVENT_TYPES, RENEW_LEVELS, RENEW_YEARS, newGame, advanceWeek, getPlayer, ageOf, valueOf,
       weeklyWage, commissionOf, clientIncome, clientLimit, recruit, recruitBlock, recruitChance, recruitCost, renew, renewBlock, renewTerms,
       meet, meetBlock, resolveEvent, offerFit, offerCut, counterChance, clientOf, absWeek,
-      INVEST_KEYS, ITEMS, investSteps, investUpkeep, upkeepNow, weeklySpend, invest, downgrade, dividendRoom, afterTax, payDividend, inject, buyItem, netWorth };`);
+      INVEST_KEYS, ITEMS, investSteps, investUpkeep, upkeepNow, weeklySpend, invest, downgrade, dividendRoom, afterTax, payDividend, inject, buyItem, netWorth,
+      potRange, scout, scoutBlock, toggleWatch, cooldownKey };`);
   return factory(...Object.values(stubs));
 }
 
@@ -99,20 +100,26 @@ function bestRenew(G, c, p) {
   return best;
 }
 
-// 영입 대상: 무작위 250명 중 전략 점수가 가장 높은 선수
-function pickTarget(G, bot) {
+// 영입 대상: 무작위 250명(+ 관심 목록) 중 전략 점수가 가장 높은 선수
+// 유망주 봇은 진짜 잠재력을 모르고 보이는 범위만 씀: optimistic이면 범위 위쪽, 아니면 가운데로 점수를 매김
+function pickTarget(G, bot, optimistic, skip, forScout) {
   let best = null;
   let bestScore = 0;
-  for (let k = 0; k < 250; k++) {
-    const s = Math.floor(Math.random() * G.SLOTS);
+  const pool = Array.from({ length: 250 }, () => Math.floor(Math.random() * G.SLOTS));
+  if (bot === 'youth') for (const key of G.state.watch) pool.push(Number(key.split('-')[0]));
+  for (const s of pool) {
+    if (skip && skip.has(s)) continue;
     const p = G.getPlayer(s);
-    if (G.recruitBlock(p)) continue;
+    if (forScout ? G.scoutBlock(p) : G.recruitBlock(p)) continue; // 스카우트용이면 한도가 차도 고름
     const age = G.ageOf(p);
     const chance = G.recruitChance(p) / 100;
     const gain = G.commissionOf(G.weeklyWage(p.ability)) - 50;
     let score;
-    if (bot === 'youth') score = age <= 21 && p.pot - p.ability >= 10 ? chance * (p.pot - 40) : 0;
-    else if (bot === 'veteran') score = age >= 26 ? chance * gain : 0;
+    if (bot === 'youth') {
+      const [lo, hi] = G.potRange(p);
+      const pot = optimistic ? hi : (lo + hi) / 2;
+      score = age <= 21 && pot - p.ability >= 10 ? chance * (pot - 40) : 0;
+    } else if (bot === 'veteran') score = age >= 26 ? chance * gain : 0;
     else score = chance * (gain + G.valueOf(p) * 0.0005) - G.recruitCost(p) / 52;
     if (score > bestScore) {
       bestScore = score;
@@ -120,6 +127,62 @@ function pickTarget(G, bot) {
     }
   }
   return best;
+}
+
+// 유망주 봇: 진짜 잠재력은 모르고 보이는 범위만 씀
+// 1) 자리가 있으면: 범위 위쪽으로 가장 좋아 보이는 후보를 고르고, 범위가 넓으면(폭 4 초과) 스카우트, 좁으면 가운데 값으로 판단해 영입
+// 2) 자리가 없어도 남는 AP로 주 1번: 확인된 유망주(폭 4 이하, 가운데 값이 능력 +10 이상)가 관심 목록에 6명보다 적으면 스카우트
+//    좁혀 보니 기대보다 낮은 선수는 관심 목록에서 뺌
+function youthRecruit(G, m) {
+  const st = G.state;
+  const useScout = !workerData.noScout;
+  const skip = new Set();
+  let scouted = false;
+  const mid = p => G.potRange(p).reduce((a, b) => a + b) / 2;
+  const narrow = p => G.potRange(p)[1] - G.potRange(p)[0] <= 4;
+  const good = p => mid(p) - p.ability >= 10;
+  const doScout = s => {
+    G.scout(s);
+    m.scouts += 1;
+    scouted = true;
+    if (!st.watch.includes(G.cooldownKey(G.getPlayer(s))) && st.watch.length < G.TUNE.watchMax) G.toggleWatch(s);
+  };
+  for (let tries = 0; tries < 8 && st.ap > 0 && st.clients.length < G.clientLimit() && st.agencyCash > 2000; tries++) {
+    // 스카우트할 사람은 범위 위쪽으로(좋을 수도 있는 선수), 영입할 사람은 범위 가운데로 고름 (위쪽으로 고르면 운 좋게 넓은 범위만 뽑힘)
+    if (useScout && st.ap >= 2) {
+      const t = pickTarget(G, 'youth', true, skip);
+      if (t !== null && !narrow(G.getPlayer(t)) && !G.scoutBlock(G.getPlayer(t))) {
+        doScout(t);
+        continue;
+      }
+    }
+    const s = pickTarget(G, 'youth', false, skip);
+    if (s === null) break;
+    const p = G.getPlayer(s);
+    if (!good(p)) {
+      if (st.watch.includes(G.cooldownKey(p))) G.toggleWatch(s);
+      skip.add(s);
+      continue;
+    }
+    m.recruitTry += 1;
+    if (G.ageOf(p) <= 21) {
+      m.youthTry += 1;
+      m.youthPotSum += p.pot;
+      m.youthMissSum += Math.abs(p.pot - mid(p));
+    }
+    G.recruit(s);
+  }
+  if (!useScout || st.ap < 1) return scouted;
+  const watched = st.watch.map(key => G.getPlayer(Number(key.split('-')[0])));
+  for (const p of watched) if (narrow(p) && !good(p)) G.toggleWatch(p.s);
+  if (watched.filter(p => narrow(p) && good(p)).length >= 6) return scouted;
+  let target = watched.find(p => st.watch.includes(G.cooldownKey(p)) && !narrow(p) && !G.scoutBlock(p));
+  if (!target) {
+    const s = pickTarget(G, 'youth', true, skip, true);
+    target = s === null ? null : G.getPlayer(s);
+  }
+  if (target) doScout(target.s);
+  return scouted;
 }
 
 function botWeek(G, bot, m) {
@@ -152,6 +215,12 @@ function botWeek(G, bot, m) {
         acted = true;
       }
     }
+  }
+  if (bot === 'youth') {
+    const tries0 = m.recruitTry;
+    if (youthRecruit(G, m)) m.scoutWeeks += 1;
+    if (m.recruitTry > tries0) acted = true;
+    return acted;
   }
   while (st.ap > 0 && st.clients.length < G.clientLimit() && st.agencyCash > 2000) {
     const s = pickTarget(G, bot);
@@ -224,7 +293,8 @@ function playGame(G, bot, seasons) {
   G.newGame();
   const st = G.state;
   const m = { weeks: 0, decisionWeeks: 0, news: 0, overload: 0, apUsed: 0, offers: 0, consentSum: 0, recruitTry: 0, firstTransfer: 0, bankrupt: 0,
-    firstInvest: 0, investSpent: 0, upkeepPaid: 0, taxPaid: 0, itemSpent: 0, downgrades: 0, deficitWeeks: 0, buyWeek: {} };
+    firstInvest: 0, investSpent: 0, upkeepPaid: 0, taxPaid: 0, itemSpent: 0, downgrades: 0, deficitWeeks: 0, buyWeek: {},
+    scouts: 0, scoutWeeks: 0, busyWithScout: 0, youthTry: 0, youthPotSum: 0, youthMissSum: 0 };
   const signed0 = st.stats.signed;
   for (let w = 0; w < seasons * 52; w++) {
     const news = st.events.length;
@@ -232,8 +302,10 @@ function playGame(G, bot, seasons) {
     if (news >= 3) m.overload += 1;
     const ap0 = st.ap;
     const transfers0 = st.stats.transfers;
+    const scoutWeeks0 = m.scoutWeeks;
     const acted = botWeek(G, bot, m);
     if (acted || news) m.decisionWeeks += 1;
+    if (acted || news || m.scoutWeeks > scoutWeeks0) m.busyWithScout += 1; // 스카우트(하고 싶을 때 하는 일)까지 넣으면
     m.apUsed += ap0 - st.ap;
     botMoney(G, bot, m);
     // 투자 유지비 때문에 적자가 난 주 (투자가 없었으면 흑자)
@@ -265,8 +337,15 @@ function playGame(G, bot, seasons) {
     downgrades: m.downgrades,
     buyWeek: m.buyWeek
   } : {};
+  const scouting = bot === 'youth' ? {
+    scoutsPerSeason: m.scouts / Math.max(1, m.weeks / 52),
+    busyWithScout: (m.busyWithScout / m.weeks) * 100,
+    youthPot: m.youthTry ? m.youthPotSum / m.youthTry : null,   // 영입하려 한 21세 이하의 진짜 잠재력 평균
+    youthMiss: m.youthTry ? m.youthMissSum / m.youthTry : null  // 그때 보이던 범위 가운데와 진짜 잠재력의 차이
+  } : {};
   return {
     ...money,
+    ...scouting,
     earned: spent + saved,
     personal: st.personalCash,
     netWorth: G.netWorth(),
@@ -314,6 +393,7 @@ const seasons = Number(arg('seasons', 3));
 const tune = JSON.parse(arg('tune', '{}'));
 const bots = args.includes('--all') ? ['attentive', 'youth', 'veteran', 'careless', 'passive'] : [arg('bot', 'attentive')];
 const noMoney = args.includes('--no-money');           // 투자·배당·아이템을 하지 않는 봇과 비교
+const noScout = args.includes('--no-scout');           // 유망주 봇이 스카우트 없이 보이는 범위만 보고 영입
 const order = arg('order', '') ? arg('order').split(',') : null; // 이 투자만, 이 순서로 (예: --order lawyer)
 const G0 = loadGame(); // 결과 표시용 (TUNE·아이템 목록)
 Object.assign(G0.TUNE, tune);
@@ -322,7 +402,7 @@ function runBot(bot) {
   const workers = Math.min(os.cpus().length, games);
   const per = Array.from({ length: workers }, (_, i) => Math.floor(games / workers) + (i < games % workers ? 1 : 0));
   return Promise.all(per.map(n => new Promise((resolve, reject) => {
-    const w = new Worker(__filename, { workerData: { games: n, bot, seasons, tune, noMoney, order } });
+    const w = new Worker(__filename, { workerData: { games: n, bot, seasons, tune, noMoney, noScout, order } });
     w.on('message', resolve);
     w.on('error', reject);
   }))).then(parts => parts.flat());
@@ -360,6 +440,9 @@ const median = (rows, key) => {
       };
       const keys = Object.keys(G0.TUNE).filter(k => k.endsWith('Lv')).flatMap(k => G0.TUNE[k].map((_, i) => `${k.slice(0, -2)}${i + 1}`));
       console.log(`    산 시점 중앙값(시즌): ${keys.map(k => `${k} ${when(k)}`).join(', ')} | ${G0.ITEMS.map(([id]) => `${id} ${when(id)}`).join(', ')}`);
+    }
+    if (rows[0].scoutsPerSeason !== undefined) {
+      console.log(`    스카우트: 시즌당 ${mean(rows, 'scoutsPerSeason').toFixed(1)}번, 스카우트까지 넣은 할 일 있는 주 ${mean(rows, 'busyWithScout').toFixed(1)}%, 영입하려 한 21세 이하 진짜 잠재력 평균 ${mean(rows, 'youthPot').toFixed(1)} (보이던 범위 가운데와 차이 ${mean(rows, 'youthMiss').toFixed(1)})`);
     }
     console.log(`    중앙값: 번 돈 $${Math.round(median(rows, 'earned')).toLocaleString()}, 법인 자금 $${Math.round(median(rows, 'cash')).toLocaleString()}, 개인 자산 $${Math.round(median(rows, 'netWorth')).toLocaleString()}, 주 수입 $${Math.round(median(rows, 'income')).toLocaleString()}`);
   }

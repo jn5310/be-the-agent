@@ -4,7 +4,7 @@
 // ===== 1. 상수와 세계 데이터 =====
 const SAVE_KEY = 'be-the-agent:save';
 const BACKUP_KEY = 'be-the-agent:save:backup'; // 읽지 못한 세이브를 지우지 않고 보관
-const SAVE_VERSION = 5;
+const SAVE_VERSION = 6;
 const WEEKS = 52;
 const SQUAD = 24;
 const WORLD_SEED = 20261030; // 구단 이름·전력은 모든 게임에서 같게 고정
@@ -389,7 +389,7 @@ function newGame() {
   state = {
     version: SAVE_VERSION, seed, season: 1, week: 1,
     agencyCash: START_CASH, rep: START_REP, ap: TUNE.ap, debtWeeks: 0, over: false,
-    personalCash: 0, invest: newInvest(), items: [],
+    personalCash: 0, invest: newInvest(), items: [], scouted: {}, watch: [],
     clients: [], cooldowns: {}, logs: [], summary: null, moved: {}, events: [], nextEventId: 1,
     natCut: {}, stats: newCareerStats(),
     ui: { ...DEFAULT_UI },
@@ -456,7 +456,7 @@ function addLog(text) {
 // ===== 6. 주간 진행 =====
 const cash = v => `${v < 0 ? '-' : ''}$${Math.abs(Math.round(v)).toLocaleString('en-US')}`;
 const signedCash = v => (v >= 0 ? `+${cash(v)}` : cash(v));
-const cooldownKey = p => `${p.s}-${p.g}`;
+const cooldownKey = p => `${p.s}-${p.g}`; // 슬롯-세대 키: 영입 대기·스카우트 기록·관심 목록에 같이 씀
 
 function advanceWeek() {
   if (state.over) return;
@@ -562,6 +562,7 @@ function endSeason() {
       retired += 1;
     }
   }
+  dropRetiredKeys();
 
   const rows = [];
   let valueFrom = 0;
@@ -621,11 +622,14 @@ function recruit(s) {
   state.agencyCash -= cost;
   if (Math.random() * 100 < recruitChance(p)) {
     const gain = 1 + Math.floor((p.ability - 40) / 15);
+    const [lo, hi] = potRange(p); // 계약하면 잠재력을 정확히 알게 됨
     state.clients.push(newClient(p, contractEnd(p, absWeek()), 75));
+    state.watch = state.watch.filter(k => k !== cooldownKey(p));
     state.stats.signed += 1;
     const got = gainRep(gain);
-    addLog(`${p.name} 영입 성공 (비용 ${cash(cost)}, 평판 +${got})`);
-    toast(`${p.name} 선수와 계약했습니다.`);
+    const reveal = lo === hi ? '' : ` 잠재력은 ${p.pot}였습니다 (보이던 범위 ${lo}~${hi}).`;
+    addLog(`${p.name} 영입 성공 (비용 ${cash(cost)}, 평판 +${got}).${reveal}`);
+    toast(lo === hi ? `${p.name} 선수와 계약했습니다.` : `${p.name} 선수와 계약했습니다. 잠재력은 ${p.pot}입니다.`);
   } else {
     state.cooldowns[cooldownKey(p)] = absWeek() + RETRY_WEEKS;
     addLog(`${p.name} 영입 실패 (비용 ${cash(cost)}). ${RETRY_WEEKS}주 뒤 다시 제안할 수 있습니다.`);
@@ -670,7 +674,10 @@ const TUNE = {
   officeLv: [[400000, 1800]], officeLimit: [0, 1],
   // 개인 아이템 가격·평판 (ITEMS 순서), 배당 세금, 배당할 때 법인에 남기는 운영 자금(주)
   itemPrice: [5000, 25000, 100000, 400000, 1500000, 6000000], itemRep: [1, 1, 2, 2, 3, 4],
-  tax: 0.15, reserveWeeks: 4
+  tax: 0.15, reserveWeeks: 4,
+  // 6단계 유망주 찾기: 스카우트 횟수별 잠재력 범위 폭(마지막 0 = 정확히 앎), 스카우트망 단계별로 이미 스카우트한 것처럼 치는 횟수,
+  // 범위로 보이는 나이(이보다 많으면 다 자라서 정확히 보임), 관심 목록 인원, 찾기 결과 수, 찾기에 넣는 최소 영입 확률
+  potWidth: [16, 8, 4, 0], scoutKnow: [0, 1, 1, 2], potAgeMax: 23, scoutMax: 300, watchMax: 20, findMax: 20, findChance: 20
 };
 // 평판 오르는 양은 평판이 높을수록 줄어듦 (30시즌 커리어 동안 천천히 오르게). 소수점은 확률로 반올림
 function gainRep(n) {
@@ -1156,7 +1163,7 @@ const EVENT_TYPES = {
     def: 1
   },
   tip: {
-    text: p => `${state.invest.scout ? '스카우트망이' : '아는 스카우트가'} ${p.club.name}의 ${ageOf(p)}세 ${p.pos} ${p.name}(능력 ${p.ability}, 잠재력 ${p.pot})를 추천했습니다.`,
+    text: p => `${state.invest.scout ? '스카우트망이' : '아는 스카우트가'} ${p.club.name}의 ${ageOf(p)}세 ${p.pos} ${p.name}(능력 ${p.ability}, 잠재력 ${potText(p)})를 추천했습니다. 보고서가 함께 와서 범위가 한 단계 좁습니다.`,
     options: [
       { label: () => '선수를 보러 간다', go: true, run: (c, p) => `${p.name} 선수를 살펴봅니다.` },
       { label: () => '넘긴다', run: () => '' }
@@ -1296,6 +1303,9 @@ function weeklyClients() {
     const s = findTip();
     if (s !== null) {
       pushEvent('tip', s);
+      // 추천에는 스카우트 보고서 1번이 함께 옴
+      const key = cooldownKey(getPlayer(s));
+      state.scouted[key] = Math.max(state.scouted[key] || 0, 1);
       added += 1;
     }
   }
@@ -1306,7 +1316,7 @@ function weeklyClients() {
 // 법인 투자: 단계별 [도입비, 주간 유지비]는 TUNE[키 + 'Lv'], 효과 숫자는 TUNE의 효과 배열
 const INVEST_TYPES = {
   lawyer: { name: '변호사', desc: '계약서를 꼼꼼히 봐서 같은 조건에서 돈을 더 받아냅니다.', fx: lv => `재계약 주급 +${Math.round(TUNE.lawyerWage[lv] * 100)}% · 이적 "더 요구" 성공 +${TUNE.lawyerCounter[lv]}%p` },
-  scout: { name: '스카우트망', desc: '선수 정보를 넓게 모아 영입이 쉬워집니다.', fx: lv => `영입 성공 +${TUNE.scoutRecruit[lv]}%p · 유망주 추천은 후보 ${TUNE.scoutTips[lv]}명 중 잠재력이 가장 높은 선수` },
+  scout: { name: '스카우트망', desc: '선수 정보를 넓게 모아 영입이 쉬워집니다.', fx: lv => `영입 성공 +${TUNE.scoutRecruit[lv]}%p · 처음 보이는 잠재력 범위 폭 ${TUNE.potWidth[TUNE.scoutKnow[lv]]} · 유망주 추천은 후보 ${TUNE.scoutTips[lv]}명 중 잠재력이 가장 높은 선수` },
   coach: { name: '피지컬 코치', desc: '소속 선수의 몸을 따로 관리합니다.', fx: lv => `시즌 말 성장 +${Math.round(TUNE.coachGrow[lv] * 100)}% · 30대 하락을 ${Math.round(TUNE.coachAge[lv] * 100)}% 확률로 1 줄임 · 부상 소식 -${Math.round(TUNE.coachInjury[lv] * 100)}%` },
   office: { name: '사무실 확장', desc: '직원을 늘려 선수를 더 맡습니다. 맡은 선수가 늘면 할 일도 늘어납니다.', fx: lv => `소속 한도 +${TUNE.officeLimit[lv]}명` }
 };
@@ -1407,6 +1417,93 @@ function buyItem(i) {
   saveState();
 }
 
+// ===== 6-4. 유망주 찾기: 잠재력 범위·스카우트·관심 목록 (6단계) =====
+// 스카우트 횟수: 직접 보낸 횟수 + 스카우트망 단계만큼 이미 본 것으로 침
+const scoutCount = p => (state.scouted[cooldownKey(p)] || 0) + TUNE.scoutKnow[state.invest.scout];
+
+// 잠재력 범위 [아래, 위]. 소속 선수와 다 자란 선수(TUNE.potAgeMax 초과)는 정확히 보임
+// 진짜 잠재력이 범위 어디쯤인지는 선수마다 시드로 정해져 다시 봐도 같고, 스카우트할 때마다 이전 범위 안에서 좁아짐
+function potRange(p, count = scoutCount(p)) {
+  const n = Math.min(count, TUNE.potWidth.length - 1);
+  if (!TUNE.potWidth[n] || clientOf(p.s) || ageOf(p) > TUNE.potAgeMax) return [p.pot, p.pot];
+  const r = rng(hash(state.seed, p.s, p.g, 53));
+  let lo = p.pot - Math.floor(r() * (TUNE.potWidth[0] + 1));
+  let hi = lo + TUNE.potWidth[0];
+  for (let i = 1; i <= n; i++) {
+    const w = TUNE.potWidth[i];
+    const min = Math.max(lo, p.pot - w);
+    const max = Math.min(p.pot, hi - w);
+    lo = min + Math.floor(r() * (max - min + 1));
+    hi = lo + w;
+  }
+  return [Math.max(lo, p.ability), Math.min(hi, 95)];
+}
+function potText(p) {
+  const [lo, hi] = potRange(p);
+  return lo === hi ? String(lo) : `${lo}~${hi}`;
+}
+
+function scoutBlock(p) {
+  if (state.over) return '파산한 게임입니다';
+  if (clientOf(p.s)) return '소속 선수라 잠재력을 정확히 압니다';
+  const [lo, hi] = potRange(p);
+  if (lo === hi) return '잠재력을 이미 정확히 압니다';
+  if (state.ap < 1) return '이번 주 행동력(AP)을 다 썼습니다';
+  return '';
+}
+
+// 스카우트 보내기: 1 AP, 잠재력 범위가 한 단계 좁아짐 (기록은 최근 TUNE.scoutMax명)
+function scout(s) {
+  const p = getPlayer(s);
+  const block = scoutBlock(p);
+  if (block) return toast(block);
+  state.ap -= 1;
+  const key = cooldownKey(p);
+  const n = (state.scouted[key] || 0) + 1;
+  delete state.scouted[key]; // 다시 넣어 가장 최근으로
+  state.scouted[key] = n;
+  const keys = Object.keys(state.scouted);
+  for (const old of keys.slice(0, Math.max(0, keys.length - TUNE.scoutMax))) delete state.scouted[old];
+  const text = potText(p);
+  addLog(`${p.name} 스카우트 보고서: 잠재력 ${text}`);
+  toast(`스카우트 보고서: 잠재력 ${text}`);
+  saveState();
+}
+
+// 관심 목록: 슬롯-세대 키로 저장 (은퇴하면 시즌 말에 빠지고, 영입하면 빠짐)
+function toggleWatch(s) {
+  const key = cooldownKey(getPlayer(s));
+  if (state.watch.includes(key)) state.watch = state.watch.filter(k => k !== key);
+  else if (state.watch.length >= TUNE.watchMax) return toast(`관심 선수는 ${TUNE.watchMax}명까지 둘 수 있습니다`);
+  else state.watch.push(key);
+  saveState();
+}
+
+// 은퇴해서 다른 선수가 들어온 슬롯의 스카우트 기록·관심 표시를 지움
+function dropRetiredKeys() {
+  const live = key => {
+    const [s, g] = key.split('-').map(Number);
+    return state.world.gen[s] === g;
+  };
+  for (const key of Object.keys(state.scouted)) if (!live(key)) delete state.scouted[key];
+  state.watch = state.watch.filter(live);
+}
+
+// 유망주 찾기: 나이·포지션으로 거르고, 보이는 잠재력의 위쪽이 높은 순으로 (진짜 잠재력은 쓰지 않음)
+// 소속 선수와 영입 확률이 TUNE.findChance% 미만인 선수는 뺌
+function findProspects(maxAge, pos) {
+  const out = [];
+  for (let s = 0; s < SLOTS; s++) {
+    if ((pos && POS_BY_SLOT[s % SQUAD] !== pos) || slotAge(s) > maxAge || clientOf(s)) continue;
+    const p = getPlayer(s);
+    if (recruitChance(p) < TUNE.findChance) continue;
+    const [lo, hi] = potRange(p);
+    out.push({ s, lo, hi });
+  }
+  out.sort((a, b) => b.hi - a.hi || b.lo - a.lo);
+  return out.slice(0, TUNE.findMax).map(x => x.s);
+}
+
 // ===== 7. 저장·불러오기 =====
 // 세계 배열은 36진수 고정폭 문자열로 압축 저장 [키, 폭, 형식, 보정값]
 const PACK = [['form', 1, Uint8Array, 0], ['delta', 1, Int8Array, 1], ['fsum', 2, Uint16Array, 0],
@@ -1434,11 +1531,11 @@ function serialize() {
   return JSON.stringify({ ...state, slots: SLOTS, world });
 }
 
-// 예전(v1~v4) 세이브도 읽음: 없는 값은 기본값(성장치 0, 만족 70, 투자 0단계 등), 주급은 불러온 뒤 채움
+// 예전(v1~v5) 세이브도 읽음: 없는 값은 기본값(성장치 0, 만족 70, 투자 0단계, 스카우트 기록 없음 등), 주급은 불러온 뒤 채움
 function deserialize(text) {
   const d = JSON.parse(text);
   const int = v => Number.isInteger(v);
-  if (!d || ![1, 2, 3, 4, SAVE_VERSION].includes(d.version)) throw new Error('지원하지 않는 버전입니다');
+  if (!d || ![1, 2, 3, 4, 5, SAVE_VERSION].includes(d.version)) throw new Error('지원하지 않는 버전입니다');
   if (d.slots !== SLOTS) throw new Error('세계 구성이 다른 세이브입니다');
   if (!int(d.seed) || !int(d.season) || d.season < 1 || !int(d.week) || d.week < 1 || d.week > WEEKS) throw new Error('날짜 정보가 올바르지 않습니다');
   if (!Number.isFinite(d.agencyCash) || !Number.isFinite(d.rep) || !Array.isArray(d.logs)) throw new Error('기본 정보가 올바르지 않습니다');
@@ -1480,6 +1577,13 @@ function deserialize(text) {
   const invest = newInvest();
   if (d.invest && typeof d.invest === 'object') for (const key of INVEST_KEYS) if (int(d.invest[key])) invest[key] = clamp(d.invest[key], 0, investSteps(key).length);
   const items = Array.isArray(d.items) ? ITEMS.map(([id]) => id).filter(id => d.items.includes(id)) : [];
+  // 6단계: 스카우트 기록 {"슬롯-세대": 횟수}, 관심 목록 ["슬롯-세대"] (모양이 맞는 것만, 개수 제한)
+  const keyOk = key => typeof key === 'string' && /^\d+-\d+$/.test(key) && Number(key.split('-')[0]) < SLOTS;
+  const scouted = {};
+  if (d.scouted && typeof d.scouted === 'object') {
+    for (const [key, n] of Object.entries(d.scouted).slice(-TUNE.scoutMax)) if (keyOk(key) && int(n) && n > 0) scouted[key] = Math.min(n, TUNE.potWidth.length);
+  }
+  const watch = Array.isArray(d.watch) ? [...new Set(d.watch.filter(keyOk))].slice(0, TUNE.watchMax) : [];
   // 알려진 필드만 옮김 (모르는 값이 상태에 섞이지 않게)
   return {
     version: SAVE_VERSION, seed: d.seed, season: d.season, week: d.week,
@@ -1487,7 +1591,7 @@ function deserialize(text) {
     ap: int(d.ap) ? clamp(d.ap, 0, TUNE.ap) : TUNE.ap,
     debtWeeks: int(d.debtWeeks) ? clamp(d.debtWeeks, 0, DEBT_LIMIT) : 0,
     over: d.over === true,
-    personalCash: Number.isFinite(d.personalCash) ? Math.max(0, d.personalCash) : 0, invest, items,
+    personalCash: Number.isFinite(d.personalCash) ? Math.max(0, d.personalCash) : 0, invest, items, scouted, watch,
     clients: d.clients.map(c => ({
       s: c.s, g: c.g, end: c.end, wage: Number.isFinite(c.wage) ? c.wage : null,
       sat: Number.isFinite(c.sat) ? clamp(Math.round(c.sat), 0, 100) : TUNE.satStart, met: intOr(c.met, 0), negUntil: intOr(c.negUntil, 0), warned: intOr(c.warned, 0),
@@ -1719,7 +1823,7 @@ function clientCard(c) {
   if (isNationalPick(p)) top.append(el('span', 'badge mine', '국가대표'));
   top.append(el('span', 'abil', String(p.ability)));
   const stats = el('span', 'stats');
-  stats.append(stat('잠재력', String(p.pot)), stat('폼', formNode(p)), stat('몸값', money(valueOf(p))), stat('계약 만료', contractNode(c.end)));
+  stats.append(stat('잠재력', potText(p)), stat('폼', formNode(p)), stat('몸값', money(valueOf(p))), stat('계약 만료', contractNode(c.end)));
   const foot = el('span', 'card-foot');
   foot.append(satNode(c), isFreeAgent(c) ? ' · 무소속: 수수료 없음' : ` · 주급 ${cash(c.wage)} · 내 수수료 주 ${cash(commissionOf(c.wage))}`);
   card.append(top, el('span', 'meta', `${ageOf(p)}세 · ${p.nat.name} · ${p.club.name} · ${leagueName(p.club.country, p.club.t)}`),
@@ -1802,6 +1906,7 @@ function renderWorld(root) {
   const ui = state.ui;
   if (ui.country === null) {
     root.append(el('h1', 'title', '리그'), el('p', 'sub', `${COUNTRIES.length}개국 · ${LEAGUE_COUNT}개 리그 · 구단 ${CLUBS.length.toLocaleString('ko-KR')}개 · 선수 ${SLOTS.toLocaleString('ko-KR')}명`));
+    renderScouting(root);
     for (const region of REGIONS) {
       const list = el('div', 'list');
       for (const c of COUNTRIES.filter(x => x.region === region)) {
@@ -1847,17 +1952,61 @@ function renderClub(root, club) {
   const list = el('div', 'list');
   for (const p of players) {
     const client = clientOf(p.s);
-    const row = actButton(client ? 'player mine' : 'player', 'player', p.s);
-    const top = el('span', 'player-top');
-    top.append(posTag(p.pos), el('strong', 'name', p.name), el('span', 'player-age', `${ageOf(p)}세 · ${p.nat.name}`));
-    if (client) top.append(el('span', 'badge mine', '내 선수'));
-    top.append(el('span', 'abil', String(p.ability)));
-    const line = el('span', 'player-line');
-    line.append(`잠재 ${p.pot} · 폼 `, formNode(p), ` · ${money(valueOf(p))} · 계약 ${weekLabel(client ? client.end : contractEnd(p, now))}`);
-    row.append(top, line);
-    list.append(row);
+    list.append(playerRow(p, `계약 ${weekLabel(client ? client.end : contractEnd(p, now))}`));
   }
   root.append(list);
+}
+
+// 선수 한 줄 (구단 명단·관심 선수·찾기 결과). 누르면 상세. tail = 줄 끝에 붙는 글
+function playerRow(p, tail) {
+  const client = clientOf(p.s);
+  const row = actButton(client ? 'player mine' : 'player', 'player', p.s);
+  const top = el('span', 'player-top');
+  top.append(posTag(p.pos), el('strong', 'name', p.name), el('span', 'player-age', `${ageOf(p)}세 · ${p.nat.name}`));
+  if (client) top.append(el('span', 'badge mine', '내 선수'));
+  else if (state.watch.includes(cooldownKey(p))) top.append(el('span', 'badge', '관심'));
+  top.append(el('span', 'abil', String(p.ability)));
+  const line = el('span', 'player-line');
+  line.append(`잠재 ${potText(p)} · 폼 `, formNode(p), ` · ${money(valueOf(p))} · ${tail}`);
+  row.append(top, line);
+  return row;
+}
+
+// 리그 탭 맨 위: 관심 선수와 유망주 찾기 (찾기 조건·결과는 저장하지 않음)
+let findAge = 21;
+let findPos = '';
+let findList = null;
+const FIND_AGES = [19, 21, 23];
+const FIND_POS = ['', 'GK', 'DF', 'MF', 'FW'];
+
+function renderScouting(root) {
+  const watched = state.watch.map(key => key.split('-').map(Number)).filter(([s, g]) => state.world.gen[s] === g).map(([s]) => getPlayer(s));
+  if (watched.length) {
+    const list = el('div', 'list');
+    watched.forEach(p => list.append(playerRow(p, `${p.club.name} · 영입 ${recruitChance(p)}%`)));
+    root.append(el('h2', 'section', `관심 선수 ${watched.length}/${TUNE.watchMax}명`), list);
+  }
+  const box = el('div', 'panel');
+  box.append(el('strong', '', '유망주 찾기'),
+    el('p', 'sub', `보이는 잠재력 범위의 위쪽이 높은 순으로 ${TUNE.findMax}명을 보여 줍니다 (영입 확률 ${TUNE.findChance}% 이상만). 잠재력은 스카우트를 보내야 정확해집니다.`));
+  const ages = el('div', 'segment seg3');
+  FIND_AGES.forEach(age => ages.append(segButton('findAge', age, `${age}세 이하`, age === findAge)));
+  const poses = el('div', 'segment seg5');
+  FIND_POS.forEach((pos, i) => poses.append(segButton('findPos', i, pos || '전체', pos === findPos)));
+  box.append(ages, poses, actButton('btn wide', 'find', undefined, findList ? '다시 찾기' : '찾기'));
+  root.append(box);
+  if (findList) {
+    const list = el('div', 'list');
+    const shown = findList.map(getPlayer).filter(p => !clientOf(p.s));
+    shown.forEach(p => list.append(playerRow(p, `${p.club.name} · 영입 ${recruitChance(p)}%`)));
+    root.append(shown.length ? list : el('p', 'empty', '조건에 맞는 선수가 없습니다.'));
+  }
+}
+
+function segButton(act, value, label, on) {
+  const b = actButton(on ? 'seg on' : 'seg', act, value, label);
+  b.setAttribute('aria-pressed', String(on));
+  return b;
 }
 
 // 대회 진행 상태: 지금까지 치른 경기로 판단 (앞으로 결과는 미리 보여 주지 않음)
@@ -1970,6 +2119,24 @@ function clientActions(box, c, p) {
   box.append(el('h2', 'section', '계약 해지'), actButton('btn danger', 'release', c.s, '계약 해지 (평판 -1)'));
 }
 
+// 소속이 아닌 선수: 스카우트 보내기와 관심 목록
+function scoutActions(box, p) {
+  const [lo, hi] = potRange(p);
+  box.append(el('h2', 'section', '스카우트'));
+  if (lo === hi) box.append(el('p', 'sub', ageOf(p) > TUNE.potAgeMax ? `${TUNE.potAgeMax}세가 넘어 잠재력이 다 드러났습니다.` : '스카우트 보고서로 잠재력을 정확히 압니다.'));
+  else {
+    const left = TUNE.potWidth.length - 1 - Math.min(scoutCount(p), TUNE.potWidth.length - 1);
+    const b = actButton('btn wide option', 'scout', p.s);
+    b.append(el('span', 'opt-title', '스카우트 보내기 (1 AP)'), el('span', 'opt-sub', `지금 ${lo}~${hi} · ${left}번 더 보내면 정확히 압니다`));
+    const block = scoutBlock(p);
+    b.disabled = Boolean(block);
+    box.append(el('p', 'sub', '잠재력은 범위로만 보입니다. 스카우트를 보낼수록 좁아지고, 영입하면 정확히 압니다.'), b);
+    if (block) box.append(el('p', 'note', block));
+  }
+  const watched = state.watch.includes(cooldownKey(p));
+  box.append(actButton('btn wide', 'watch', p.s, watched ? '★ 관심 선수에서 빼기' : `☆ 관심 선수에 넣기 (${state.watch.length}/${TUNE.watchMax})`));
+}
+
 function renderPlayer(root, s) {
   const p = getPlayer(s);
   const client = clientOf(s);
@@ -1979,7 +2146,7 @@ function renderPlayer(root, s) {
   root.append(actButton('back', 'up', undefined, '← 돌아가기'), head,
     el('p', 'sub', `${ageOf(p)}세 · ${p.nat.name} · ${p.club.name} · ${leagueName(p.club.country, p.club.t)}`), abilityBar(p.ability));
   const info = el('div', 'stats detail-stats');
-  info.append(stat('잠재력', String(p.pot)), stat('폼', formNode(p)), stat('지난 시즌 평균 폼', (state.world.favg[s] / 2).toFixed(1)),
+  info.append(stat('잠재력', potText(p)), stat('폼', formNode(p)), stat('지난 시즌 평균 폼', (state.world.favg[s] / 2).toFixed(1)),
     stat('몸값', money(valueOf(p))), stat('주급', cash(wage)), stat('계약 만료', contractNode(client ? client.end : contractEnd(p, absWeek()))));
   if (client) info.append(stat('만족', satNode(client)));
   root.append(info);
@@ -1992,6 +2159,7 @@ function renderPlayer(root, s) {
   const box = el('div', 'detail-actions');
   if (client) clientActions(box, client, p);
   else {
+    scoutActions(box, p);
     const block = recruitBlock(p);
     const b = actButton('btn primary', 'recruit', s, '영입 제안 (1 AP)');
     b.disabled = Boolean(block);
@@ -2215,6 +2383,11 @@ function onAction(act, v, o) {
   if (act === 'dividend') return stay(() => payDividend(dividendAmount(v)));
   if (act === 'inject') return stay(() => inject(injectAmount(v)));
   if (act === 'item') return stay(() => buyItem(v));
+  if (act === 'scout') return stay(() => scout(v));
+  if (act === 'watch') return stay(() => toggleWatch(v));
+  if (act === 'findAge') return stay(() => ((findAge = v), (findList = findProspects(findAge, findPos))));
+  if (act === 'findPos') return stay(() => ((findPos = FIND_POS[v]), (findList = findProspects(findAge, findPos))));
+  if (act === 'find') return stay(() => (findList = findProspects(findAge, findPos)));
   if (act === 'meet') return stay(() => meet(v));
   if (act === 'renew') return stay(() => renew(v, o, renewYears || 2));
   if (act === 'renewYears') return stay(() => (renewYears = v));
@@ -2326,6 +2499,22 @@ function runSelfCheck() {
   check(afterTax(100000) === 85000 && dividendRoom() >= 0 && dividendRoom() <= Math.max(0, state.agencyCash), '배당 세금 15%, 배당 가능액은 법인 자금 안');
   check(TUNE.itemPrice.length === ITEMS.length && TUNE.itemRep.length === ITEMS.length && TUNE.itemPrice.every((v, i) => i === 0 || v > TUNE.itemPrice[i - 1]), '아이템 가격·평판은 ITEMS 순서대로');
   check(coachStep(5, 3) <= 3 && coachStep(-2, 0) >= -2 && coachStep(-2, 0) <= -1, '코치 효과는 잠재력을 넘지 않고 하락을 1까지만 줄임');
+  // 6단계: 잠재력 범위는 진짜 값을 품고, 스카우트할수록 이전 범위 안에서 좁아지고, 끝에는 정확해짐
+  let rangesOk = true;
+  for (let s = 0, tested = 0; s < SLOTS && tested < 40; s += 97) {
+    const p = getPlayer(s);
+    if (clientOf(s) || ageOf(p) > TUNE.potAgeMax) continue;
+    tested += 1;
+    let prev = [0, 99];
+    TUNE.potWidth.forEach((w, n) => {
+      const [lo, hi] = potRange(p, n);
+      if (!(lo <= p.pot && p.pot <= hi && lo >= p.ability && hi <= 95 && hi - lo <= w && lo >= prev[0] && hi <= prev[1])) rangesOk = false;
+      prev = [lo, hi];
+    });
+    if (potRange(p, 0).join() !== potRange(p, 0).join() || prev[0] !== prev[1]) rangesOk = false;
+  }
+  check(rangesOk, '잠재력 범위: 진짜 값 포함, 스카우트할수록 안쪽으로 좁아짐, 마지막은 정확');
+  check(TUNE.scoutKnow.length === TUNE.scoutLv.length + 1 && TUNE.potWidth[TUNE.potWidth.length - 1] === 0, '스카우트망 단계별 기본 스카우트 횟수, 범위 폭 마지막은 0');
 }
 
 // 화면 그리기 실패: 위치를 처음으로 돌려 다시 그림 → 그래도 안 되면 지금 세이브를 백업하고 새 게임
