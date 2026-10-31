@@ -39,6 +39,7 @@ inclusion: always
 - 글꼴에 어떤 글자가 있는지는 `fc-query --format='%{charset}' 파일.woff2`로 봅니다(woff2도 읽음). pip·npm 설치는 막혀 있어서 fontTools 같은 도구로 글꼴을 고칠 수 없고, 고치면 예약 이름 때문에 이름도 바꿔야 하니 공식 파일만 씁니다(AGENTS.md 1장 1번).
 - 이미지를 확인하는 도구는 같은 경로를 다시 읽으면 예전 이미지를 돌려줄 수 있습니다. 다시 그린 이미지는 새 이름으로 복사해서 확인합니다. 그림을 만드는 명령과 그 그림을 읽는 도구를 한 번에 부르면 병렬로 돌아 파일이 없다고 나옵니다. 따로 부릅니다.
 - `<dialog>` 시트는 올라오는 애니메이션(0.25초)이 있어서, 위치를 잴 때는 400ms쯤 기다립니다.
+- 16단계부터 화면 이동·다음 주에 움직임이 있습니다. 넘침·크기를 잴 때는 `await Promise.all(document.getAnimations().map(a => a.finished.catch(() => {})))`로 끝나기를 기다리고, 움직임과 관계없는 화면 확인은 `browser.newContext({ reducedMotion: 'reduce' })`로 엽니다. 움직임 프레임을 찍을 때는 동작 직후 `document.getAnimations().forEach(a => a.pause())`, 프레임마다 `a.currentTime = t`와 `window.__motionTick()`(자금 숫자)을 부른 뒤 찍습니다. 답한 소식 카드는 0.18초 뒤에 처리되니, 누른 뒤 결과를 볼 때는 300ms쯤 기다립니다.
 - 언어(11단계): 언어 설정이 없으면 게임이 브라우저 언어를 따릅니다. 헤드리스 Chromium은 `en-US`라서, 한국어로 확인할 때는 `browser.newContext({ locale: 'ko-KR' })`, 영어는 `locale: 'en-US'`로 엽니다.
 - 영어 화면 점검: 열린 화면·창의 글자 노드와 `aria-label`을 훑어 `[가-힣]`이 남았는지 봅니다(언어 버튼 "한국어", "Language · 언어"는 예외). 소식은 `d.v`를 0~59로 바꿔 가며 상황 글·선수의 말 변형을 모두 그려 봅니다. 한 줄이어야 하는 버튼(하단 탭)은 글자 노드의 `getClientRects()` 줄 수로 두 줄이 됐는지 봅니다(`scrollWidth`로는 줄바꿈을 못 잡음).
 - 코드에서 짝 없는 한국어 글 찾기: eslint에 들어 있는 acorn(`$(npm root -g)/eslint/node_modules/acorn`)으로 `game.js`를 읽어, `L()`·`M()`·`SAY()`의 첫 인자가 아닌 곳에 한글이 있는 문자열을 찾습니다. 주석·`console`·자가 검증 메시지·조사 도구·세계 데이터는 빼고 봅니다.
@@ -49,4 +50,7 @@ inclusion: always
 - 파일 쓰기 도구의 `/tmp`와 셸의 `/tmp`는 서로 다르고, 셸의 `/tmp`도 호출 사이에 지워질 수 있습니다. 임시 파일·실험용 복사본은 리포 밖 `/projects/sandbox/_scratch`에 두고 끝나면 지웁니다.
 - 규칙 하나의 효과를 볼 때는 `_scratch/exp/`에 `game.js`와 `tools/sim.js`를 복사해 그 규칙만 끈 판과 켠 판을 같은 판 수로 돌려 비교합니다(13단계: 낮은 수준 구단 제안, 출전 비율 성장, 재계약 주급 바닥을 하나씩 끄고 비교함). 이적이 어디서 왔는지는 실험용 `sim.js`에서 `resolveEvent` 전후 `stats.transfers`를 보고 제안 종류별로 셉니다.
 - 따옴표·백틱이 많은 `node -e` 한 줄은 깨지기 쉽습니다. 스크립트 파일로 만들어 실행합니다.
+- 특정 상태 화면 찍기(17단계): Node에서 `tools/sim.js`의 `loadGame()`처럼 `game.js`를 불러 상태를 만들고(`Math.random`을 시드로 바꾸면 같은 상태) `serialize()`한 세이브를 `context.addInitScript`로 `localStorage`에 한 번 넣고 엽니다(`sessionStorage` 표시로 새로고침 때 다시 넣지 않게). 선수 동의 같은 굴림이 화면을 바꾸면 누르기 직전 `page.evaluate`로 `Math.random`을 잠깐 고정합니다(실제 확률은 Node에서 같은 세이브로 수백 번 돌려 따로 확인). 고정된 하단 바가 카드 스크린샷을 가리면 찍는 동안만 `.bottombar{visibility:hidden}` 스타일을 넣었다 뺍니다.
+- 여러 장을 한 이미지로 묶을 때 페이지에 한글 캡션을 넣으면 헤드리스 크롬에 한글 글꼴이 없어 빈칸이 됩니다. `fonts/Pretendard-Bold.subset.woff2`를 data URL `@font-face`로 넣고 `document.fonts.ready`를 기다립니다.
+- 코드 리뷰를 하위 작업으로 나눌 때는 `git archive HEAD`로 `_scratch/review/repo`에 스냅숏을 풀어 그 사본만 읽게 합니다(같은 리포를 고치는 중이면 읽는 쪽이 고치는 중인 파일을 보지 않게).
 - 한 번에 여러 도구를 부르면 병렬로 돌 수 있습니다. "PR 본문 파일 작성 → 푸시 → PR 생성"처럼 순서가 필요한 일은 따로 부릅니다.

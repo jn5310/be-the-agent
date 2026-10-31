@@ -48,12 +48,14 @@
   --toast-bg: #101828;
   --toast-text: #ffffff;
   --bar-h: 60px;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1); /* 16단계 움직임: 빠르게 시작해 부드럽게 멈춤 */
   color-scheme: light;
 }
 
 * { box-sizing: border-box; }
 
-html { -webkit-text-size-adjust: 100%; }
+/* 16단계: 화면이 옆에서 밀려 들어올 때 가로 스크롤이 생기지 않게 (뿌리 요소의 값은 화면 전체에 적용되고 상단 바 고정은 그대로) */
+html { -webkit-text-size-adjust: 100%; overflow-x: hidden; }
 
 body {
   margin: 0;
@@ -88,6 +90,11 @@ button { font: inherit; color: inherit; }
 .hdr-date { font-weight: 700; font-size: 14px; }
 .hdr-item { color: var(--top-muted); font-size: 13px; }
 .hdr-item b { color: var(--top-text); }
+/* 16단계: 숫자가 커졌다 돌아오고 날짜가 아래에서 올라오게 (인라인은 transform이 안 됨) */
+#hdr-date, #hdr-cash, #hdr-rep, #hdr-ap { display: inline-block; }
+.float-delta { position: absolute; z-index: 11; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 800; white-space: nowrap; pointer-events: none; box-shadow: var(--shadow); }
+.float-delta.up { background: var(--accent); color: var(--on-accent); }
+.float-delta.down { background: var(--bad); color: #ffffff; }
 
 /* 본문 */
 .view {
@@ -145,7 +152,7 @@ button.nbody { min-height: 44px; cursor: pointer; }
 .need-panel { border-color: var(--accent-ink); }
 /* 13단계 뉴스: 우승·결승은 노랑, 승격 초록, 강등 빨강, 내 선수 구단 소식은 채운 배지 */
 .ntag-champ, .ntag-cup, .ntag-cont { color: var(--warn-ink); border-color: var(--warn); }
-.ntag-up { color: var(--accent-ink); border-color: var(--accent-ink); }
+.ntag-up, .ntag-loan { color: var(--accent-ink); border-color: var(--accent-ink); }
 .ntag-down { color: var(--bad); border-color: var(--bad); }
 .ntag-my { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
 .ntag-my.ntag-down { color: #ffffff; background: var(--bad); border-color: var(--bad); }
@@ -333,7 +340,7 @@ button.nbody { min-height: 44px; cursor: pointer; }
 .pos-GK { color: var(--pos-GK); }
 
 .bar { display: block; height: 4px; margin-bottom: 8px; background: var(--line); border-radius: 2px; overflow: hidden; }
-.bar > i { display: block; height: 100%; background: var(--accent); }
+.bar > i { display: block; height: 100%; background: var(--accent); transform-origin: left center; }
 
 .stats { display: grid; grid-template-columns: repeat(4, auto); justify-content: space-between; gap: 4px 8px; margin: 0; }
 .stat { display: grid; }
@@ -441,10 +448,13 @@ button.nbody { min-height: 44px; cursor: pointer; }
   border-radius: 10px;
   cursor: pointer;
 }
-.tab { position: relative; padding: 0 2px; background: none; color: var(--muted); font-size: 13px; }
+.tab { position: relative; z-index: 1; padding: 0 2px; background: none; color: var(--muted); font-size: 13px; }
 .count { position: absolute; top: 3px; right: 3px; min-width: 16px; padding: 0 4px; border-radius: 999px; background: var(--warn); color: var(--on-warn); font-size: 11px; font-weight: 800; line-height: 16px; }
-.tab[aria-current="page"] { color: var(--text); font-weight: 700; background: var(--sunk); }
-.next { background: var(--accent); color: var(--on-accent); font-size: 16px; font-weight: 800; }
+.tab[aria-current="page"] { color: var(--text); font-weight: 700; }
+/* 16단계: 고른 탭 뒤 둥근 바탕 (탭을 바꾸면 미끄러져 옴) */
+.tab-pill { position: absolute; left: 0; top: 0; border-radius: 10px; background: var(--sunk); opacity: 0; pointer-events: none; }
+.tab-pill.ready { transition: transform 0.26s var(--ease), width 0.26s var(--ease), opacity 0.15s; }
+.next { background: linear-gradient(100deg, transparent 35%, rgba(255, 255, 255, 0.45) 50%, transparent 65%) var(--accent); background-size: 250% 100%; background-position: 150% 0; color: var(--on-accent); font-size: 16px; font-weight: 800; }
 .next:active:enabled { transform: scale(0.98); }
 
 /* 시즌 결산·파산 창 */
@@ -458,6 +468,11 @@ button.nbody { min-height: 44px; cursor: pointer; }
   border-radius: 16px;
 }
 .sheet::backdrop { background: var(--backdrop); }
+/* 16단계: 결산·파산 창은 살짝 커지며 나타나고 뒤는 서서히 어두워짐 (이야기 장면은 아래에서 올라옴) */
+.sheet[open]:not(.scene) { animation: sheet-in 0.22s var(--ease); }
+.sheet[open]::backdrop { animation: fade-in 0.2s ease-out; }
+@keyframes sheet-in { from { opacity: 0; transform: translateY(10px) scale(0.98); } }
+@keyframes fade-in { from { opacity: 0; } }
 .summary-list { margin: 0 0 8px; padding: 0; list-style: none; }
 .summary-list li { padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
 
@@ -475,16 +490,31 @@ button.nbody { min-height: 44px; cursor: pointer; }
   font-size: 14px;
   opacity: 0;
   pointer-events: none;
-  transform: translateX(-50%);
-  transition: opacity 0.2s;
+  transform: translate(-50%, 10px);
+  transition: opacity 0.2s, transform 0.24s var(--ease);
 }
-.toast.show { opacity: 1; }
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* 16단계: 누르는 느낌 (손을 떼면 돌아옴) */
+.btn, .row, .card, .lt-row, .player, .seg, .scene-opt { transition: transform 90ms ease-out; }
+.btn:active:not(:disabled), .row:active:not(:disabled), .card:active, .lt-row:active, .player:active, .seg:active, .scene-opt:active:not(:disabled) { transform: scale(0.985); }
+
+/* 16단계: 내 선수의 큰 순간 띠 (위에서 내려옴, 축하는 색종이) */
+.moment { position: fixed; top: calc(56px + env(safe-area-inset-top)); left: 50%; z-index: 30; display: grid; gap: 2px; width: min(448px, calc(100% - 32px)); padding: 12px 16px; transform: translateX(-50%);
+  background: var(--panel); border: 2px solid var(--warn); border-radius: 14px; box-shadow: 0 8px 24px rgba(16, 24, 40, 0.18); cursor: pointer; }
+.moment.bad { border-color: var(--bad); }
+.moment-title { color: var(--warn-ink); font-size: 18px; font-weight: 800; }
+.moment.bad .moment-title { color: var(--bad); }
+.moment-text { font-size: 14px; line-height: 1.5; }
+.confetti { position: absolute; left: 50%; top: 18px; width: 8px; height: 8px; border-radius: 2px; pointer-events: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .toast { transition: none; }
   .next:active { transform: none; }
   .scene[open] { animation: none; }
 }
+/* 움직임 줄이기 (기기 설정 또는 기록 탭): 움직임과 전환을 끝 상태로 바로 */
+.calm *, .calm *::before, .calm *::after, .calm ::backdrop { animation-duration: 0.001ms !important; animation-delay: 0s !important; transition-duration: 0.001ms !important; }
 
 /* 결산 창의 은퇴식 문구 (summary-stats보다 뒤에 둬서 색이 이김) */
 .warmt { color: var(--warm-ink); }
