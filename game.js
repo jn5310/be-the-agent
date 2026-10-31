@@ -62,7 +62,19 @@ const MEMO = {
   loanBack: M('임대에서 많이 뛰고 돌아와 고마워함', 'Came back from a busy loan grateful'),
   // 17단계 임대 뒤 완전 이적: 임대 구단의 제안을 거절하고 돌아오게 함 (선수가 남고 싶어 했을 때 / 돌아오고 싶어 했을 때)
   buyRefused: M('남고 싶어 한 임대 팀의 완전 이적 제안을 거절함', 'Turned down the permanent move he wanted at his loan club'),
-  buyBack: M('돌아오고 싶은 마음을 들어줌', 'Respected his wish to come back to his own club')
+  buyBack: M('돌아오고 싶은 마음을 들어줌', 'Respected his wish to come back to his own club'),
+  // 18단계 약속: 지킨 약속·못 지킨 약속(조건마다), 부탁을 거절함
+  vowKept: {
+    money: M('약속대로 주급을 올려 줌', 'Got him the pay rise you promised'), play: M('약속대로 뛸 곳을 찾아 줌', 'Found him the minutes you promised'),
+    stage: M('약속대로 큰 무대에 세워 줌', 'Got him onto the big stage, as promised'), home: M('약속대로 고향 팀으로 보내 줌', 'Took him home, as promised'),
+    stable: M('약속대로 긴 계약을 맺어 줌', 'Secured the long contract you promised')
+  },
+  vowBroken: {
+    money: M('주급을 올려 주겠다는 약속을 못 지킴', 'Broke your promise of a pay rise'), play: M('뛸 곳을 찾아 주겠다는 약속을 못 지킴', 'Broke your promise to find him minutes'),
+    stage: M('큰 무대에 세워 주겠다는 약속을 못 지킴', 'Broke your promise of the big stage'), home: M('고향 팀으로 보내 주겠다는 약속을 못 지킴', 'Broke your promise to take him home'),
+    stable: M('긴 계약을 맺어 주겠다는 약속을 못 지킴', 'Broke your promise of a long contract')
+  },
+  vowNo: M('부탁에 약속은 어렵다고 함', "Told him you couldn't promise it")
 };
 // 영어 셈: pl(3, 'week') → "3 weeks"
 const pl = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -1036,6 +1048,8 @@ function pickStartingClients() {
 // st = 이번 구간 기록(시즌·구단별), hist = 지난 구간들, playRate = 최근 출전 비율, capped = 국가대표 경험
 // bond = 유대(0~100), since = 함께하기 시작한 절대 주차, how = 인연(만난 계기), memo = 유대가 바뀐 최근 일 [{ w, t, n }]
 // hunt = 이적 요청을 받아 새 구단을 알아보는 마감 절대 주차 (0 = 안 알아봄), pitch = 추천해 둔 구단 { club, until } (10단계)
+// vow = 18단계 약속 (지금 것 또는 마지막 것) { k: 조건(주된 성향), w: 약속한 주, until: 기한, s: 0 지키는 중·1 지킴·-1 못 지킴·2 거절, end: 끝난 주,
+// x: 주급 약속이면 약속한 금액 }, 없으면 null
 function newClient(p, end, sat, bond, how) {
   const st = newStint(p.club, worldStats(p, state.week));
   return {
@@ -1043,11 +1057,12 @@ function newClient(p, end, sat, bond, how) {
     // 지금 국가대표이거나 이번 시즌 A매치를 이미 뛴 선수는 국가대표 경험이 있음 (영입한 뒤 "첫 발탁" 보너스가 또 나오지 않게, 17단계 리뷰 1-10.
     // 시즌 첫 A매치(10주) 전에 영입한 국가대표도 막으려고 isNationalPick도 봄)
     st, hist: [], playRate: 0.6, capped: st.N[0] > 0 || isNationalPick(p),
-    bond, since: absWeek(), how, memo: [], tales: [], hunt: 0, pitch: null, out: null, lw: null, loan: null, noLoan: 0
+    bond, since: absWeek(), how, memo: [], tales: [], hunt: 0, pitch: null, out: null, lw: null, loan: null, noLoan: 0, vow: null
   };
 }
 // 에이전시 커리어 통계 (기록 탭·시뮬레이션용)
-const newCareerStats = () => ({ lost: 0, transfers: 0, dream: 0, callups: 0, renewTry: 0, renewWin: 0, signed: 0, loans: 0, loanBuys: 0 });
+// 18단계: vows = 한 약속, vowKept·vowBroken = 지킨·못 지킨 약속
+const newCareerStats = () => ({ lost: 0, transfers: 0, dream: 0, callups: 0, renewTry: 0, renewWin: 0, signed: 0, loans: 0, loanBuys: 0, vows: 0, vowKept: 0, vowBroken: 0 });
 
 function addLog(text) {
   state.logs.unshift(`${L(`${state.season}시즌 ${state.week}주`, `S${state.season} W${state.week}`)} · ${text}`);
@@ -1427,7 +1442,19 @@ const TUNE = {
   // 그 구단이 완전 이적을 제안할 확률 = buyBase + (임대 동안 리그 평균 평점 - buyMid) × buyStep (0 ~ buyMax). 이적료는 몸값의 buyFee배.
   // 임대 선수 평균 평점은 가운데 6.53(10~90%: 6.20~6.82, 성실한 봇 200판)이라 절반쯤이 제안을 받음.
   // 돌아오게 하면: 남고 싶어 했으면 만족 -buyStaySat·유대 -buyStayBond, 돌아오고 싶어 했으면 만족 +buyBackSat·유대 +buyBackBond
-  buyApps: 8, buyMid: 6.5, buyBase: 0.5, buyStep: 1.5, buyMax: 0.85, buyFee: [0.8, 1.1], buyStaySat: 4, buyStayBond: 3, buyBackSat: 2, buyBackBond: 2
+  buyApps: 8, buyMid: 6.5, buyBase: 0.5, buyStep: 1.5, buyMax: 0.85, buyFee: [0.8, 1.1], buyStaySat: 4, buyStayBond: 3, buyBackSat: 2, buyBackBond: 2,
+  // 18단계 약속: 닫힌 이적 기간에, 가장 중요하게 여기는 조건(주된 성향)이 지금 구단에서 안 맞는 소속 선수가 매주 vowChance 확률로
+  // 다음 이적 마감까지 그 조건을 이뤄 달라고 부탁함. 약속이 끝나거나 거절한 뒤 vowGap주 동안은 다시 부탁하지 않음.
+  // 약속하면 만족 +vowSat. 지키면 만족 +vowKeepSat·유대 +vowKeepBond. 못 지키면 만족 -vowBreakSat·유대 -vowBreakBond, vowBreakWeeks주 동안 이적 동의 -vowBreakConsent%p.
+  // 약속을 어긴 선수는 그 1시즌 동안 다시 부탁하지 않음.
+  // 거절하면 만족 -vowNoSat·유대 -vowNoBond. 약속 동안: 주급·안정 약속은 재계약 협상을 바로 열 수 있고, 출전 시간 약속은 출전 확률 vowPlayBench 미만이면 임대를 보낼 수 있음
+  vowChance: 0.02, vowGap: 26, vowSat: 3, vowKeepSat: 8, vowKeepBond: 6, vowBreakSat: 6, vowBreakBond: 10, vowBreakConsent: 10, vowBreakWeeks: 52,
+  vowNoSat: 3, vowNoBond: 2, vowPlayBench: 0.6,
+  // 큰 무대 약속은 제안이 닿는 수준의 구단 중 큰 무대가 vowStageShare 이상일 때만, 고향 약속은 닿는 고향 구단이 vowHomeMin곳 이상일 때만 부탁함.
+  // 큰 무대·고향 약속 동안은 에이전트가 그런 구단을 알아봐서 이적 제안의 vowOffer가 그 조건에 맞는 구단에서 옴(추천한 구단 다음 순서).
+  // 약속 때문에 만료 26주 전보다 일찍 하는 재계약 협상은 구단 수락 -vowEarlyRenew%p(4시즌이면 -vowEarlyLong%p 더)이고 한 번뿐:
+  // 결렬되거나 약속에 못 미치는 조건으로 맺으면 보통 협상 기간까지 다시 못 함
+  vowStageShare: 0.1, vowHomeMin: 5, vowOffer: 0.5, vowEarlyRenew: 20, vowEarlyLong: 20
 };
 // 평판 오르는 양은 평판이 높을수록 줄어듦 (30시즌 커리어 동안 천천히 오르게). 소수점은 확률로 반올림
 function gainRep(n) {
@@ -2136,19 +2163,21 @@ function renewTerms(c, p, level, years = 2) {
   const age = ageOf(p);
   const clubLikes = age <= 23 ? (years === 4 ? 10 : 0) : age >= 30 ? (years === 2 ? 10 : -10) : 0;
   const home = Number.isInteger(c.s) ? homeClub(c.s) : p.club; // 15단계: 임대 중이어도 재계약은 소속 구단과
-  const chance = clamp(Math.round(TUNE.renewBase[level] + Math.min(15, state.rep / 4) + (p.ability - clubLevel(home)) * 2 - (isFreeAgent(c) ? 10 : 0) + clubLikes), 10, 95);
+  // 18단계: 약속 때문에 만료 26주 전보다 일찍 하는 협상은 구단이 덜 받아 줌 (계약이 많이 남아서). 일찍 긴 계약(4시즌)을 묶는 것은 더 꺼림
+  const early = Number.isInteger(c.end) && c.end - absWeek() > TUNE.renewWindow ? TUNE.vowEarlyRenew + (years >= 4 ? TUNE.vowEarlyLong : 0) : 0;
+  const chance = clamp(Math.round(TUNE.renewBase[level] + Math.min(15, state.rep / 4) + (p.ability - clubLevel(home)) * 2 - (isFreeAgent(c) ? 10 : 0) + clubLikes - early), 10, 95);
   const pref = prefsOf(p);
   const checks = fitChecks(p, pref, home, wage, years);
   const score = fitScore(checks, pref);
   return { label, wage, years, chance, fee: dealFee(wage), checks, score, satGain: clamp(4 + score * 2, -10, 15) };
 }
 
-// 재계약 협상을 열 수 있는 때 (만료 26주 전부터, AP·재협상 대기와 관계없이)
-const renewOpen = c => c.end - absWeek() <= TUNE.renewWindow;
+// 재계약 협상을 열 수 있는 때 (만료 26주 전부터, AP·재협상 대기와 관계없이). 18단계: 주급·안정 약속을 지키는 중이면 언제든
+const renewOpen = c => c.end - absWeek() <= TUNE.renewWindow || (vowOn(c) && (c.vow.k === 'money' || c.vow.k === 'stable'));
 
 function renewBlock(c) {
   const left = c.end - absWeek();
-  if (left > TUNE.renewWindow) return L(`계약 만료 ${TUNE.renewWindow}주 전부터 협상할 수 있습니다 (남은 ${left}주)`, `Talks open ${pl(TUNE.renewWindow, 'week')} before the contract ends (${pl(left, 'week')} left)`);
+  if (!renewOpen(c)) return L(`계약 만료 ${TUNE.renewWindow}주 전부터 협상할 수 있습니다 (남은 ${left}주)`, `Talks open ${pl(TUNE.renewWindow, 'week')} before the contract ends (${pl(left, 'week')} left)`);
   if (state.ap < 1) return NO_AP();
   if (c.negUntil > absWeek()) return L(`구단이 ${c.negUntil - absWeek()}주 뒤에 다시 만나자고 합니다`, `The club wants to meet again in ${pl(c.negUntil - absWeek(), 'week')}`);
   return '';
@@ -2160,6 +2189,8 @@ function renew(s, level, years = 2) {
   if (block) return toast(block);
   const p = getPlayer(s);
   const t = renewTerms(c, p, level, years);
+  // 18단계: 약속 때문에 만료 26주 전보다 일찍 하는 협상 (결과와 관계없이 한 번뿐)
+  const early = c.end - absWeek() > TUNE.renewWindow;
   state.ap -= 1;
   state.stats.renewTry += 1;
   if (Math.random() * 100 < t.chance) {
@@ -2178,12 +2209,22 @@ function renew(s, level, years = 2) {
     }
     addLog(L(`${p.name} 재계약 성공: 주급 ${cash(t.wage)}, ${years}시즌, 수수료 +${cash(t.fee)}, 선수 반응 ${moodText(t.score)} (만족 ${t.satGain >= 0 ? '+' : ''}${t.satGain})`,
       `${p.name} renewed: wage ${cash(t.wage)}, ${pl(years, 'season')}, commission +${cash(t.fee)}, player reaction ${moodText(t.score)} (morale ${t.satGain >= 0 ? '+' : ''}${t.satGain})`));
-    toast(L(`재계약 성공! 수수료 +${cash(t.fee)}`, `Contract renewed! Commission +${cash(t.fee)}`));
+    const kept = settleVow(c, p); // 18단계: 주급·안정 약속을 이 재계약으로 지켰는지
+    // 약속에 못 미치는 조건으로 일찍 맺었으면 새 계약의 보통 협상 기간까지 다시 협상하지 않음 (같은 약속으로 재계약을 거듭해 수수료를 받지 않게)
+    if (early && vowOn(c)) {
+      c.negUntil = c.end - TUNE.renewWindow;
+      addLog(L(`${p.name} 선수와의 약속(${vowShort(c.vow.k)})에는 못 미치는 조건이라 약속은 아직 남아 있습니다. 일찍 하는 협상은 한 번뿐이라 ${weekLabel(c.negUntil)}까지 다시 협상할 수 없습니다.`,
+        `Those terms fall short of your promise to ${p.name} (${vowShort(c.vow.k)}), so it still stands. Early talks were a one-off: no more talks until ${weekLabel(c.negUntil)}.`));
+    }
+    toast(L(`재계약 성공! 수수료 +${cash(t.fee)}${kept ? ` · ${VOW_KEPT()}` : ''}`, `Contract renewed! Commission +${cash(t.fee)}${kept ? ` · ${VOW_KEPT()}` : ''}`));
   } else {
-    c.negUntil = absWeek() + TUNE.renewRetry;
+    // 18단계: 약속 때문에 만료 26주 전보다 일찍 한 협상이 결렬되면, 구단은 보통 협상 기간(만료 26주 전)까지 다시 만나지 않음 (한 번뿐인 기회)
+    c.negUntil = early ? Math.max(absWeek() + TUNE.renewRetry, c.end - TUNE.renewWindow) : absWeek() + TUNE.renewRetry;
+    const wait = c.negUntil - absWeek();
     addSat(c, -8);
     addBond(c, -2, MEMO.renewLose);
-    addLog(L(`${p.name} 재계약 협상 결렬 (만족 -8). ${TUNE.renewRetry}주 뒤 다시 협상할 수 있습니다.`, `Contract talks for ${p.name} broke down (morale -8). You can try again in ${pl(TUNE.renewRetry, 'week')}.`));
+    addLog(L(`${p.name} 재계약 협상 결렬 (만족 -8). ${wait}주 뒤 다시 협상할 수 있습니다.${early ? ' 계약이 많이 남아서 구단이 그때까지는 만나지 않겠다고 합니다.' : ''}`,
+      `Contract talks for ${p.name} broke down (morale -8). You can try again in ${pl(wait, 'week')}.${early ? " With so long left on his deal, the club won't meet again before then." : ''}`));
     toast(L('구단이 조건을 거절했습니다.', 'The club rejected your terms.'));
   }
   saveState();
@@ -2202,9 +2243,14 @@ function makeOffer(c, p) {
   // 10단계: 내가 추천해 둔 구단, 그 포지션 보강이 필요한 구단(수준이 맞을 때)이 먼저 제안함
   const pitched = pitching(c) ? CLUBS[c.pitch.club] : null;
   const needy = state.needs.map(n => CLUBS[n.club]).filter((x, i) => state.needs[i].pos === p.pos && state.needs[i].until >= absWeek() && x !== p.club && clubLevel(x) >= lo && clubLevel(x) <= hi);
+  // 18단계: 큰 무대·고향 약속을 지키는 중이면 에이전트가 그런 구단을 알아봐서, 그 구단들이 먼저 제안하기도 함 (vowOffer)
+  // 지금 구단보다 낮은 수준이어도 됨 (능력 -8 ~ +3, 이적 요청처럼: 고향·큰 무대로 가려고 수준을 낮추기도 함. 예전 범위로는 강한 해외 구단에 있는 선수에게 고향 구단 제안이 거의 없었음)
+  const vowPool = vowOn(c) && (c.vow.k === 'stage' || c.vow.k === 'home')
+    ? CLUBS.filter(x => x !== p.club && clubLevel(x) >= p.ability - 8 && clubLevel(x) <= hi && vowTermsOk(c, p, x, c.wage, yearsLeft(c))) : [];
   let club = null;
   let from = '';
   if (pitched && pitched !== p.club && r() < TUNE.pitchClub) [club, from] = [pitched, 'pitch'];
+  else if (vowPool.length && r() < TUNE.vowOffer) [club, from] = [vowPool[Math.floor(r() * vowPool.length)], 'vow'];
   else if (dream !== p.club && clubLevel(dream) <= p.ability + TUNE.dreamReach && r() < TUNE.dreamChance) club = dream;
   else if (needy.length && r() < TUNE.needOffer) [club, from] = [needy[Math.floor(r() * needy.length)], 'need'];
   else {
@@ -2220,7 +2266,7 @@ function makeOffer(c, p) {
   const base = weeklyWage(Math.max(marketAbility(p), Math.round(clubLevel(club))));
   const wage = Math.round(((down ? base : Math.max(c.wage, base)) * (down ? 0.9 + r() * 0.3 : 1.1 + r() * 0.3)) / 50) * 50;
   const fee = isFreeAgent(c) ? 0 : Math.round((valueOf(p) * (0.8 + r() * 0.5)) / 5000) * 5000;
-  // late = 이적 마감일에 온 막판 제안 (그 주 안에 답해야 함), from = 'pitch'(내가 추천한 구단)·'need'(보강이 필요한 구단)
+  // late = 이적 마감일에 온 막판 제안 (그 주 안에 답해야 함), from = 'pitch'(내가 추천한 구단)·'need'(보강이 필요한 구단)·'vow'(약속 때문에 알아본 구단, 18단계)
   // 무소속 선수 제안은 이적 기간과 관계없이 2주 동안 답할 수 있어 막판 제안이 아님 (17단계 리뷰 1-14)
   return { club: club.id, wage, fee, years: 2 + Math.floor(r() * 3), late: isDeadline() && !isFreeAgent(c), from };
 }
@@ -2236,7 +2282,9 @@ function offerFit(p, d) {
   const score = fitScore(checks, pref);
   const c = clientOf(p.s);
   const bond = c ? bondConsentBonus(c) : 0;
-  return { checks, score, bond, consent: clamp(consentChance(score) + bond, 5, 95) };
+  // 18단계: 약속을 어긴 뒤 1시즌 동안은 이적을 권해도 덜 따라옴
+  const distrust = vowDistrust(c) ? TUNE.vowBreakConsent : 0;
+  return { checks, score, bond, distrust, consent: clamp(consentChance(score) + bond - distrust, 5, 95) };
 }
 
 function transfer(c, d) {
@@ -2264,6 +2312,7 @@ function transfer(c, d) {
   c.end = absWeek() + WEEKS * (d.years || 3);
   c.hunt = 0; // 새 구단을 찾았으니 알아보기 끝
   c.pitch = null;
+  c.negUntil = 0; // 18단계: 새 구단과 새 계약이라, 옛 계약에서 일찍 한 협상이 결렬돼 생긴 대기는 없어짐
   state.needs = state.needs.filter(n => !(n.club === to.id && n.pos === p.pos));
   if (windowAt()) countDeal(p, d.fee, to.id);
   pushNews({ k: 'mine', s: c.s, g: c.g, nm: p.ko, nk: p.nk, from: from.id, to: to.id, pos: p.pos, fee: d.fee, age: ageOf(p), ab: p.ability, ...(stay ? { ln: 1 } : {}) });
@@ -2275,7 +2324,8 @@ function transfer(c, d) {
   state.stats.transfers += 1;
   if (stay) state.stats.loanBuys += 1;
   if (to.id === prefsOf(p).dream) state.stats.dream += 1;
-  toast(L(`${stay ? '완전 이적' : '이적'} 성사! 수수료 +${cash(gain)}`, `${stay ? 'Permanent move' : 'Transfer'} done! Commission +${cash(gain)}`));
+  const kept = settleVow(c, getPlayer(c.s)); // 18단계: 이 이적으로 약속을 지켰는지 (새 구단·주급·계약으로 다시 봄)
+  toast(L(`${stay ? '완전 이적' : '이적'} 성사! 수수료 +${cash(gain)}${kept ? ` · ${VOW_KEPT()}` : ''}`, `${stay ? 'Permanent move' : 'Transfer'} done! Commission +${cash(gain)}${kept ? ` · ${VOW_KEPT()}` : ''}`));
   return L(`${p.name} ${stay ? '임대 뒤 완전 이적' : '이적'}: ${from.name} → ${to.name} (${leagueName(to.country, to.t)}), 주급 ${cash(d.wage)}, 수수료 +${cash(gain)}, 평판 +${got}, 선수 반응 ${moodText(fit.score)}`,
     `${p.name} ${stay ? 'loan made permanent' : 'transfer'}: ${from.name} → ${to.name} (${leagueName(to.country, to.t)}), wage ${cash(d.wage)}, commission +${cash(gain)}, reputation +${got}, player reaction ${moodText(fit.score)}`);
 }
@@ -2335,8 +2385,8 @@ function offerHead(p, d) {
   const zone = row && leagueOver() && d.from === 'loan' ? zoneOf(club.country, club.t, row.rk) : '';
   const mv = { up: [' · 승격 확정', ', promoted'], down: [' · 강등 확정', ', relegated'], cont: [' · 대륙 대회 진출', ', into continental competition'] }[zone] || ['', ''];
   return {
-    ko: `${d.from === 'pitch' ? '추천해 둔 ' : d.from === 'need' ? `${POS_NAME[p.pos][0]} 보강이 필요한 ` : ''}${dream ? '꿈의 구단 ' : ''}${club.ko}(${club.country.ko} ${club.t + 1}부${rk[0]}${mv[0]})`,
-    en: `${club.en} (${club.country.en} Div. ${club.t + 1}${rk[1]}${mv[1]}${dream ? ', his dream club' : ''}${d.from === 'pitch' ? ', the club you pitched him to' : d.from === 'need' ? `, short of a ${POS_NAME[p.pos][1]}` : ''})`
+    ko: `${d.from === 'pitch' ? '추천해 둔 ' : d.from === 'need' ? `${POS_NAME[p.pos][0]} 보강이 필요한 ` : d.from === 'vow' ? '약속 때문에 알아본 ' : ''}${dream ? '꿈의 구단 ' : ''}${club.ko}(${club.country.ko} ${club.t + 1}부${rk[0]}${mv[0]})`,
+    en: `${club.en} (${club.country.en} Div. ${club.t + 1}${rk[1]}${mv[1]}${dream ? ', his dream club' : ''}${d.from === 'pitch' ? ', the club you pitched him to' : d.from === 'need' ? `, short of a ${POS_NAME[p.pos][1]}` : d.from === 'vow' ? ', a club you sounded out for your promise' : ''})`
   };
 }
 const feeText = d => (d.fee ? L(`이적료 ${money(d.fee)}`, `a ${money(d.fee)} fee`) : L('자유 이적', 'free transfer'));
@@ -2757,6 +2807,55 @@ const EVENT_TYPES = {
     ],
     def: 2
   },
+  // 18단계 약속: 닫힌 이적 기간에 가장 중요하게 여기는 조건이 지금 구단에서 안 맞는 선수가, 다음 이적 마감까지 이뤄 달라고 부탁함.
+  // d = { k: 조건(주된 성향), until: 기한(다음 이적 기간 마감 절대 주차) }. 관계의 순간이라 이야기처럼 장면 시트로도 뜸(scene)
+  promise: {
+    scene: true,
+    chance: (c, p) => {
+      // 약속을 어긴 선수는 믿지 못하는 동안(vowBreakWeeks) 다시 부탁하지 않음 (새 부탁이 c.vow를 덮어 불신이 일찍 끝나지 않게)
+      if (windowAt() || isFreeAgent(c) || c.loan || vowDistrust(c) || (c.vow && (c.vow.s === 0 || absWeek() < c.vow.end + TUNE.vowGap))) return 0;
+      const ch = vowCheck(p, prefsOf(p).main, p.club, c.wage, yearsLeft(c));
+      return ch && !ch.ok ? TUNE.vowChance : 0;
+    },
+    // 닿을 수 없는 큰 무대·고향 부탁은 하지 않음 (구단을 다 훑어서 비싸니 확률을 통과한 때만 봄)
+    make: (c, p) => (vowAskable(p, prefsOf(p).main) ? { k: prefsOf(p).main, until: vowDeadline() } : null),
+    text: (p, d, c) => vary(d, VOW_ASK[d.k](p, d, c)),
+    quote: (p, d) => vary(d, VOW_LINES[d.k], 1),
+    // 고를 때 볼 숫자: 지금 상태(✓/✗), 지킬 수단과 어림, 못 지키면 잃는 것
+    note: (p, d, c) => {
+      const now = vowNow(c, p, d.k);
+      const outlook = vowOutlook(c, p, d.k, d.until).text;
+      return L(`${now.ok ? '✓' : '✗'} ${now.text} · ${outlook} · 못 지키면 1시즌 동안 이적 동의 -${TUNE.vowBreakConsent}%p`,
+        `${now.ok ? '✓' : '✗'} ${now.text} · ${outlook} · if you break it, -${TUNE.vowBreakConsent} pts on agreeing to moves for a season`);
+    },
+    options: [
+      {
+        label: () => L(`약속한다 (지키면 유대 +${TUNE.vowKeepBond}, 못 지키면 유대 -${TUNE.vowBreakBond})`, `Promise him (bond +${TUNE.vowKeepBond} if kept, -${TUNE.vowBreakBond} if not)`),
+        // 주급·안정 약속은 재계약 협상이 바로 열려서 그 선수 화면으로
+        go: c => vowOn(c) && (c.vow.k === 'money' || c.vow.k === 'stable'),
+        run: (c, p, d) => {
+          // 주급 약속은 지금 원하는 금액을 약속한 금액(x)으로 정해 둠
+          c.vow = { k: d.k, w: absWeek(), until: d.until, s: 0, end: 0, ...(d.k === 'money' ? { x: wantWage(p, prefsOf(p)) } : {}) };
+          addSat(c, TUNE.vowSat);
+          state.stats.vows += 1;
+          const goal = vowGoal(d.k, p, c.vow.x);
+          const text = L(`${p.name} 선수에게 약속했습니다: ${weekLabel(d.until)}(다음 이적 마감)까지 ${goal} (만족 +${TUNE.vowSat}).`,
+            `You made ${p.name} a promise: ${goal} by ${weekLabel(d.until)}, the next transfer deadline (morale +${TUNE.vowSat}).`);
+          settleVow(c); // 그사이 이미 맞았으면 바로 지킴
+          return text;
+        }
+      },
+      {
+        label: () => L('어렵다고 솔직하게 말한다', "Tell him honestly you can't promise it"), bond: -TUNE.vowNoBond, memo: MEMO.vowNo,
+        run: (c, p, d) => {
+          c.vow = { k: d.k, w: absWeek(), until: d.until, s: 2, end: absWeek() };
+          addSat(c, -TUNE.vowNoSat);
+          return L(`${p.name} 선수에게 약속은 어렵다고 솔직하게 말했습니다. 선수가 아쉬워합니다 (만족 -${TUNE.vowNoSat}).`, `You told ${p.name} honestly that you can't promise it. He's disappointed (morale -${TUNE.vowNoSat}).`);
+        }
+      }
+    ],
+    def: 1
+  },
   // --- 8단계 관계 이야기: 유대가 깊어진 선수에게 선수마다 한 번씩 (make에서 시작한 것으로 기록) ---
   // tale = { title: [한국어, 영어], need: 필요한 유대, weeks: 함께한 주 }, quote = 선수의 말
   call: {
@@ -2912,8 +3011,10 @@ function findTip() {
 
 // 선택지의 유대 변화 (숫자, 또는 선수 마음에 따라 다르면 (p, d) => 숫자)
 const optBond = (opt, p, d) => (typeof opt.bond === 'function' ? opt.bond(p, d) : opt.bond || 0);
-// 아직 유효한 소식: 그 슬롯이 소식을 만든 때의 선수 그대로이고(은퇴하면 세대가 바뀜), 유망주 추천이 아니면 소속 선수일 때
-const liveEvent = e => state.world.gen[e.s] === e.g && (e.type === 'tip' || Boolean(clientOf(e.s)));
+// 아직 유효한 소식: 그 슬롯이 소식을 만든 때의 선수 그대로이고(은퇴하면 세대가 바뀜), 유망주 추천이 아니면 소속 선수일 때.
+// 18단계 약속 부탁은 기한 전이고 지키는 중인 약속이 없을 때만 (고친 세이브에서 남은 부탁이 지금 약속을 덮거나 바로 깨지지 않게)
+const liveEvent = e => state.world.gen[e.s] === e.g && (e.type === 'tip' || Boolean(clientOf(e.s)))
+  && (e.type !== 'promise' || (!vowOn(clientOf(e.s)) && e.d.until >= absWeek()));
 
 function pushEvent(type, s, d) {
   // 이적 기간에 계약 중인 선수에게 온 제안은 마감일까지 답해야 함 (마감일 막판 제안은 그 주 안에)
@@ -3071,6 +3172,8 @@ function weeklyClients() {
       addLog(L(`마감까지 ${p.name} 선수의 새 구단을 찾지 못했습니다. 선수가 아쉬워합니다 (만족 -${TUNE.huntMiss}).`,
         `The window shut before you found ${p.name} a new club. He's disappointed (morale -${TUNE.huntMiss}).`));
     }
+    // 18단계 약속: 조건이 맞았으면 지킴(승격·대륙 대회 진출로 저절로 맞기도 함), 기한이 지났으면 못 지킴
+    settleVow(c, p);
     if (left === -1 && c.loan) endLoan(c, true);
     if (left === -1) {
       // 무소속이 되면 남아 있던 이적 제안은 이적료 없는 자유 이적이 됨 (17단계 리뷰 1-5)
@@ -3591,6 +3694,8 @@ const LOAN_NO_LINES = [
 // 임대 기간: 그 시즌 마지막 주까지 (여름 이적 기간 47~52주에 가면 다음 시즌 끝까지)
 const loanUntil = () => (state.week >= WINDOWS[0].from ? state.season * WEEKS + WEEKS : (state.season - 1) * WEEKS + WEEKS);
 const benchChance = c => startChance(getPlayer(c.s).ability, clubLevel(homeClub(c.s)), 5.5);
+// 임대를 보낼 수 있는 출전 확률 기준: 18단계 출전 시간 약속 중이면 vowPlayBench(60%) 미만까지
+const loanBenchOf = c => (vowOn(c) && c.vow.k === 'play' ? TUNE.vowPlayBench : TUNE.loanBench);
 
 // 임대를 막는 이유 (없으면 빈 문자열). ap = false면 AP는 보지 않음 (할 일 줄·화면 안내용)
 function loanBlock(c, ap = true) {
@@ -3599,7 +3704,7 @@ function loanBlock(c, ap = true) {
   if (isFreeAgent(c)) return L('무소속 선수는 임대를 보낼 수 없습니다', "A free agent can't go out on loan");
   if (!windowAt()) return L(`이적 기간에만 임대를 보낼 수 있습니다 (${nextWindow().win.name}까지 ${nextWindow().wait}주)`, `Loans can only be arranged in a transfer window (${pl(nextWindow().wait, 'week')} until the ${nextWindow().win.name})`);
   const sc = benchChance(c);
-  if (sc >= TUNE.loanBench) return L(`지금 구단에서 뛰고 있어 임대가 필요 없습니다 (출전 ${Math.round(sc * 100)}%)`, `He's playing enough at his club to stay (starts ${Math.round(sc * 100)}%)`);
+  if (sc >= loanBenchOf(c)) return L(`지금 구단에서 뛰고 있어 임대가 필요 없습니다 (출전 ${Math.round(sc * 100)}%)`, `He's playing enough at his club to stay (starts ${Math.round(sc * 100)}%)`);
   // 계약이 임대보다 먼저 끝나면 보내지 않음 (예전에는 1주 남은 선수도 보내져 바로 끝났음, 17단계 리뷰 1-12).
   // 재계약 협상이 아직 안 열렸으면(만료 26주 전부터) "재계약한 뒤에"는 할 수 없는 안내라 이번에는 못 보낸다고만
   if (c.end < loanUntil()) return renewOpen(c)
@@ -3607,15 +3712,16 @@ function loanBlock(c, ap = true) {
     : L(`계약이 임대 기간(${weekLabel(loanUntil())}까지)보다 먼저 끝나서 이번 이적 기간에는 보낼 수 없습니다. 재계약 협상은 계약 만료 ${TUNE.renewWindow}주 전부터 열립니다`,
       `His contract ends before the loan would (${weekLabel(loanUntil())}), so he can't go out on loan this window. Contract talks open ${pl(TUNE.renewWindow, 'week')} before it ends`);
   if (c.noLoan >= absWeek()) return L('이번 이적 기간에는 임대를 원하지 않습니다', "He doesn't want a loan this window");
+  // 후보 구단이 하나도 없으면 막음 (해외를 싫어하는데 자기 나라에 맞는 수준의 구단이 없을 때 등. 예전에는 할 일 줄에 "후보 3곳"으로 떴음)
+  if (!loanClubs(c).length) return L(`주전으로 뛸 수 있는 임대 후보 구단이 없습니다 (구단 수준이 능력 -${TUNE.loanRange} ~ 능력인 곳)`, `There are no clubs where he would start on loan (club level within ${TUNE.loanRange} below his ability)`);
   if (ap && state.ap < 1) return NO_AP();
   return '';
 }
-
 // 임대 후보 구단: 이적 기간마다 선수별로 정해진 loanPick곳 (구단 수준이 능력 -loanRange ~ 능력이라 주전으로 뜀).
-// 해외 이적을 싫어하면 자기 나라 구단만, 아니면 소속 구단 나라 2곳 + 어디든 1곳. 수준 높은 순
+// 해외 이적을 싫어하면 자기 나라 구단만, 아니면 소속 구단 나라 2곳 + 어디든 1곳. 수준 높은 순.
+// win = 어느 이적 기간인지 (18단계: 닫힌 기간에 약속 어림용으로 다음 기간을 넘기면, 능력·소속 구단이 그대로일 때 그 기간의 후보와 같음)
 const loanCache = new Map();
-function loanClubs(c) {
-  const win = windowAt();
+function loanClubs(c, win = windowAt()) {
   if (!win) return [];
   const p = getPlayer(c.s);
   const home = homeClub(c.s);
@@ -3685,7 +3791,8 @@ function loan(s, clubId) {
   pushNews({ k: 'loan', s, g: c.g, nm: p.ko, nk: p.nk, from: home.id, to: club.id, my: 1 });
   addLog(L(`${p.name} 선수가 ${named(club.name, '으로')} 임대를 떠납니다(${leagueName(club.country, club.t)}, ${weekLabel(c.loan.until)}까지, 만족 +${TUNE.loanSat}, 유대 +${TUNE.loanBond}). "${pickLine(LOAN_LINES, s, c.g, club.id)()}"`,
     `${p.name} joins ${club.name} (${leagueName(club.country, club.t)}) on loan until ${weekLabel(c.loan.until)} (morale +${TUNE.loanSat}, bond +${TUNE.loanBond}). "${pickLine(LOAN_LINES, s, c.g, club.id)()}"`));
-  toast(L(`${p.name} 임대 성사!`, `${p.name}'s loan is agreed!`));
+  const kept = settleVow(c); // 18단계: 출전 시간 약속을 이 임대로 지켰는지
+  toast(L(`${p.name} 임대 성사!${kept ? ` ${VOW_KEPT()}` : ''}`, `${p.name}'s loan is agreed!${kept ? ` ${VOW_KEPT()}` : ''}`));
   saveState();
 }
 
@@ -3772,6 +3879,288 @@ function loanBids() {
   }
   return n;
 }
+
+// ===== 6-7. 약속 (18단계, 축구 감독 게임의 "선수에게 한 약속"에서 가져옴) =====
+// 닫힌 이적 기간에, 가장 중요하게 여기는 조건(주된 성향: 주급·출전 시간·큰 무대·고향·안정)이 지금 구단에서 안 맞는 소속 선수가
+// 다음 이적 마감까지 그 조건을 이뤄 달라고 부탁함(EVENT_TYPES.promise). 약속하면 c.vow에 남고, 조건이 맞으면(매주, 재계약·이적·임대 직후) 지킴,
+// 기한이 지나면 못 지킴. 조건은 선수가 지금 구단을 볼 때 쓰는 점검표(fitChecks)의 그 줄과 같음.
+// 약속 동안 쓸 수단: 주급·안정 → 재계약 협상을 바로 엶(renewOpen, 한 번뿐), 출전 시간 → 출전 60% 미만이면 임대(loanBenchOf),
+// 큰 무대·고향 → 그런 구단의 이적 제안이 더 자주 오고(vowOffer), 보강이 필요한 구단 중 조건에 맞는 곳을 먼저 보여 주고 "약속" 표시.
+// 이적 제안 카드에는 그 제안이면 지키는지 표시. 주급 약속의 금액은 약속할 때 정해 둠(v.x: 23세 → 24세처럼 원하는 금액이 저절로 내려가 지켜지지 않게)
+const VOW_KEYS = ['money', 'play', 'stage', 'home', 'stable'];
+const VOW_SHORT = { money: ['주급 인상', 'a pay rise'], play: ['주전 출전', 'regular football'], stage: ['큰 무대', 'the big stage'], home: ['고향 팀', 'a move home'], stable: ['긴 계약', 'a long contract'] };
+const vowShort = k => L(...VOW_SHORT[k]);
+const vowOn = c => Boolean(c && c.vow && c.vow.s === 0);
+// 약속을 어긴 뒤 vowBreakWeeks주 동안은 이적을 권해도 잘 따라오지 않음 (offerFit)
+const vowDistrust = c => Boolean(c && c.vow && c.vow.s === -1 && absWeek() < c.vow.end + TUNE.vowBreakWeeks);
+const yearsLeft = c => Math.round(Math.max(0, c.end - absWeek()) / WEEKS);
+// 이 조건(구단·주급·남은 기간)이면 약속이 맞는지: 선수 점검표의 그 줄 (없으면 null. 예: 남은 기간이 0이면 안정 줄이 없음)
+const vowCheck = (p, k, club, wage, years) => fitChecks(p, prefsOf(p), club, wage, years).find(ch => ch.key === k) || null;
+// 큰 무대·고향은 계약한 구단으로 봄 (임대 구단은 시즌이 끝나면 돌아오니 셈하지 않음). 출전 시간은 지금 뛰는 구단(임대 포함)
+const vowClub = (c, p, k) => (k === 'stage' || k === 'home' ? homeClub(c.s) : p.club);
+// 이 조건(구단·주급·남은 기간)이면 지키는 중인 약속을 지키는지 (재계약 칸·이적 제안 카드·봇). 주급 약속은 약속한 금액(v.x) 이상인지
+function vowTermsOk(c, p, club, wage, years) {
+  if (c.vow.k === 'money' && c.vow.x) return wage >= c.vow.x;
+  const ch = vowCheck(p, c.vow.k, club, wage, years);
+  return Boolean(ch && ch.ok);
+}
+// 지금 그 조건이 맞는지 (무소속이면 뛰는 구단이 없어서 안 맞음). 지키는 중인 약속이면 약속 조건으로, 부탁 카드에서는 점검표 줄로
+function vowMetFor(c, p, k) {
+  if (isFreeAgent(c)) return false;
+  const club = vowClub(c, p, k);
+  if (vowOn(c) && c.vow.k === k) return vowTermsOk(c, p, club, c.wage, yearsLeft(c));
+  const ch = vowCheck(p, k, club, c.wage, yearsLeft(c));
+  return Boolean(ch && ch.ok);
+}
+const vowMet = (c, p = getPlayer(c.s)) => vowMetFor(c, p, c.vow.k);
+// 다음 이적 기간 마감의 절대 주차 (닫힌 기간에 부름)
+function vowDeadline() {
+  const next = nextWindow();
+  return absWeek() + next.wait + windowLeft(next.win, next.win.from);
+}
+// 기한이 든 이적 기간(지금 열려 있으면 이번 기간, 아니면 다음 기간)과 그때 임대를 보내면 돌아오는 주
+// (다음 기간이 여름 기간이면 다음 시즌 끝, 겨울이면 이번 시즌 끝. 열린 기간 안에서는 지금 임대와 같음)
+const vowWindow = () => windowAt() || nextWindow().win;
+const nextLoanUntil = () => (windowAt() ? loanUntil() : nextWindow().win === WINDOWS[0] ? state.season * WEEKS + WEEKS : state.season * WEEKS);
+
+// 약속한 일 (카드·선수 상세·기록)
+// x = 주급 약속의 약속한 금액 (없으면 지금 원하는 금액)
+function vowGoal(k, p, x) {
+  const want = cash(x || wantWage(p, prefsOf(p)));
+  return {
+    money: L(`주급을 ${want} 이상으로 올려 주기`, `get his wage up to ${want} or more`),
+    play: L('주전으로 뛸 수 있는 팀(출전 60% 이상)에서 뛰게 해 주기', 'get him somewhere he starts (60%+ of games)'),
+    stage: L('큰 무대(5대 리그 1부나 대륙 대회에 나가는 1부 구단)에 세워 주기', 'get him onto the big stage (a Big Five top flight or a continental side)'),
+    home: L(`고향 ${p.nat.name}의 구단으로 보내 주기`, `get him to a club back home in ${p.nat.name}`),
+    stable: L('계약이 3시즌 이상 남게 긴 계약을 맺어 주기', 'tie him to a long deal (3+ seasons left)')
+  }[k];
+}
+// 지금 상태 한 줄: { ok, text }
+function vowNow(c, p, k = c.vow.k) {
+  const ok = vowMetFor(c, p, k);
+  if (isFreeAgent(c)) return { ok, text: L('무소속이라 뛰는 구단이 없습니다', 'He is a free agent with no club') };
+  const pct = Math.round(startChance(p.ability, clubLevel(p.club), 5.5) * 100);
+  const club = vowClub(c, p, k);
+  const loanNote = c.loan && club !== p.club ? L(' · 임대 구단은 셈하지 않음', " · a loan club doesn't count") : '';
+  const promised = vowOn(c) && c.vow.k === 'money' && c.vow.x;
+  const text = {
+    money: promised ? L(`지금 주급 ${cash(c.wage)} · 약속한 금액 ${cash(promised)}`, `Wage now ${cash(c.wage)} · promised ${cash(promised)}`)
+      : L(`지금 주급 ${cash(c.wage)} · 원하는 금액 ${cash(wantWage(p, prefsOf(p)))}`, `Wage now ${cash(c.wage)} · wants ${cash(wantWage(p, prefsOf(p)))}`),
+    play: L(`지금 구단 출전 확률 ${pct}% (60% 이상이면 지킴)`, `Starts ${pct}% at his club now (60%+ keeps it)`),
+    stage: (bigStage(club) ? L(`${club.name}: 큰 무대`, `${club.name}: big stage`) : L(`${club.name}: 큰 무대가 아님`, `${club.name}: not a big stage`)) + loanNote,
+    home: L(`지금 ${club.country.name} 구단 (${p.nat.name} 구단이면 지킴)`, `Now at a club in ${club.country.name} (a club in ${p.nat.name} keeps it)`) + loanNote,
+    stable: L(`계약 ${yearsLeft(c)}시즌 남음 (3시즌 이상이면 지킴)`, `${pl(yearsLeft(c), 'season')} left on his deal (3+ keeps it)`)
+  }[k];
+  return { ok, text };
+}
+// 지킬 수 있을지 어림 (부탁 카드에 보여 주고 시뮬레이션 봇도 씀). n: 주급·안정 = 그 조건 재계약의 구단 수락 확률(%),
+// 출전 시간 = 기한이 든 이적 기간 임대 후보의 가장 높은 선수 동의(%), 큰 무대·고향 = 제안이 오는 수준(능력 -8 ~ +3, 지금 구단 수준 -2 이상)의 그 조건 구단 수.
+// until = 약속 기한 (부탁 소식의 d.until)
+function vowOutlook(c, p, k, until = vowDeadline()) {
+  if (k === 'money' || k === 'stable') {
+    // 일찍 한 협상이 결렬돼 구단이 기한 뒤에야 만나겠다고 하면 재계약으로는 못 지킴
+    const wait = c.negUntil > absWeek() ? c.negUntil : 0;
+    if (wait > until) return { n: 0, text: L(`구단이 ${weekLabel(wait)}까지 재계약 협상을 하지 않아 이적으로만 지킬 수 있음`, `the club won't talk before ${weekLabel(wait)}, so only a move can keep it`) };
+    let best = null;
+    for (const years of RENEW_YEARS) {
+      RENEW_LEVELS.forEach((_, i) => {
+        const t = renewTerms(c, p, i, years);
+        const ch = vowCheck(p, k, homeClub(c.s), t.wage, years);
+        if (ch && ch.ok && (!best || t.chance > best.chance)) best = t;
+      });
+    }
+    return best ? { n: best.chance, text: wait ? L(`${weekLabel(wait)}부터 재계약 협상 가능 · 맞는 조건의 구단 수락 ${best.chance}%`, `talks can open from ${weekLabel(wait)} · the club agrees to such terms ${best.chance}%`)
+      : L(`약속하면 바로 재계약 협상 가능 · 맞는 조건의 구단 수락 ${best.chance}%`, `promise it and you can open talks now · the club agrees to such terms ${best.chance}%`) }
+      : { n: 0, text: L('재계약 조건으로는 맞출 수 없음', "no renewal terms get there") };
+  }
+  if (k === 'play') {
+    // n = 그 기간 임대 후보 중 선수 동의가 가장 높은 곳의 동의(%). 임대는 이적 기간마다 한 번 물어볼 수 있어서(거절하면 그 기간은 끝) 이 숫자가 지킬 가능성
+    const ok = c.end >= nextLoanUntil();
+    const refused = Boolean(windowAt()) && c.noLoan >= absWeek(); // 이번 기간에 이미 임대를 거절함
+    const best = ok && !refused ? Math.max(0, ...loanClubs(c, vowWindow()).map(x => loanFit(c, x).consent)) : 0;
+    const when = windowAt() ? L('이번', 'this') : L('다음', 'next');
+    return { n: best, text: refused ? L('이번 이적 기간에는 임대를 원하지 않아 주전으로 뛸 구단으로 이적해야 함', "he's turned down a loan this window, so it takes a move to a club where he starts")
+      : !ok ? L('계약이 다음 임대보다 먼저 끝나 임대는 어려움 · 주전으로 뛸 구단으로 이적해야 함', 'his deal ends before a loan would, so it takes a move to a club where he starts')
+      : !best ? L('주전으로 뛸 임대 후보 구단이 없어 이적해야 함', 'no club would start him on loan, so it takes a move')
+        : L(`${when} 이적 기간에 임대로 지킬 수 있음 · 지금 기준 임대 동의 최고 ${best}%`, `a loan ${when} window would keep it · as things stand he'd agree to the best option ${best}%`) };
+  }
+  const { n, total } = vowReach(p, k);
+  return { n, total, text: k === 'stage' ? L(`제안이 올 수 있는 수준의 구단 ${total}곳 중 큰 무대 ${n}곳`, `${n} of the ${total} clubs at his level are big-stage sides`)
+    : L(`제안이 올 수 있는 수준의 구단 ${total}곳 중 ${p.nat.name} 구단 ${n}곳`, `${n} of the ${total} clubs at his level are in ${p.nat.name}`) };
+}
+// 큰 무대·고향: 약속 동안 제안이 닿는 수준(능력 -8 ~ 능력 +3, makeOffer의 약속 구단과 같은 범위)의 구단 수와 그중 그 조건 구단 수
+function vowReach(p, k) {
+  const lo = p.ability - 8;
+  const hi = p.ability + 3;
+  let n = 0;
+  let total = 0;
+  for (const x of CLUBS) {
+    const lv = clubLevel(x);
+    if (x === p.club || lv < lo || lv > hi) continue;
+    total += 1;
+    if (k === 'stage' ? bigStage(x) : x.country === p.nat) n += 1;
+  }
+  return { n, total };
+}
+// 선수가 이 약속을 부탁할 만한지: 큰 무대는 닿는 구단의 vowStageShare 이상이 큰 무대, 고향은 닿는 고향 구단이 vowHomeMin곳 이상일 때만
+// (닿지도 않는 부탁은 거절할 수밖에 없어서 고민이 아님). 주급·출전·안정은 늘
+function vowAskable(p, k) {
+  if (k !== 'stage' && k !== 'home') return true;
+  const { n, total } = vowReach(p, k);
+  return k === 'stage' ? total > 0 && n / total >= TUNE.vowStageShare : n >= TUNE.vowHomeMin;
+}
+// 할 수 있는 일 (선수 상세)
+function vowHint(c, p) {
+  const k = c.vow.k;
+  const next = nextWindow();
+  const later = L(`다음 이적 기간(${next.win.name}, ${next.wait}주 뒤)에`, `In the next window (the ${next.win.name}, in ${pl(next.wait, 'week')}),`);
+  if (k === 'money' || k === 'stable') {
+    const terms = k === 'money' ? L('원하는 금액 이상인 조건', 'terms at or above what he wants') : L('4시즌 계약', 'a four-season deal');
+    const move = k === 'money' ? L('원하는 금액 이상을 주는 이적', 'a move that pays what he wants') : L('3시즌 이상 계약하는 이적', 'a move on a deal of three seasons or more');
+    // 일찍 하는 협상을 이미 썼으면(결렬, 또는 약속에 못 미치는 조건으로 맺음) 구단이 다시 만나는 주까지 기다리거나 이적으로
+    if (c.negUntil > absWeek()) {
+      return c.negUntil > c.vow.until
+        ? L(`일찍 하는 재계약 협상 기회는 이미 썼습니다. 구단이 ${weekLabel(c.negUntil)}까지 만나지 않으니, 기한 안에는 ${move}으로만 지킬 수 있습니다.`,
+          `You've had your one early round of talks. The club won't meet again before ${weekLabel(c.negUntil)}, so only ${move} can keep it in time.`)
+        : L(`${weekLabel(c.negUntil)}부터 다시 재계약 협상을 할 수 있습니다. ${terms}으로 재계약하거나 ${move}이면 지킵니다.`,
+          `Talks can reopen from ${weekLabel(c.negUntil)}. Renew on ${terms}, or find ${move}, to keep it.`);
+    }
+    return L(`약속 동안은 계약 만료 ${TUNE.renewWindow}주 전이 아니어도 재계약 협상을 할 수 있습니다(일찍 하는 협상은 한 번뿐). ${terms}으로 재계약하면 지킵니다(협상 칸에 "약속 ✓"). ${move}이어도 지킵니다.`,
+      `While the promise stands you can open contract talks early, once. Renew on ${terms} to keep it (marked "promise ✓" below). ${move[0].toUpperCase()}${move.slice(1)} keeps it too.`);
+  }
+  if (k === 'play') {
+    return windowAt() ? L('지금 이적 기간이라 출전 60% 미만이면 임대를 보낼 수 있습니다(임대 구단에서는 주전). 출전 60% 이상인 구단으로 이적해도 지킵니다.',
+      'The window is open, so he can go on loan while he starts under 60% (he would start there). A move to a club where he starts 60%+ keeps it too.')
+      : L(`${later} 임대를 보내거나(출전 60% 미만이면 임대 칸이 열림) 주전으로 뛸 구단으로 이적시키면 지킵니다.`, `${later} send him on loan (the loan panel opens below 60% starts) or move him to a club where he starts.`);
+  }
+  const what = k === 'stage' ? L('큰 무대 구단', 'big-stage clubs') : L(`${p.nat.name} 구단`, `clubs in ${p.nat.name}`);
+  const more = L(` 약속 동안은 에이전트가 ${what}을 알아봐서 그런 구단의 제안이 더 자주 옵니다. 임대로 간 구단은 셈하지 않습니다.`,
+    ` While the promise stands you're sounding out ${what}, so more of his offers come from them. A loan doesn't count.`);
+  return (windowAt() ? L(`지금 이적 기간입니다. ${what}의 제안을 받아들이거나, 세계 뉴스에서 보강이 필요한 ${what}에 추천하면 지킵니다(추천 칸에 "약속 ✓").`,
+    `The window is open. Accept an offer from ${what}, or pitch him to ${what} looking to strengthen in World news (marked "promise ✓").`)
+    : L(`${later} ${what}의 제안을 받아들이거나, 보강이 필요한 ${what}에 추천하면 지킵니다.`, `${later} accept an offer from ${what} or pitch him to ${what} looking to strengthen.`)) + more;
+}
+// 이 구단으로 옮기면 약속을 지키는지 (출전·큰 무대·고향은 구단으로 정해짐. 주급·안정은 조건을 알아야 해서 null)
+function vowClubKeeps(c, club) {
+  if (!vowOn(c) || c.vow.k === 'money' || c.vow.k === 'stable') return null;
+  const ch = vowCheck(getPlayer(c.s), c.vow.k, club, c.wage, yearsLeft(c));
+  return Boolean(ch && ch.ok);
+}
+
+// 약속 결과: 조건이 맞으면 지킴, 기한이 지났으면 못 지킴. 반환값 = 지금 지켰는지 (재계약·이적·임대 알림에 붙임)
+function settleVow(c, p = getPlayer(c.s)) {
+  if (!vowOn(c)) return false;
+  const now = absWeek();
+  const k = c.vow.k;
+  if (vowMet(c, p)) {
+    c.vow.s = 1;
+    c.vow.end = now;
+    addSat(c, TUNE.vowKeepSat);
+    addBond(c, TUNE.vowKeepBond, MEMO.vowKept[k]);
+    state.stats.vowKept += 1;
+    addLog(L(`${p.name} 선수와의 약속(${vowShort(k)})을 지켰습니다. 선수가 에이전트를 더 믿게 됐습니다 (만족 +${TUNE.vowKeepSat}, 유대 +${TUNE.vowKeepBond}).`,
+      `You kept your promise to ${p.name} (${vowShort(k)}). He trusts you more for it (morale +${TUNE.vowKeepSat}, bond +${TUNE.vowKeepBond}).`));
+    return true;
+  }
+  if (now > c.vow.until) {
+    c.vow.s = -1;
+    c.vow.end = now;
+    addSat(c, -TUNE.vowBreakSat);
+    addBond(c, -TUNE.vowBreakBond, MEMO.vowBroken[k]);
+    state.stats.vowBroken += 1;
+    addLog(L(`${p.name} 선수와 한 약속(${vowShort(k)})을 마감까지 지키지 못했습니다 (만족 -${TUNE.vowBreakSat}, 유대 -${TUNE.vowBreakBond}). 1시즌 동안 이적을 권해도 잘 따라오지 않습니다(이적 동의 -${TUNE.vowBreakConsent}%p).`,
+      `You didn't keep your promise to ${p.name} (${vowShort(k)}) by the deadline (morale -${TUNE.vowBreakSat}, bond -${TUNE.vowBreakBond}). For a season he'll be slower to follow your advice on moves (-${TUNE.vowBreakConsent} pts to agree).`));
+  }
+  return false;
+}
+const VOW_KEPT = () => L('약속을 지켰습니다', 'Promise kept');
+
+// 약속 부탁 상황 글 (조건마다 3가지, 다음 이적 마감까지)
+const VOW_ASK = {
+  money: (p, d, c) => {
+    const [when, want, wage] = [weekLabel(d.until), cash(wantWage(p, prefsOf(p))), cash(c ? c.wage : 0)];
+    return [
+      () => L(`${p.name} 선수가 조심스럽게 부탁을 꺼냈습니다. 다음 이적 마감(${when})까지 주급을 ${want} 이상으로 올려 달라고 합니다. 지금 주급은 ${wage}입니다.`,
+        `${p.name} has a careful request: he wants his wage raised to ${want} or more by the next transfer deadline (${when}). He's on ${wage} now.`),
+      () => L(`${p.name} 선수가 계약 이야기를 꺼냈습니다. 다음 이적 마감(${when})까지 주급 ${want} 이상을 약속해 줄 수 있느냐고 묻습니다. 지금은 ${wage}입니다.`,
+        `${p.name} has brought up his contract. Can you promise him ${want} or more a week by the next deadline (${when})? He's on ${wage}.`),
+      () => L(`훈련이 끝나고 ${p.name} 선수가 따로 찾아왔습니다. 다음 이적 마감(${when})까지 제대로 된 대우(주급 ${want} 이상)를 받게 해 달라고 합니다. 지금은 ${wage}입니다.`,
+        `After training, ${p.name} came to find you alone. He wants to be paid properly, ${want} or more a week, by the next deadline (${when}). Right now he earns ${wage}.`)
+    ];
+  },
+  play: (p, d) => {
+    const [when, pct] = [weekLabel(d.until), Math.round(startChance(p.ability, clubLevel(p.club), 5.5) * 100)];
+    return [
+      () => L(`${p.name} 선수가 다음 이적 마감(${when})까지 주전으로 뛸 수 있는 팀(출전 60% 이상)을 찾아 달라고 부탁합니다. 지금 구단 출전 확률은 ${pct}%입니다.`,
+        `${p.name} is asking you to find him somewhere he'll start (60%+ of games) by the next deadline (${when}). He starts ${pct}% at his club now.`),
+      () => L(`${p.name} 선수가 경기가 끝난 뒤 전화를 걸어 왔습니다. 다음 이적 마감(${when})까지 매주 뛸 수 있게 해 주겠다고 약속해 달라고 합니다. 지금 출전 확률은 ${pct}%입니다.`,
+        `${p.name} rang after the match. He wants your word that he'll be playing every week by the next deadline (${when}). He starts ${pct}% of games now.`),
+      () => L(`또 벤치에 앉았던 ${p.name} 선수가 진지하게 묻습니다. 다음 이적 마감(${when})까지 주전으로 뛸 곳을 찾아 줄 수 있느냐고요. 지금 출전 확률은 ${pct}%입니다.`,
+        `Back from another game on the bench, ${p.name} asks you straight: can you find him a starting place by the next deadline (${when})? He starts ${pct}% of games now.`)
+    ];
+  },
+  stage: (p, d) => {
+    const when = weekLabel(d.until);
+    return [
+      () => L(`${p.name} 선수가 다음 이적 마감(${when})까지 큰 무대(5대 리그 1부나 대륙 대회에 나가는 1부 구단)에서 뛰게 해 달라고 부탁합니다. 지금 ${named(p.club.name, '은', '는')} 큰 무대가 아닙니다.`,
+        `${p.name} wants you to get him onto the big stage, a Big Five top flight or a continental side, by the next deadline (${when}). ${p.club.name} aren't that.`),
+      () => L(`대륙 대회 중계를 함께 보던 ${p.name} 선수가 말을 꺼냈습니다. 다음 이적 마감(${when})까지 저런 무대에 서게 해 달라고 합니다.`,
+        `Watching a continental tie together, ${p.name} turns to you. He wants to be on a stage like that by the next deadline (${when}).`),
+      () => L(`${p.name} 선수가 앞날을 이야기하자며 찾아왔습니다. 다음 이적 마감(${when})까지 더 큰 무대로 가고 싶다며, 약속해 줄 수 있는지 묻습니다.`,
+        `${p.name} came to talk about his future. He wants a bigger stage by the next deadline (${when}) and asks whether you can promise it.`)
+    ];
+  },
+  home: (p, d) => {
+    const [when, nat, here] = [weekLabel(d.until), p.nat.name, p.club.country.name];
+    return [
+      () => L(`${p.name} 선수가 다음 이적 마감(${when})까지 고향 ${nat}의 구단으로 보내 달라고 부탁합니다. 지금은 ${here}에서 뛰고 있습니다.`,
+        `${p.name} is asking you to get him to a club back home in ${nat} by the next deadline (${when}). He's playing in ${here} now.`),
+      () => L(`${p.name} 선수가 휴대폰의 가족사진을 보여 주며 말합니다. 다음 이적 마감(${when})까지 ${nat} 구단으로 옮기게 해 줄 수 있느냐고요.`,
+        `${p.name} shows you a family photo on his phone. Can you get him a club in ${nat} by the next deadline (${when})?`),
+      () => L(`${here}에서의 생활이 길어지자 ${p.name} 선수가 지쳤습니다. 다음 이적 마감(${when})까지 ${nat} 구단으로 옮기게 해 달라고 합니다.`,
+        `Life in ${here} is wearing ${p.name} down. He wants a move to a club in ${nat} by the next deadline (${when}).`)
+    ];
+  },
+  stable: (p, d, c) => {
+    const [when, years] = [weekLabel(d.until), c ? yearsLeft(c) : 0];
+    return [
+      () => L(`${p.name} 선수가 다음 이적 마감(${when})까지 긴 계약(3시즌 이상 남게)을 맺어 달라고 부탁합니다. 지금 계약은 ${years}시즌 남았습니다.`,
+        `${p.name} wants a long contract, with three or more seasons left, by the next deadline (${when}). He has ${pl(years, 'season')} left now.`),
+      () => L(`${p.name} 선수가 앞날 이야기를 꺼냈습니다. 다음 이적 마감(${when})까지 오래 뛸 수 있는 계약을 약속해 달라고 합니다. 지금 계약은 ${years}시즌 남았습니다.`,
+        `${p.name} raises his future. He wants your promise of a long-term deal by the next deadline (${when}). He has ${pl(years, 'season')} left.`),
+      () => L(`이사할 집을 알아보던 ${p.name} 선수가 묻습니다. 다음 이적 마감(${when})까지 몇 년은 마음 놓고 지낼 계약을 만들어 줄 수 있느냐고요.`,
+        `${p.name}, who has been house-hunting, asks whether you can sort a deal that lets him settle for a few years by the next deadline (${when}).`)
+    ];
+  }
+};
+// 약속을 부탁하는 선수의 말 (조건마다)
+const VOW_LINES = {
+  money: [
+    SAY('집안 형편이 넉넉하지 않아서 동생 학비를 제가 대고 있어요. 이번엔 꼭 부탁드려요.', "My family doesn't have much, and I'm paying my little brother's tuition. This time I really need it."),
+    SAY('팀에서 제 몫은 다 하고 있다고 생각해요. 그만큼만 인정받고 싶어요.', 'I think I pull my weight in this team. I just want that recognised.'),
+    SAY('돈 얘기라 민망하지만, 에이전트님이니까 솔직하게 말하는 거예요.', "It's awkward talking money, but you're my agent, so I'm being straight with you.")
+  ],
+  play: [
+    SAY('경기에 못 나가니까 제가 축구 선수인지도 헷갈려요. 약속해 주시면 버틸게요.', "Not playing, I'm starting to forget I'm a footballer. Promise me, and I'll hang on."),
+    SAY('더 늦기 전에 뛰어야 해요. 지금 놓치면 다시는 기회가 없을 거예요.', 'I need to play before it\'s too late. Miss this and the chance is gone for good.'),
+    SAY('어디든 괜찮아요. 매주 잔디 위에 설 수만 있다면요.', "Anywhere is fine, as long as I'm out on the grass every week.")
+  ],
+  stage: [
+    SAY('한 번뿐인 선수 생활이잖아요. 큰 경기 입장 음악을 경기장에서 직접 듣고 싶어요.', 'You only get one career. I want to hear the big-night anthem from the pitch.'),
+    SAY('여기서 할 만큼 했다고 생각해요. 이제 더 강한 상대랑 붙어 보고 싶어요.', "I feel like I've done what I can here. I want to test myself against better teams."),
+    SAY('대표팀 감독님도 큰 무대에서 뛰는 선수를 본대요. 저도 그 명단에 들고 싶어요.', 'The national coach watches players on the big stage. I want to be on that list.')
+  ],
+  home: [
+    SAY('엄마가 해 주시던 밥이 너무 그리워요. 웃기죠? 그런데 진짜예요.', "I miss my mum's cooking so much. Silly, right? But it's true."),
+    SAY('아이가 곧 학교에 갈 나이예요. 고향에서 키우고 싶어요.', 'My little one starts school soon. I want to raise them back home.'),
+    SAY('여기 말이 아직도 서툴러요. 집에 가면 다시 웃으면서 뛸 수 있을 것 같아요.', "I still struggle with the language here. Back home I think I'd play with a smile again.")
+  ],
+  stable: [
+    SAY('계약이 끝나 갈 때마다 잠을 못 자요. 이번엔 길게 가고 싶어요.', "Every time a contract runs down, I can't sleep. This time I want something long."),
+    SAY('부모님 모시고 살 집을 사고 싶어요. 그러려면 몇 년은 한곳에 있어야 해요.', 'I want to buy a house where my parents can live with me. For that I need a few years in one place.'),
+    SAY('구단이 저를 오래 원한다는 걸 계약서로 보고 싶어요.', 'I want to see it in writing that the club wants me for the long haul.')
+  ]
+};
 
 
 // ===== 7. 저장·불러오기 =====
@@ -3903,7 +4292,8 @@ function deserialize(text) {
     sponsor: x => fin(x.cut) && x.cut > 0,
     injury: x => fin(x.cost) && (x.wk === undefined || (int(x.wk) && x.wk > 0 && x.wk < WEEKS)),
     junior: x => int(x.junior) && x.junior >= 0 && x.junior < SLOTS,
-    wedding: x => FAMILY.includes(x.who)
+    wedding: x => FAMILY.includes(x.who),
+    promise: x => VOW_KEYS.includes(x.k) && int(x.until) // 18단계 약속 부탁: 조건과 기한
   };
   const events = (Array.isArray(d.events) ? d.events : []).filter(e => e && int(e.id) && EVENT_TYPES[e.type] && int(e.s) && e.s >= 0 && e.s < SLOTS && int(e.until))
     .map(e => ({ id: e.id, type: e.type, s: e.s, g: int(e.g) ? e.g : 0, until: e.until, d: e.d && typeof e.d === 'object' && !Array.isArray(e.d) ? { ...e.d } : {} }))
@@ -4000,7 +4390,11 @@ function deserialize(text) {
         && c.lw.t.every(r => Array.isArray(r) && ['L', 'C', 'K'].includes(r[0]) && [1, 2, 3].every(i => int(r[i]) && r[i] >= 0))
         ? { w: c.lw.w, n: c.lw.n, p: c.lw.p, r: c.lw.r, g: c.lw.g, t: c.lw.t.map(r => r.slice(0, 4)), a: c.lw.a === 'inj' || c.lw.a === 'fam' ? c.lw.a : '' } : null,
       // 15단계: 임대 { club, until }, 임대를 거절한 이적 기간 마지막 주
-      loan: c.loan && clubOk(c.loan.club) && int(c.loan.until) ? { club: c.loan.club, until: c.loan.until } : null, noLoan: intOr(c.noLoan, 0)
+      loan: c.loan && clubOk(c.loan.club) && int(c.loan.until) ? { club: c.loan.club, until: c.loan.until } : null, noLoan: intOr(c.noLoan, 0),
+      // 18단계: 약속 { k: 조건, w: 약속한 주, until: 기한, s: 0 지키는 중·1 지킴·-1 못 지킴·2 거절, end: 끝난 주, x: 주급 약속의 약속한 금액 }
+      // (모양이 맞을 때만, 17단계까지는 없음. x가 없는 주급 약속은 지금 원하는 금액으로 봄)
+      vow: c.vow && VOW_KEYS.includes(c.vow.k) && ['w', 'until', 'end'].every(k => int(c.vow[k])) && [0, 1, -1, 2].includes(c.vow.s)
+        ? { k: c.vow.k, w: c.vow.w, until: c.vow.until, s: c.vow.s, end: c.vow.end, ...(c.vow.k === 'money' && int(c.vow.x) && c.vow.x > 0 ? { x: c.vow.x } : {}) } : null
     })),
     cooldowns, logs: d.logs.map(String).slice(0, 80), summary, moved, events, nextEventId,
     natCut: Object.keys(natCut).length ? natCut : null, stats, ui: cleanUi(d.ui, tierOf), world
@@ -4435,6 +4829,35 @@ function bondBlock(c) {
   return box;
 }
 
+// 18단계 약속 칸: 지키는 중이면 할 일·지금 상태·기한, 끝난 지 1시즌 안이면 결과 (거절한 부탁은 보여 주지 않음)
+function vowPanel(c, p) {
+  const v = c.vow;
+  if (!v || v.s === 2) return null;
+  const now = absWeek();
+  const box = el('div', 'panel vow');
+  if (v.s === 0) {
+    const head = el('div', 'panel-head');
+    const goal = vowGoal(v.k, p, v.x);
+    head.append(el('strong', '', LANG === 'en' ? goal[0].toUpperCase() + goal.slice(1) : goal), el('span', 'badge warm', L(`${v.until - now}주 남음`, `${v.until - now}w left`)));
+    const st = vowNow(c, p);
+    box.append(head, el('p', 'sub', L(`기한 ${weekLabel(v.until)}(다음 이적 마감) · ${weekLabel(v.w)}에 약속함`, `Deadline ${weekLabel(v.until)} (next transfer deadline) · promised in ${weekLabel(v.w)}`)),
+      el('p', st.ok ? 'check ok' : 'check no', `${st.ok ? '✓' : '✗'} ${st.text}`), el('p', 'sub', vowHint(c, p)),
+      el('p', 'sub', L(`지키면 만족 +${TUNE.vowKeepSat}·유대 +${TUNE.vowKeepBond}. 못 지키면 만족 -${TUNE.vowBreakSat}·유대 -${TUNE.vowBreakBond}이고, 1시즌 동안 이적을 권해도 덜 따라옵니다(이적 동의 -${TUNE.vowBreakConsent}%p).`,
+        `Keep it: morale +${TUNE.vowKeepSat}, bond +${TUNE.vowKeepBond}. Break it: morale -${TUNE.vowBreakSat}, bond -${TUNE.vowBreakBond}, and for a season he is slower to follow your advice on moves (-${TUNE.vowBreakConsent} pts to agree).`)));
+    return box;
+  }
+  if (v.s === -1 && vowDistrust(c)) {
+    box.append(el('p', 'check no', L(`✗ 지키지 못한 약속: ${vowShort(v.k)} (${weekLabel(v.end)})`, `✗ Broken promise: ${vowShort(v.k)} (${weekLabel(v.end)})`)),
+      el('p', 'sub', L(`${weekLabel(v.end + TUNE.vowBreakWeeks)}까지 이적 동의 -${TUNE.vowBreakConsent}%p`, `-${TUNE.vowBreakConsent} pts on agreeing to moves until ${weekLabel(v.end + TUNE.vowBreakWeeks)}`)));
+    return box;
+  }
+  if (v.s === 1 && now - v.end < TUNE.vowBreakWeeks) {
+    box.append(el('p', 'check ok', L(`✓ 지킨 약속: ${vowShort(v.k)} (${weekLabel(v.end)})`, `✓ Promise kept: ${vowShort(v.k)} (${weekLabel(v.end)})`)));
+    return box;
+  }
+  return null;
+}
+
 const avgRating = row => (row[0] ? (row[3] / row[0] / 10).toFixed(1) : '-');
 // 한 줄 요약: "리그 12경기 3골 · 평점 6.9 · 국가대표 2경기"
 function statLine(st) {
@@ -4458,6 +4881,8 @@ function clientCard(c) {
   stats.append(stat(L('잠재력', 'Potential'), potText(p)), stat(L('폼', 'Form'), formNode(p)), stat(L('몸값', 'Value'), money(valueOf(p))), stat(L('계약 만료', 'Contract'), contractNode(c.end)));
   const foot = el('span', 'card-foot');
   foot.append(satNode(c), ' · ', bondNode(c), isFreeAgent(c) ? L(' · 무소속: 수수료 없음', ' · Free agent: no commission') : L(` · 주급 ${cash(c.wage)} · 내 수수료 주 ${cash(commissionOf(c.wage))}`, ` · wage ${cash(c.wage)} · your cut ${cash(commissionOf(c.wage))}/wk`));
+  // 18단계: 지키는 중인 약속과 남은 주
+  if (vowOn(c)) foot.append(' · ', el('span', 'warmt', L(`약속(${vowShort(c.vow.k)}) ${c.vow.until - absWeek()}주`, `promise (${vowShort(c.vow.k)}) ${c.vow.until - absWeek()}w`)));
   card.append(top, el('span', 'meta', `${L(`${ageOf(p)}세`, `${ageOf(p)}`)} · ${p.nat.name} · ${clubLine(c, p)}`),
     abilityBar(p.ability), stats, el('span', 'card-line', statLine(c.st)));
   const last = lastWeekText(c);
@@ -4497,11 +4922,16 @@ function newsCard(ev) {
   const type = EVENT_TYPES[ev.type];
   const p = getPlayer(ev.s);
   const c = clientOf(ev.s);
-  // 관계 이야기는 따뜻한 색 카드에 이야기 이름·선수의 말을 크게 (디자인 시안 A)
-  const card = el('article', type.tale ? 'news tale' : 'news');
+  // 관계 이야기(와 18단계 약속 부탁)는 따뜻한 색 카드에 이름·선수의 말을 크게 (디자인 시안 A)
+  const card = el('article', type.tale || type.scene ? 'news tale' : 'news');
   if (type.tale && c) {
     const lab = el('div', 'tale-lab');
     lab.append(el('span', 'tale-name', `${L('이야기', 'Story')} · ${taleTitle(c, ev.type)}`), el('span', 'badge warm', `${bondName(c.bond)} ${c.bond}`));
+    card.append(lab);
+  }
+  if (ev.type === 'promise' && c) {
+    const lab = el('div', 'tale-lab');
+    lab.append(el('span', 'tale-name', `${L('약속 부탁', 'A promise to make')} · ${vowShort(ev.d.k)}`), el('span', 'badge warm', `${bondName(c.bond)} ${c.bond}`));
     card.append(lab);
   }
   if (ev.type === 'offer' && ev.d.late) card.append(el('p', 'news-tag', L('이적 마감일 막판 제안', 'Deadline-day bid')));
@@ -4514,7 +4944,16 @@ function newsCard(ev) {
   if (c) card.append(el('p', 'news-bond', type.tale ? L(`인연: ${c.how} · ${togetherText(c)}`, `How you met: ${phrase(c.how)} · ${togetherText(c)}`) : L(`관계: ${bondName(c.bond)} · 유대 ${c.bond} · ${c.how}`, `Relationship: ${bondName(c.bond)} · bond ${c.bond} · ${phrase(c.how)}`)));
   if (type.fit) {
     const fit = type.fit(p, ev.d);
-    card.append(checkList(fit.checks, fit.score, L(`이적 동의 ${fit.consent}%${fit.bond ? ` (유대 +${fit.bond}%p 포함)` : ''}`, `${fit.consent}% likely to agree${fit.bond ? ` (incl. bond +${fit.bond} pts)` : ''}`)));
+    // 동의 확률에 들어간 것: 유대 보너스, 18단계 어긴 약속
+    const parts = [fit.bond ? L(`유대 +${fit.bond}%p`, `bond +${fit.bond} pts`) : '', fit.distrust ? L(`어긴 약속 -${fit.distrust}%p`, `broken promise -${fit.distrust} pts`) : ''].filter(Boolean);
+    card.append(checkList(fit.checks, fit.score, L(`이적 동의 ${fit.consent}%${parts.length ? ` (${parts.join(' · ')} 포함)` : ''}`, `${fit.consent}% likely to agree${parts.length ? ` (incl. ${parts.join(', ')})` : ''}`)));
+    // 18단계: 지키는 중인 약속이 있으면 이 제안으로 지키는지
+    if (c && vowOn(c)) {
+      const ok = vowTermsOk(c, p, CLUBS[ev.d.club], ev.d.wage, ev.d.years || 3);
+      card.append(el('p', ok ? 'check ok vow-line' : 'check no vow-line', ok
+        ? L(`✓ 약속(${vowShort(c.vow.k)}): 이 이적이면 지킵니다`, `✓ Promise (${vowShort(c.vow.k)}): this move keeps it`)
+        : L(`✗ 약속(${vowShort(c.vow.k)}): 이 이적으로는 못 지킵니다 · 기한 ${weekLabel(c.vow.until)}`, `✗ Promise (${vowShort(c.vow.k)}): this move won't keep it · deadline ${weekLabel(c.vow.until)}`)));
+    }
   }
   card.append(el('p', 'news-due', dueText(ev, type, p, c)));
   const actions = el('div', 'news-actions');
@@ -4533,6 +4972,8 @@ function newsCard(ev) {
 // 시트를 닫아도 이야기는 내 선수 탭 소식에 남음. 대기열은 저장하지 않음 (새로고침하면 소식 카드로만 보임)
 let sceneQueue = [];
 let sceneShownAt = -1e9; // 장면을 띄운 때: 그 직후의 누름은 무시 (결산 "확인"이나 앞 장면 답을 두 번 누른 것이 다음 장면에 답하지 않게)
+// 장면 시트로 보여 주는 소식: 관계 이야기(tale)와 18단계 약속 부탁(scene)
+const isScene = e => Boolean(EVENT_TYPES[e.type] && (EVENT_TYPES[e.type].tale || EVENT_TYPES[e.type].scene));
 
 function openScene() {
   const dialog = $('scene');
@@ -4540,7 +4981,7 @@ function openScene() {
   let ev = null;
   while (sceneQueue.length && !ev) {
     const id = sceneQueue.shift();
-    ev = state.events.find(e => e.id === id && EVENT_TYPES[e.type].tale && clientOf(e.s)) || null;
+    ev = state.events.find(e => e.id === id && isScene(e) && clientOf(e.s)) || null;
   }
   if (!ev) return;
   const type = EVENT_TYPES[ev.type];
@@ -4565,7 +5006,9 @@ function openScene() {
     b.disabled = o.blocked;
     actions.append(b);
   });
-  $('scene-body').replaceChildren(el('p', 'scene-quote', `"${type.quote(p, ev.d, c)}"`), el('p', 'scene-ctx', ctx), actions,
+  // 18단계 약속 부탁은 고를 때 볼 숫자(지금 상태·지킬 수단·잃는 것)를 같이
+  const note = type.note ? el('p', 'scene-ctx', type.note(p, ev.d, c)) : null;
+  $('scene-body').replaceChildren(el('p', 'scene-quote', `"${type.quote(p, ev.d, c)}"`), el('p', 'scene-ctx', ctx), ...(note ? [note] : []), actions,
     el('p', 'news-due', `${dueText(ev, type, p, c)} · ${L('닫아도 내 선수 탭 소식에 남습니다', "Closing this keeps it in your Players tab news")}`));
   dialog.showModal();
   sceneShownAt = nowMs();
@@ -4758,13 +5201,18 @@ function newsRow(n) {
 // 이 보강에 맞는 내 선수마다 "추천" 버튼 (막히면 이유 표시)
 function pitchButtons(need) {
   const out = [];
-  for (const c of state.clients) {
+  // 18단계: 이 구단이 약속을 지켜 주는 선수의 버튼을 먼저 (나머지는 원래 순서)
+  const keepsVow = c => vowClubKeeps(c, CLUBS[need.club]) === true;
+  for (const c of [...state.clients.filter(keepsVow), ...state.clients.filter(x => !keepsVow(x))]) {
     if (pitchFit(c, need)) continue;
     const p = getPlayer(c.s);
     const block = pitchBlock(c, need);
     const b = actButton('btn wide option', 'pitch', c.s);
     b.dataset.o = String(need.club);
-    b.append(el('span', 'opt-title', L(`내 선수 ${p.name}(${p.pos}, 능력 ${p.ability}) 추천하기 (1 AP)`, `Pitch ${p.name} (${p.pos}, ability ${p.ability}) to them (1 AP)`)),
+    // 18단계: 출전·큰 무대·고향 약속을 지키는 중이면 이 구단이 약속에 맞는지
+    const keeps = vowClubKeeps(c, CLUBS[need.club]);
+    const mark = keeps === null ? '' : keeps ? L(` · 약속(${vowShort(c.vow.k)}) ✓`, ` · promise (${vowShort(c.vow.k)}) ✓`) : L(` · 약속(${vowShort(c.vow.k)}) ✗`, ` · promise (${vowShort(c.vow.k)}) ✗`);
+    b.append(el('span', 'opt-title', L(`내 선수 ${p.name}(${p.pos}, 능력 ${p.ability}) 추천하기 (1 AP)${mark}`, `Pitch ${p.name} (${p.pos}, ability ${p.ability}) to them (1 AP)${mark}`)),
       el('span', 'opt-sub', block || L(`마감 ${weekLabel(need.until)}까지 이 선수 제안이 잦아지고 이 구단에서 올 가능성이 높아집니다`, `Until the deadline (${weekLabel(need.until)}), he gets offers more often, most likely from this club`)));
     b.disabled = Boolean(block);
     out.push(b);
@@ -4773,10 +5221,12 @@ function pitchButtons(need) {
 }
 
 // 내 선수 탭의 뉴스 상자 3건: 추천할 기회 1건 → 내 선수 소식 → 나머지는 최근 순 (추천 기회만으로 채우지 않게)
+// 18단계: 이 보강에 추천하면 지키는 중인 약속(출전·큰 무대·고향)에 맞는 내 선수가 있는지
+const vowNeed = n => state.clients.some(c => !pitchFit(c, n) && vowClubKeeps(c, CLUBS[n.club]) === true);
 function newsBox() {
   if (!state.news.length) return null;
   const chance = n => n.k === 'need' && state.needs.some(x => x.club === n.club && x.pos === n.pos) && state.clients.some(c => !pitchFit(c, n));
-  const first = state.news.find(chance);
+  const first = state.news.find(n => chance(n) && vowNeed(n)) || state.news.find(chance);
   const mine = state.news.filter(n => n !== first && (n.k === 'mine' || n.k === 'call' || n.my));
   const rest = state.news.filter(n => n !== first && !mine.includes(n) && !chance(n));
   const top = [first, ...mine, ...rest].filter(Boolean).slice(0, 3);
@@ -4792,7 +5242,9 @@ function renderNews(root) {
   if (windowAt()) {
     root.append(el('h2', 'section', L(`보강이 필요한 구단 ${state.needs.length}곳`, `Clubs looking to strengthen: ${state.needs.length}`)));
     if (!state.needs.length) root.append(el('p', 'empty', L('이번 이적 기간에 보강을 찾던 구단들이 모두 선수를 구했습니다.', 'Every club that was shopping this window has found its player.')));
-    for (const need of state.needs) {
+    // 18단계: 약속에 맞는 보강을 먼저 (나머지는 원래 순서)
+    const order = [...state.needs.filter(vowNeed), ...state.needs.filter(n => !vowNeed(n))];
+    for (const need of order) {
       const box = el('div', 'nitem nitem-need');
       const body = actButton('nbody', 'clubAt', need.club);
       body.append(el('span', 'ntag ntag-need', posName(need.pos)), el('span', 'ntext', L(`${clubLabel(need.club)} · 주전 평균 능력 ${need.avg} (구단 수준보다 ${need.gap} 낮음)`, `${clubLabel(need.club)} · starters average ${need.avg} (${need.gap} below the club's level)`)));
@@ -4808,6 +5260,20 @@ function renderNews(root) {
   }
 }
 
+// 18단계 할 일 줄의 약속 한 줄 (지금 손쓸 수 있을 때만, 없으면 null)
+function vowTodo(c, p) {
+  const k = c.vow.k;
+  const due = L(`기한 ${weekLabel(c.vow.until)} · ${c.vow.until - absWeek()}주 남음`, `due ${weekLabel(c.vow.until)} · ${pl(c.vow.until - absWeek(), 'week')} left`);
+  const text = L(`${p.name} 약속: ${vowShort(k)}`, `Promise to ${p.name}: ${vowShort(k)}`);
+  // AP는 보지 않음 (다른 할 일 줄처럼, AP가 없는 주에도 다음 주에 할 일로 보이게)
+  if ((k === 'money' || k === 'stable') && renewOpen(c) && c.negUntil <= absWeek()) return { act: 'player', v: c.s, text, sub: L(`재계약 협상으로 지킬 수 있음 · ${due} · 1 AP`, `a renewal can keep it · ${due} · 1 AP`) };
+  if (k === 'play' && !loanBlock(c, false)) return { act: 'player', v: c.s, text, sub: L(`임대를 보내면 지킴 · ${due} · 1 AP`, `a loan keeps it · ${due} · 1 AP`) };
+  const n = (k === 'stage' || k === 'home') && !pitching(c)
+    ? state.needs.filter(need => !pitchFit(c, need) && need.until >= absWeek() && vowClubKeeps(c, CLUBS[need.club])).length : 0;
+  if (n) return { act: 'news', text, sub: L(`약속에 맞는 보강 구단 ${n}곳에 추천할 수 있음 · ${due} · 1 AP`, `${pl(n, 'club')} looking to strengthen would keep it · ${due} · 1 AP`) };
+  return null;
+}
+
 // 14단계 처음 화면 (시안 A "할 일 먼저"): 상태 한 줄 → 이번 주 할 일(답할 소식 → 해 볼 만한 일) → 지난주 → 소속 선수 → 세계 뉴스
 // 이번 주에 해 볼 만한 일: 소식 말고 지금 할 수 있는 일 (누르면 그 화면으로, 최대 4개)
 function todoList() {
@@ -4818,6 +5284,12 @@ function todoList() {
   for (const c of state.clients) {
     const p = getPlayer(c.s);
     const left = c.end - now;
+    // 18단계: 지키는 중인 약속이 있고 지금 손쓸 수 있으면 그 일을 먼저 (주급·안정 → 재계약, 출전 → 임대, 큰 무대·고향 → 맞는 보강에 추천)
+    const vow = vowOn(c) && !vowMet(c, p) ? vowTodo(c, p) : null;
+    if (vow) {
+      out.push(vow);
+      continue;
+    }
     if (left <= TUNE.renewWindow && c.negUntil <= now) {
       out.push({ act: 'player', v: c.s, text: L(`${p.name} 재계약 협상`, `Renew ${p.name}'s contract`), sub: isFreeAgent(c) ? L('무소속이라 수수료가 없습니다 · 1 AP', 'Free agent, so no commission · 1 AP') : L(`계약 만료까지 ${left}주 · 1 AP`, `${pl(left, 'week')} left on his deal · 1 AP`) });
     } else if (c.sat < 50 && !(c.met && now - c.met < TUNE.meetGap)) {
@@ -5206,20 +5678,29 @@ function renewPanel(box, c, p) {
     toggle.append(b);
   });
   box.append(toggle);
+  // 18단계: 주급·안정 약속을 지키는 중이면 조건마다 그 약속을 지키는지
+  const vowKey = vowOn(c) && (c.vow.k === 'money' || c.vow.k === 'stable') ? c.vow.k : '';
   RENEW_LEVELS.forEach((_, i) => {
     const t = renewTerms(c, p, i, years);
     const b = actButton('btn wide option', 'renew', c.s);
     b.dataset.o = String(i);
     b.dataset.y = String(years);
-    b.append(el('span', 'opt-title', L(`${t.label} · 주급 ${cash(t.wage)}`, `${t.label} · wage ${cash(t.wage)}`)),
+    const mark = vowKey ? (vowTermsOk(c, p, homeClub(c.s), t.wage, years) ? L(' · 약속 ✓', ' · promise ✓') : L(' · 약속 ✗', ' · promise ✗')) : '';
+    b.append(el('span', 'opt-title', L(`${t.label} · 주급 ${cash(t.wage)}${mark}`, `${t.label} · wage ${cash(t.wage)}${mark}`)),
       el('span', 'opt-sub', L(`구단 수락 ${t.chance}% · 선수 반응 ${moodText(t.score)} (만족 ${t.satGain >= 0 ? '+' : ''}${t.satGain}) · 수수료 ${cash(t.fee)}`, `Club agrees ${t.chance}% · player reaction ${moodText(t.score)} (morale ${t.satGain >= 0 ? '+' : ''}${t.satGain}) · commission ${cash(t.fee)}`)));
     box.append(b);
   });
   const mid = renewTerms(c, p, 0, years);
   const lawyer = state.invest.lawyer ? L(` 주급에 변호사 ${state.invest.lawyer}단계(+${Math.round(TUNE.lawyerWage[state.invest.lawyer] * 100)}%)가 들어 있습니다.`, ` Wages include your level ${state.invest.lawyer} lawyer (+${Math.round(TUNE.lawyerWage[state.invest.lawyer] * 100)}%).`) : '';
+  // 18단계: 약속 때문에 일찍 여는 협상은 한 번뿐 (결렬되거나 약속에 못 미치는 조건으로 맺으면 보통 협상 기간까지 다시 못 함)
+  const early = c.end - absWeek() > TUNE.renewWindow;
+  const longPen = TUNE.vowEarlyRenew + TUNE.vowEarlyLong;
+  const note = early
+    ? L(`약속 때문에 일찍 하는 협상은 한 번뿐입니다. 결렬되면(만족 -8) ${weekLabel(c.end - TUNE.renewWindow)}까지, 약속에 못 미치는 조건으로 맺으면 새 계약 만료 ${TUNE.renewWindow}주 전까지 다시 협상할 수 없습니다. 구단 수락에는 일찍 하는 협상 -${TUNE.vowEarlyRenew}%p(4시즌 계약은 -${longPen}%p)가 들어 있습니다.`,
+      `Early talks for your promise are a one-off. If they fail (morale -8) you can't try again until ${weekLabel(c.end - TUNE.renewWindow)}, and if you sign terms that fall short of the promise, not until ${pl(TUNE.renewWindow, 'week')} before the new deal ends. The club's chance includes -${TUNE.vowEarlyRenew} pts for talking early (-${longPen} for a four-season deal).`)
+    : L(`결렬되면 만족 -8, ${TUNE.renewRetry}주 뒤 다시 협상할 수 있습니다.`, `If talks fail, morale -8 and you can try again in ${pl(TUNE.renewRetry, 'week')}.`);
   box.append(checkList(mid.checks.filter(ch => ch.key !== 'money'), fitScore(mid.checks, pref), L('주급은 단계마다 다름', 'wage depends on the option')),
-    el('p', 'sub', L(`결렬되면 만족 -8, ${TUNE.renewRetry}주 뒤 다시 협상할 수 있습니다. 구단은 어린 선수에게 긴 계약, 30세 이상에게 짧은 계약을 선호합니다.${lawyer}`,
-      `If talks fail, morale -8 and you can try again in ${pl(TUNE.renewRetry, 'week')}. Clubs prefer long deals for young players and short ones for players over 30.${lawyer}`)));
+    el('p', early ? 'sub warmt' : 'sub', `${note} ${L('구단은 어린 선수에게 긴 계약, 30세 이상에게 짧은 계약을 선호합니다.', 'Clubs prefer long deals for young players and short ones for players over 30.')}${lawyer}`));
 }
 
 // 소속 선수 상세: 면담, 재계약 협상, 해지
@@ -5264,11 +5745,13 @@ function loanPanel(box, c, p) {
     el('p', 'sub', buyOutlook(c)));
     return;
   }
-  if (isFreeAgent(c) || benchChance(c) >= TUNE.loanBench) return;
+  if (isFreeAgent(c) || benchChance(c) >= loanBenchOf(c)) return;
   const block = loanBlock(c);
   const pct = Math.round(benchChance(c) * 100);
   box.append(el('h2', 'section', L('임대 (1 AP)', 'Loan (1 AP)')), el('p', 'sub', L(`지금 구단 출전 확률 ${pct}%. 임대를 가면 ${weekLabel(loanUntil())}까지 주전으로 뛰고 돌아옵니다. 계약·주급·내 수수료는 그대로이고, 23세 이하는 많이 뛸수록 더 자랍니다. 임대 구단에서 리그 ${TUNE.buyApps}경기 이상 뛰며 평점이 좋으면, 리그가 끝난 뒤 그 구단이 완전 이적을 제안하기도 합니다.`,
     `He starts ${pct}% of games at his club. On loan he would play regularly until ${weekLabel(loanUntil())}, then come back. His contract, wage and your commission stay the same, and players aged 23 or under develop faster with more minutes. If he plays ${TUNE.buyApps}+ league games there and rates well, the loan club may offer to make the move permanent once the league ends.`)));
+  // 18단계: 출전 시간 약속 중이면 임대 칸이 출전 60% 미만까지 열리고, 후보 구단은 모두 주전 자리라 임대를 가면 약속을 지킴 (지금 보낼 수 있을 때만 표시)
+  if (vowOn(c) && c.vow.k === 'play' && (!block || block === NO_AP())) box.append(el('p', 'check ok vow-line', L(`✓ 약속(${vowShort('play')}): 임대를 가면 지킵니다 (기한 ${weekLabel(c.vow.until)})`, `✓ Promise (${vowShort('play')}): a loan keeps it (deadline ${weekLabel(c.vow.until)})`)));
   if (block && block !== NO_AP()) {
     box.append(el('p', 'note', block));
     return;
@@ -5328,6 +5811,8 @@ function renderPlayer(root, s) {
     ? L(`부상 중입니다. ${client.out.w - absWeek()}주 뒤부터 다시 뛸 수 있습니다.`, `He is injured and can play again in ${pl(client.out.w - absWeek(), 'week')}.`)
     : L('가족 일로 휴가 중이라 이번 주 경기에 빠집니다.', "He is on family leave and misses this week's games.")));
   if (client) root.append(el('h2', 'section', L('선수와의 관계', 'Your relationship')), bondBlock(client));
+  const vow = client ? vowPanel(client, p) : null;
+  if (vow) root.append(el('h2', 'section', L('약속', 'Promise')), vow);
 
   root.append(el('h2', 'section', L(`${state.season}시즌 기록`, `Season ${state.season} stats`)), statsTable(client ? client.st : worldStats(p, state.week), p.club, p.nat, true),
     el('p', isNationalPick(p) ? 'sub up' : 'sub', nationalLine(p)));
@@ -6006,8 +6491,8 @@ function bindEvents() {
       fresh.push(n);
     }
     const moment = pickMoment(fresh);
-    // 이번 주에 새로 찾아온 관계 이야기는 장면 시트로 보여 줌 (결산 창이 뜨면 닫은 뒤에)
-    sceneQueue = state.events.filter(e => e.id >= first && EVENT_TYPES[e.type].tale).map(e => e.id);
+    // 이번 주에 새로 찾아온 관계 이야기·약속 부탁은 장면 시트로 보여 줌 (결산 창이 뜨면 닫은 뒤에)
+    sceneQueue = state.events.filter(e => e.id >= first && isScene(e)).map(e => e.id);
     if (state.over) openGameOver();
     else if (state.summary && !state.summary.seen) openSummary();
     else if (sceneQueue.length) openScene();
@@ -6261,6 +6746,12 @@ function runSelfCheck() {
     state.agencyCash = cash0;
   }
   check(bonusKeep({ sat: 100, bond: 100 }) <= 0.95 && TUNE.releaseWait > RETRY_WEEKS && releaseKey(a) !== cooldownKey(a), '보너스 붙잡기 95% 이하, 해지 뒤 다시 영입 대기');
+  // 18단계 약속: 조건마다 부탁 글·선수의 말 3가지 이상, 어긴 약속은 1시즌만 이적 동의를 깎고, 주급·안정 약속은 재계약을 일찍 열고, 출전 약속은 임대 기준을 넓힘
+  const now0 = absWeek();
+  check(VOW_KEYS.every(k => VOW_LINES[k].length >= 3 && VOW_ASK[k](a, { k, until: now0 + 10, v: 0 }, null).filter(f => typeof f() === 'string').length >= 3 && VOW_SHORT[k] && MEMO.vowKept[k] && MEMO.vowBroken[k]), '약속 조건마다 글·기억');
+  check(vowDistrust({ vow: { s: -1, end: now0 } }) && !vowDistrust({ vow: { s: -1, end: now0 - TUNE.vowBreakWeeks } }) && !vowDistrust({ vow: { s: 1, end: now0 } }), '어긴 약속은 1시즌 동안만');
+  check(renewOpen({ end: now0 + 100, vow: { s: 0, k: 'money' } }) && !renewOpen({ end: now0 + 100, vow: { s: 0, k: 'play' } }) && !renewOpen({ end: now0 + 100, vow: null }), '주급·안정 약속 중에는 재계약을 일찍');
+  check(loanBenchOf({ vow: { s: 0, k: 'play' } }) === TUNE.vowPlayBench && loanBenchOf({ vow: null }) === TUNE.loanBench, '출전 약속 중 임대 기준');
   // 결산 검사: 모양이 틀린 줄·구단 번호는 버림 (1-3·2-6)
   const sm0 = cleanSummary({ season: 1, rows: [null, { name: 'x', ageFrom: 20 }, { name: '은퇴', ageFrom: 35, retired: true }], champs: ['constructor', 0], retired: 'x' },
     { int: Number.isInteger, clubOk: v => Number.isInteger(v) && v >= 0 && v < CLUBS.length, nkOk: () => '' });

@@ -32,10 +32,14 @@ const TARGETS = {
     ['lateShare', '마감 주에 온 이적 제안', 15, 40, '%'],    // 9단계: 마감일 막판 제안이 몰리는 느낌 (마감 주는 이적 기간 17주 중 2주)
     ['investLevels', '투자 단계 (10단계 중)', 3, 7, ''],
     ['spendShare', '번 돈 중 투자·아이템에 쓴 비율', 40, 85, '%'],
-    ['deficitWeeks', '투자 유지비 때문에 적자인 주', 0, 3, '%']
+    ['deficitWeeks', '투자 유지비 때문에 적자인 주', 0, 3, '%'],
+    // 18단계: 지킬 만할 때만 약속하면 대부분 지키지만 5번 중 1번 이상은 못 지키게. 지키면 유대 +6, 못 지키면 -10, 거절은 -2라
+    // 지킬 확률이 50%를 넘을 때만 약속하는 것이 맞는 답이고, 그렇게 고르면 지킨 비율은 50%보다 꽤 높음 (처음 목표 50~65%는 이와 맞지 않았음)
+    ['vowKept', '약속을 지킨 비율', 60, 80, '%']
   ],
   passive: [['bankrupt', '파산한 게임', 80, 100, '%'], ['lostAll', '선수를 다 잃은 게임', 80, 100, '%']],
-  careless: [['lostAny', '선수를 1명 이상 잃은 게임', 60, 100, '%']]
+  // 대충 하는 봇: 선수를 잘 잃고, 약속은 아무렇게나 해서 절반도 못 지킴 (약속을 가려서 하는 실력이 보이게)
+  careless: [['lostAny', '선수를 1명 이상 잃은 게임', 60, 100, '%'], ['vowKept', '약속을 지킨 비율', 0, 50, '%']]
 };
 
 // ----- game.js 불러오기 (저장·화면은 끔) -----
@@ -55,7 +59,8 @@ function loadGame() {
       weeklyWage, commissionOf, clientIncome, clientLimit, recruit, recruitBlock, recruitChance, recruitCost, renew, renewBlock, renewTerms,
       meet, meetBlock, resolveEvent, offerFit, offerCut, counterChance, clientOf, absWeek,
       INVEST_KEYS, ITEMS, investSteps, investUpkeep, upkeepNow, weeklySpend, invest, downgrade, dividendRoom, afterTax, payDividend, inject, buyItem, netWorth,
-      potRange, scout, scoutBlock, toggleWatch, cooldownKey, foundBlock, foundAgency, windowAt, isFreeAgent, pitch, pitchBlock, CLUBS, clubLevel, loan, loanBlock, loanClubs, loanFit, buyWish };`);
+      potRange, scout, scoutBlock, toggleWatch, cooldownKey, foundBlock, foundAgency, windowAt, isFreeAgent, pitch, pitchBlock, CLUBS, clubLevel, loan, loanBlock, loanClubs, loanFit, buyWish,
+      homeClub, vowOn, vowTermsOk, vowOutlook, vowClubKeeps };`);
   return factory(...Object.values(stubs));
 }
 
@@ -86,9 +91,19 @@ function answer(G, bot, ev, m) {
   switch (ev.type) {
     case 'offer': {
       const fit = G.offerFit(p, ev.d);
-      if (fit.consent >= 55) return 0;
+      // 18단계: 지키는 중인 약속을 이 제안으로 지킬 수 있으면 동의가 조금 낮아도 받아들임
+      const keeps = G.vowOn(c) && G.vowTermsOk(c, p, G.CLUBS[ev.d.club], ev.d.wage, ev.d.years || 3);
+      if (fit.consent >= 55 || (keeps && fit.consent >= 40)) return 0;
       if (fit.consent >= 40 && G.counterChance() >= 55) return 1;
       return 2;
+    }
+    // 18단계 약속: 지킬 수 있어 보일 때만 약속함 (주급·안정은 맞는 재계약의 구단 수락 40% 이상(결렬돼도 이적으로 지킬 길이 있어서),
+    // 출전은 기한이 든 이적 기간 임대 후보의 선수 동의 40% 이상, 큰 무대는 닿는 구단의 20% 이상이 큰 무대, 고향은 닿는 고향 구단 8곳 이상)
+    case 'promise': {
+      const o = G.vowOutlook(c, p, ev.d.k, ev.d.until);
+      const k = ev.d.k;
+      const hope = k === 'money' || k === 'stable' || k === 'play' ? o.n >= 40 : k === 'stage' ? o.total > 0 && o.n / o.total >= 0.2 : o.n >= 8;
+      return hope ? 0 : 1;
     }
     // 17단계 임대 뒤 완전 이적: 선수 동의 55% 이상이면 받아들이고(남고 싶거나 반반인 선수), 아니면 돌아오게 함(돌아오고 싶은 선수).
     // --no-buy면 늘 돌아오게 하는 봇과 비교
@@ -104,7 +119,18 @@ function answer(G, bot, ev, m) {
 }
 
 // 재계약: 성공 확률 × (선수 만족 변화 + 10)이 가장 큰 조건
+// 18단계: 주급·안정 약속을 지키는 중이면 약속을 지키는 조건 중 구단 수락이 가장 높은 것
 function bestRenew(G, c, p) {
+  if (G.vowOn(c) && (c.vow.k === 'money' || c.vow.k === 'stable')) {
+    let keep = null;
+    for (let level = 0; level < G.RENEW_LEVELS.length; level++) {
+      for (const years of G.RENEW_YEARS) {
+        const t = G.renewTerms(c, p, level, years);
+        if (G.vowTermsOk(c, p, G.homeClub(c.s), t.wage, years) && (!keep || t.chance > keep.chance)) keep = { level, years, chance: t.chance };
+      }
+    }
+    if (keep) return keep;
+  }
   let best = null;
   for (let level = 0; level < G.RENEW_LEVELS.length; level++) {
     for (const years of G.RENEW_YEARS) {
@@ -221,6 +247,7 @@ function botWeek(G, bot, m) {
       if (c && !G.windowAt() && !G.isFreeAgent(c) && ev.until - G.TUNE.eventTtl === G.absWeek()) m.closedOffers += 1;
     }
     if (ev.type === 'ask') m.asks += 1;
+    if (ev.type === 'promise') m.vowAsks += 1;
     if (ev.type === 'buy') {
       m.buyOffers += 1;
       m.buyWish[G.buyWish(G.getPlayer(ev.s), ev.d)] += 1; // 남고 싶음·반반·돌아오고 싶음
@@ -249,14 +276,17 @@ function botWeek(G, bot, m) {
   }
   // 15단계 임대: 성실·유망주·베테랑 봇은 회사를 세운 뒤(AP 2) 이적 기간에, 소속 구단에서 벤치이고 더 자랄 여유(잠재력 - 능력 5 이상)가 있는 23세 이하 선수를
   // 선수 동의가 가장 높은 후보(50% 이상)로 임대함. 혼자일 때는 AP 1을 영입·추천에 씀. 추천처럼 하고 싶을 때 하는 일이라 "할 일이 있는 주"에 넣지 않음.
+  // 18단계: 출전 시간 약속을 지키는 중이면 나이·잠재력과 관계없이, 혼자일 때도, 동의가 50% 아래여도 임대를 시도함 (안 보내면 약속을 못 지키니까).
+  // 처음에는 혼자일 때 출전 약속을 해 놓고 임대를 보내지 않아서, 못 지킨 출전 약속의 70%가 여기서 나왔음
   // --no-loan이면 임대하지 않는 봇과 비교
-  if (bot !== 'careless' && !workerData.noLoan && st.founded) {
+  if (bot !== 'careless' && !workerData.noLoan) {
     for (const c of [...st.clients]) {
       if (st.ap < 1) break;
       const p = G.getPlayer(c.s);
-      if (G.ageOf(p) > 23 || p.pot - p.ability < 5 || G.loanBlock(c)) continue;
+      const playVow = G.vowOn(c) && c.vow.k === 'play';
+      if ((!playVow && (!st.founded || G.ageOf(p) > 23 || p.pot - p.ability < 5)) || G.loanBlock(c)) continue;
       const best = G.loanClubs(c).map(club => ({ club, consent: G.loanFit(c, club).consent })).sort((a, b) => b.consent - a.consent)[0];
-      if (best && best.consent >= 50) {
+      if (best && (best.consent >= 50 || playVow)) {
         G.loan(c.s, best.club.id);
         m.loans += 1;
       }
@@ -266,7 +296,9 @@ function botWeek(G, bot, m) {
   if (bot !== 'careless' && !workerData.noPitch) {
     for (const c of [...st.clients]) {
       if (st.ap < 1) break;
-      const best = st.needs.filter(n => !G.pitchBlock(c, n)).sort((a, b) => G.clubLevel(G.CLUBS[b.club]) - G.clubLevel(G.CLUBS[a.club]))[0];
+      // 18단계: 약속(출전·큰 무대·고향)에 맞는 구단을 먼저, 그다음 수준 높은 순
+      const keeps = n => (G.vowClubKeeps(c, G.CLUBS[n.club]) ? 1 : 0);
+      const best = st.needs.filter(n => !G.pitchBlock(c, n)).sort((a, b) => keeps(b) - keeps(a) || G.clubLevel(G.CLUBS[b.club]) - G.clubLevel(G.CLUBS[a.club]))[0];
       if (best && (bot !== 'youth' || st.ap >= 2)) {
         G.pitch(c.s, best.club);
         m.pitches += 1;
@@ -345,6 +377,23 @@ function botMoney(G, bot, m) {
   m.buyWeek[G.ITEMS[i][0]] = m.weeks + 1;
 }
 
+// 18단계: 끝난 약속을 종류별로 셈 [지킴, 못 지킴]. 지키는 중에 선수가 떠난 약속은 따로(vowLost, 지킨 비율에서 뺌)
+function trackVows(G, m) {
+  const live = new Map();
+  for (const c of G.state.clients) {
+    if (!c.vow) continue;
+    const id = `${c.s}:${c.g}:${c.vow.w}`;
+    if (c.vow.s === 0) live.set(id, c.vow.k);
+    else if ((c.vow.s === 1 || c.vow.s === -1) && !m.vowSeen.has(id)) {
+      m.vowSeen.add(id);
+      const t = (m.vowBy[c.vow.k] = m.vowBy[c.vow.k] || [0, 0]);
+      t[c.vow.s === 1 ? 0 : 1] += 1;
+    }
+  }
+  for (const id of m.vowLive.keys()) if (!live.has(id) && !m.vowSeen.has(id)) m.vowLost += 1;
+  m.vowLive = live;
+}
+
 // 한 판: 지표를 숫자로 돌려줌
 function playGame(G, bot, seasons) {
   G.newGame();
@@ -352,7 +401,8 @@ function playGame(G, bot, seasons) {
   const m = { weeks: 0, decisionWeeks: 0, news: 0, overload: 0, apUsed: 0, offers: 0, consentSum: 0, recruitTry: 0, firstTransfer: 0, bankrupt: 0,
     firstInvest: 0, investSpent: 0, upkeepPaid: 0, taxPaid: 0, itemSpent: 0, downgrades: 0, deficitWeeks: 0, buyWeek: {},
     scouts: 0, scoutWeeks: 0, busyWithScout: 0, youthTry: 0, youthPotSum: 0, youthMissSum: 0, foundWeek: 0, soloWeeks: 0, soloBusy: 0, apAvail: 0, tales: 0, juniors: 0, taleKinds: {},
-    lateOffers: 0, closedOffers: 0, asks: 0, pitches: 0, pitchOffers: 0, worldDeals: 0, loans: 0, buyOffers: 0, buyWish: { stay: 0, mid: 0, back: 0 } };
+    lateOffers: 0, closedOffers: 0, asks: 0, pitches: 0, pitchOffers: 0, worldDeals: 0, loans: 0, buyOffers: 0, buyWish: { stay: 0, mid: 0, back: 0 }, vowAsks: 0,
+    vowBy: {}, vowSeen: new Set(), vowLive: new Map(), vowLost: 0 };
   const signed0 = st.stats.signed;
   for (let w = 0; w < seasons * 52; w++) {
     const news = st.events.length;
@@ -364,6 +414,7 @@ function playGame(G, bot, seasons) {
     const scoutWeeks0 = m.scoutWeeks;
     const solo = !st.founded;
     const acted = botWeek(G, bot, m);
+    trackVows(G, m);
     if (acted || news) m.decisionWeeks += 1;
     if (solo) {
       m.soloWeeks += 1;
@@ -379,6 +430,7 @@ function playGame(G, bot, seasons) {
     m.upkeepPaid += fixed;
     G.advanceWeek();
     m.weeks += 1;
+    trackVows(G, m);
     m.worldDeals += st.news.filter(n => n.k === 'sign' && n.w === G.absWeek()).length;
     if (!m.firstTransfer && st.stats.transfers > transfers0) m.firstTransfer = m.weeks;
     if (st.over) {
@@ -454,6 +506,11 @@ function playGame(G, bot, seasons) {
     buyOffers: m.buyOffers,                                                 // 17단계: 임대 구단의 완전 이적 제안
     buyWish: m.buyWish,
     loanBuys: k.loanBuys,                                                   // 그중 성사된 완전 이적
+    vowAsks: m.vowAsks,                                                     // 18단계: 약속 부탁 (게임당)
+    vows: k.vows,                                                           // 그중 약속한 것
+    vowBy: m.vowBy,                                                         // 종류별 [지킴, 못 지킴]
+    vowLost: m.vowLost,                                                     // 지키는 중에 선수가 떠난 약속
+    vowKept: k.vowKept + k.vowBroken ? (k.vowKept / (k.vowKept + k.vowBroken)) * 100 : null, // 끝난 약속 중 지킨 비율 (게임 끝에 지키는 중인 것은 빼고)
     worldDealsPerSeason: m.worldDeals / Math.max(1, m.weeks / 52),          // 세계 이적(뉴스) 시즌당
     cash: st.agencyCash,
     income: st.clients.reduce((n, c) => n + G.clientIncome(c), 0),
@@ -554,6 +611,19 @@ const median = (rows, key) => {
     }
     if (bot !== 'passive') console.log(`    세계 뉴스: 세계 이적 시즌당 ${mean(rows, 'worldDealsPerSeason').toFixed(1)}건, 추천 게임당 ${mean(rows, 'pitches').toFixed(2)}번, 추천한 구단에서 온 제안 ${mean(rows, 'pitchOffers').toFixed(2)}건, 임대 게임당 ${mean(rows, 'loans').toFixed(2)}건 (완전 이적 제안 ${mean(rows, 'buyOffers').toFixed(2)}건 · 성사 ${mean(rows, 'loanBuys').toFixed(2)}건 · 선수 마음 ${wishText(rows)})`);
     if (bot !== 'passive') console.log(`    이적 시장: 마감 주에 온 제안 ${mean(rows, 'lateShare').toFixed(1)}%, 닫힌 기간에 계약 중인 선수에게 온 제안 ${rows.reduce((n, r) => n + r.closedOffers, 0)}건(0이어야 함), 이적 요청 게임당 ${mean(rows, 'asks').toFixed(2)}건`);
+    if (bot !== 'passive') {
+      // 종류별은 모든 판을 합쳐서 (지킴/끝난 약속)
+      const by = {};
+      for (const r of rows) {
+        for (const [key, v] of Object.entries(r.vowBy)) {
+          const t = (by[key] = by[key] || [0, 0]);
+          t[0] += v[0];
+          t[1] += v[1];
+        }
+      }
+      const kinds = ['money', 'play', 'stage', 'home', 'stable'].filter(key => by[key]).map(key => `${key} ${by[key][0]}/${by[key][0] + by[key][1]}(${Math.round((by[key][0] / (by[key][0] + by[key][1])) * 100)}%)`).join(', ');
+      console.log(`    약속: 부탁 게임당 ${mean(rows, 'vowAsks').toFixed(2)}건, 약속 ${mean(rows, 'vows').toFixed(2)}건, 끝난 약속 중 지킨 비율 ${Number.isNaN(mean(rows, 'vowKept')) ? '-' : `${mean(rows, 'vowKept').toFixed(1)}%`} (종류별 지킴/끝남 ${kinds || '-'}), 지키는 중에 선수가 떠난 약속 게임당 ${mean(rows, 'vowLost').toFixed(2)}건(비율에서 뺌)`);
+    }
     console.log(`    중앙값: 번 돈 $${Math.round(median(rows, 'earned')).toLocaleString()}, 법인 자금 $${Math.round(median(rows, 'cash')).toLocaleString()}, 개인 자산 $${Math.round(median(rows, 'netWorth')).toLocaleString()}, 주 수입 $${Math.round(median(rows, 'income')).toLocaleString()}`);
   }
   if (summary.youth && summary.veteran) {
