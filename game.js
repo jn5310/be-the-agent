@@ -5820,7 +5820,12 @@ function renderPlayer(root, s) {
   if (client && outText(client)) root.append(el('p', client.out.k === 'inj' ? 'note bad' : 'note', client.out.k === 'inj'
     ? L(`부상 중입니다. ${client.out.w - absWeek()}주 뒤부터 다시 뛸 수 있습니다.`, `He is injured and can play again in ${pl(client.out.w - absWeek(), 'week')}.`)
     : L('가족 일로 휴가 중이라 이번 주 경기에 빠집니다.', "He is on family leave and misses this week's games.")));
-  if (client) root.append(el('h2', 'section', L('선수와의 관계', 'Your relationship')), bondBlock(client));
+  // P22: 소속 선수는 반복 행동(면담·재계약·해지) 버튼을 능력치 바로 아래로 (영입 후보는 판단 근거를 먼저 보여 주려고 맨 아래 그대로)
+  if (client) {
+    const acts = el('div', 'detail-actions');
+    clientActions(acts, client, p);
+    root.append(acts, el('h2', 'section', L('선수와의 관계', 'Your relationship')), bondBlock(client));
+  }
   const vow = client ? vowPanel(client, p) : null;
   if (vow) root.append(el('h2', 'section', L('약속', 'Promise')), vow);
 
@@ -5835,18 +5840,16 @@ function renderPlayer(root, s) {
   } else root.append(...records);
   root.append(el('h2', 'section', L('성향과 원하는 조건', 'Priorities and wishes')), prefsBlock(p, client));
 
+  if (client) return;
   const box = el('div', 'detail-actions');
-  if (client) clientActions(box, client, p);
-  else {
-    scoutActions(box, p);
-    const block = recruitBlock(p);
-    const b = actButton('btn primary', 'recruit', s, L('영입 제안 (1 AP)', 'Make an offer (1 AP)'));
-    b.disabled = Boolean(block);
-    const plus = [state.invest.scout ? L(`스카우트망 +${TUNE.scoutRecruit[state.invest.scout]}%p`, `scouting network +${TUNE.scoutRecruit[state.invest.scout]} pts`) : '', introActive(p) ? L(`내 선수의 소개 +${TUNE.introBonus}%p`, `your client's introduction +${TUNE.introBonus} pts`) : ''].filter(Boolean).join(', ');
-    box.append(el('p', 'sub', L(`영입 비용 ${cash(recruitCost(p))} · 성공 확률 ${recruitChance(p)}%${plus ? ` (${plus} 포함)` : ''} · 계약하면 수수료 주 ${cash(commissionOf(wage))}`,
-      `Cost ${cash(recruitCost(p))} · success ${recruitChance(p)}%${plus ? ` (incl. ${plus})` : ''} · commission ${cash(commissionOf(wage))}/wk if he signs`)), b);
-    if (block) box.append(el('p', 'note', block));
-  }
+  scoutActions(box, p);
+  const block = recruitBlock(p);
+  const b = actButton('btn primary', 'recruit', s, L('영입 제안 (1 AP)', 'Make an offer (1 AP)'));
+  b.disabled = Boolean(block);
+  const plus = [state.invest.scout ? L(`스카우트망 +${TUNE.scoutRecruit[state.invest.scout]}%p`, `scouting network +${TUNE.scoutRecruit[state.invest.scout]} pts`) : '', introActive(p) ? L(`내 선수의 소개 +${TUNE.introBonus}%p`, `your client's introduction +${TUNE.introBonus} pts`) : ''].filter(Boolean).join(', ');
+  box.append(el('p', 'sub', L(`영입 비용 ${cash(recruitCost(p))} · 성공 확률 ${recruitChance(p)}%${plus ? ` (${plus} 포함)` : ''} · 계약하면 수수료 주 ${cash(commissionOf(wage))}`,
+    `Cost ${cash(recruitCost(p))} · success ${recruitChance(p)}%${plus ? ` (incl. ${plus})` : ''} · commission ${cash(commissionOf(wage))}/wk if he signs`)), b);
+  if (block) box.append(el('p', 'note', block));
   root.append(box);
 }
 
