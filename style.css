@@ -417,6 +417,14 @@ button.nbody { min-height: 44px; cursor: pointer; }
 .log { margin: 0; padding: 0; list-style: none; font-size: 13px; }
 .log li { padding: 8px 0; border-bottom: 1px solid var(--line); }
 .log li:first-child { color: var(--accent-ink); }
+/* 긴 목록을 접는 줄 (브라우저 표준 details): 터치 44px 이상, 펼치면 화살표만 뒤집힘 */
+.fold { margin-top: 8px; }
+.fold > summary { display: flex; align-items: center; justify-content: space-between; min-height: 44px; padding: 0 14px; background: var(--sunk); border-radius: 12px; color: var(--accent-ink); font-size: 14px; font-weight: 700; cursor: pointer; list-style: none; }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::after { content: '▼'; font-size: 11px; }
+.fold[open] > summary::after { transform: rotate(180deg); }
+.fold[open] > summary { margin-bottom: 4px; }
+.fold .log li:first-child { color: inherit; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .btn {
   min-height: 44px;
