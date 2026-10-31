@@ -1442,7 +1442,8 @@ const TUNE = {
   // 그 구단이 완전 이적을 제안할 확률 = buyBase + (임대 동안 리그 평균 평점 - buyMid) × buyStep (0 ~ buyMax). 이적료는 몸값의 buyFee배.
   // 임대 선수 평균 평점은 가운데 6.53(10~90%: 6.20~6.82, 성실한 봇 200판)이라 절반쯤이 제안을 받음.
   // 돌아오게 하면: 남고 싶어 했으면 만족 -buyStaySat·유대 -buyStayBond, 돌아오고 싶어 했으면 만족 +buyBackSat·유대 +buyBackBond
-  buyApps: 8, buyMid: 6.5, buyBase: 0.5, buyStep: 1.5, buyMax: 0.85, buyFee: [0.8, 1.1], buyStaySat: 4, buyStayBond: 3, buyBackSat: 2, buyBackBond: 2,
+  // 18단계: 출전 약속 임대가 늘어 완전 이적이 늘자(시즌당 이적 2.04건) buyBase 0.5 → 0.45 (1.96건)
+  buyApps: 8, buyMid: 6.5, buyBase: 0.45, buyStep: 1.5, buyMax: 0.85, buyFee: [0.8, 1.1], buyStaySat: 4, buyStayBond: 3, buyBackSat: 2, buyBackBond: 2,
   // 18단계 약속: 닫힌 이적 기간에, 가장 중요하게 여기는 조건(주된 성향)이 지금 구단에서 안 맞는 소속 선수가 매주 vowChance 확률로
   // 다음 이적 마감까지 그 조건을 이뤄 달라고 부탁함. 약속이 끝나거나 거절한 뒤 vowGap주 동안은 다시 부탁하지 않음.
   // 약속하면 만족 +vowSat. 지키면 만족 +vowKeepSat·유대 +vowKeepBond. 못 지키면 만족 -vowBreakSat·유대 -vowBreakBond, vowBreakWeeks주 동안 이적 동의 -vowBreakConsent%p.

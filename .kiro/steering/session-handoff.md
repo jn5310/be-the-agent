@@ -31,6 +31,7 @@ inclusion: always
 6. `AGENTS.md`(0장 포함)·`README.md` 갱신 → 커밋 → 푸시 → PR(`gh api .../pulls`, `gh pr create`는 안 됨)
 
 ## 이 샌드박스에서 확인하는 요령
+- **Claude Code 클라우드 컨테이너(18단계 마무리 때)에서는 다릅니다:** 리포는 `/home/user/be-the-agent`, 임시 파일은 세션 스크래치 폴더에 둡니다. Playwright는 `require('playwright')`가 바로 되고 브라우저도 깔려 있습니다(`playwright install` 하지 않음). `bta.local` 라우팅 방식은 그대로 씁니다. `gh`·`gh api`는 없어서 PR은 GitHub MCP 도구(`create_pull_request`)로 만듭니다. 4코어라 `--all` 1,000판은 약 50분, 성실한 봇 1,000판은 약 5분입니다. 긴 명령은 백그라운드(`run_in_background`, 제한 2시간)로 돌리고 결과 파일을 봅니다. acorn은 `/opt/node-tools/node_modules/acorn`입니다. 아래 요령은 Kiro 샌드박스 기준입니다.
 - Playwright는 `file://`를 막고, 파이썬 서버 같은 백그라운드 서버도 막힙니다. `page.route('http://bta.local/**', ...)`로 리포 파일을 직접 돌려주고 `http://bta.local/`을 엽니다.
 - 8단계 후속부터 게임이 Pretendard(`fonts/`)를 직접 불러와서, 헤드리스 스크린샷에도 한글이 실제 폭으로 보입니다. `page.route`가 `.woff2`를 `font/woff2`로 돌려주기만 하면 됩니다. 줄바꿈·넘침 검사도 이제 실제와 같습니다. 찍기 전에 `await page.evaluate(() => document.fonts.ready)`로 글꼴을 기다립니다.
 - 다른 글꼴과 비교하는 이미지(디자인 시안 등)가 필요하면 GitHub API로 OFL 글꼴을 받아 `page.addStyleTag`의 `@font-face`로 덮어씁니다. 홈 폴더는 읽기 전용이라 `_scratch/fonts`에 둡니다.
