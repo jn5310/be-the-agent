@@ -55,7 +55,7 @@
 
 앞으로는 다른 게임에서 검증된 요소를 하나씩 가져와 넣습니다. 후보는 [AGENTS.md](AGENTS.md) 0장에 있습니다.
 
-밸런스는 `node tools/sim.js --games 1000 --all`로 수천 판을 돌려 맞춥니다 (개발용, 게임에는 포함되지 않음).
+밸런스는 `node tools/sim.js --games 1000 --all`로 수천 판을 돌려 맞춥니다 (개발용, 게임에는 포함되지 않음). 재미 지표(진짜 고민이 있는 주·뻔한 답·긴장·후회 등 9개)와 사람 같은 봇(`human`·`greedy`·`skipper`)은 `node tools/sim.js --games 300 --seasons 10 --bots attentive,human,greedy,skipper`로 비교합니다 (정의는 `AGENTS.md` 8장).
 
 ## 저장
 
