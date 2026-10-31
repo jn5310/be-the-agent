@@ -4,7 +4,7 @@ AI 코딩 도구가 이 리포를 이어서 작업할 때 읽는 문서입니다
 
 ## 0. 인수인계: 지금 상태 (새 세션은 여기부터)
 
-Claude Code는 먼저 `CLAUDE.md`(짧은 규칙·검증 절차)를 읽습니다. 이 문서는 약 160KB라서 통째로 읽지 말고 필요한 장만 읽습니다.
+Claude Code는 먼저 `CLAUDE.md`(짧은 규칙·검증 절차)를 읽습니다. 이 문서는 약 160KB라서 통째로 읽지 말고 필요한 장만 읽습니다. 다음 작업 프롬프트 모음은 `docs/DEV_GUIDE.md`입니다.
 
 인수인계 문서는 세 개입니다. 새 세션은 이 장 → `.kiro/steering/session-handoff.md`(시작 절차·사용자와 일하는 방식·작업 순서·샌드박스 요령) → `.kiro/steering/game-design.md`(사용자 피드백으로 정한 설계 원칙) 순서로 직접 읽습니다. Kiro Web에서는 리포가 작업 폴더(`/projects/sandbox`)의 하위 폴더라서 두 steering 파일이 자동으로 읽히지 않을 수 있습니다.
 
