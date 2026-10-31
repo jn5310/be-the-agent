@@ -44,18 +44,72 @@ const TARGETS = {
 
 // ----- game.js 불러오기 (저장·화면은 끔) -----
 // vm 대신 함수로 감싸서 불러옴: game.js의 전역이 함수 안 지역 변수가 되어 반복문이 빨라짐
+// P19 재미 지표용 두 가지를 더함 (game.js 파일은 그대로, 불러온 글에만 씀):
+// - vary가 고른 문장 번호를 기록 (반복 지표: 같은 소식 종류에서 상황 글·선수의 말 조합을 이미 봤는지)
+// - probe(ev, i, runs): 답 i를 고른 결과(만족·유대·법인 자금·평판)를 runs번 굴려 평균을 내고 상태를 되돌림 (뻔한 답 지표).
+//   세계 배열(153,312명)은 복사하지 않고 소속 선수의 폼만 되돌림 (답이 바꾸는 세계 배열은 폼뿐). 첫 난수는 층을 나눠 고르게(답 하나에 확률 하나인 경우 정확), 나머지는 고정 시드
+const VARY_SRC = 'const vary = (d, lines, salt = 0) => lines[hash((d && d.v) || 0, salt) % lines.length](d);';
 function loadGame() {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'game.js'), 'utf8');
+  const raw = fs.readFileSync(path.join(__dirname, '..', 'game.js'), 'utf8');
+  if (!raw.includes(VARY_SRC)) throw new Error('game.js의 vary가 바뀌어 반복 지표를 잴 수 없습니다. tools/sim.js의 VARY_SRC를 고치세요.');
+  const src = raw.replace(VARY_SRC, 'const vary = (d, lines, salt = 0) => { const i = hash((d && d.v) || 0, salt) % lines.length; if (__varied.on) __varied.push(`${salt}.${i}`); return lines[i](d); };');
   const noop = () => {};
   const stubs = {
     localStorage: { getItem: () => null, setItem: noop }, window: { addEventListener: noop, scrollTo: noop },
     document: { addEventListener: noop, getElementById: () => null, querySelectorAll: () => [] },
     history: { replaceState: noop, pushState: noop, back: noop }, confirm: () => true,
-    console: { ...console, assert: noop, warn: noop }
+    console: { ...console, assert: noop, warn: noop }, __varied: []
   };
   const factory = new Function(...Object.keys(stubs), `${src}
     ;saveState = () => {};
-    return { get state() { return state; }, TUNE, SLOTS, EVENT_TYPES, RENEW_LEVELS, RENEW_YEARS, newGame, advanceWeek, getPlayer, ageOf, valueOf,
+    const variety = ev => {
+      const type = EVENT_TYPES[ev.type];
+      const p = getPlayer(ev.s);
+      const c = clientOf(ev.s);
+      __varied.length = 0;
+      __varied.on = true;
+      try { type.text(p, ev.d, c); if (type.quote) type.quote(p, ev.d, c); } finally { __varied.on = false; }
+      return ev.type + ':' + __varied.join(',');
+    };
+    const probe = (ev, index, runs) => {
+      const out = { sat: 0, bond: 0, money: 0, rep: 0 };
+      const rnd = Math.random;
+      for (let j = 0; j < runs; j++) {
+        const keep = {};
+        // 뉴스·기록은 맨 앞에 더하기만 해서 배열만 복사 (가장 큰 두 개라 시간이 절반쯤 줄어듦)
+        for (const k of Object.keys(state)) if (k !== 'world' && k !== 'tierOf' && k !== 'clients') keep[k] = k === 'news' || k === 'logs' ? state[k].slice() : structuredClone(state[k]);
+        const own = state.clients.map(c => [c, structuredClone(c), state.world.form[c.s]]);
+        let first = true;
+        let seed = j * 7919 + 1;
+        Math.random = () => {
+          if (first) return (first = false), (j + 0.5) / runs;
+          seed = (seed * 16807) % 2147483647;
+          return (seed - 1) / 2147483646;
+        };
+        const cash0 = state.agencyCash;
+        const rep0 = state.rep;
+        try {
+          resolveEvent(ev.id, index, true);
+          const c = clientOf(ev.s); // 선수를 잃으면 만족·유대 0으로 셈
+          out.sat += c ? c.sat : 0;
+          out.bond += c ? c.bond : 0;
+          out.money += state.agencyCash - cash0;
+          out.rep += state.rep - rep0;
+        } finally {
+          Math.random = rnd;
+          Object.assign(state, keep);
+          state.clients = own.map(([c, snap, form]) => {
+            for (const key of Object.keys(c)) if (!(key in snap)) delete c[key];
+            state.world.form[c.s] = form;
+            return Object.assign(c, snap);
+          });
+          applyLoans();
+        }
+      }
+      for (const k of Object.keys(out)) out[k] /= runs;
+      return out;
+    };
+    return { get state() { return state; }, variety, probe, todoList, TUNE, SLOTS, EVENT_TYPES, RENEW_LEVELS, RENEW_YEARS, newGame, advanceWeek, getPlayer, ageOf, valueOf,
       weeklyWage, commissionOf, clientIncome, clientLimit, recruit, recruitBlock, recruitChance, recruitCost, renew, renewBlock, renewTerms,
       meet, meetBlock, resolveEvent, offerFit, offerCut, counterChance, clientOf, absWeek,
       INVEST_KEYS, ITEMS, investSteps, investUpkeep, upkeepNow, weeklySpend, invest, downgrade, dividendRoom, afterTax, payDividend, inject, buyItem, netWorth,
@@ -65,27 +119,63 @@ function loadGame() {
 }
 
 // ----- 봇 -----
+// P19 사람 같은 봇: human(이적·완전 이적 제안은 동의 50% 이상이면 수락 아니면 거절, 소식의 15%는 넘김, 면담은 할 일 줄에 뜰 때만),
+// greedy(법인 자금이 가장 많이 남는 답, 같으면 성실한 봇의 답), skipper(소식의 80%를 넘김). 그 밖의 행동은 성실한 봇과 같음
+// 넘긴 소식은 답하지 않고 두어서 기한이 지나면 게임이 기본 답으로 처리함
+const SKIP = { human: 0.15, skipper: 0.8 };
+const LIKE_ATTENTIVE = new Set(['attentive', 'human', 'greedy', 'skipper']);
+
+// 뻔한 답 판정 (17단계 리뷰 4장 첫 문단): 답마다 결과를 굴려 본 평균(만족·유대·법인 자금·평판)에서
+// 어느 면에서도 다른 답보다 나쁘지 않은 답이 있고 그 답의 AP·돈을 낼 수 있으면 "뻔한 답". 그런 답이 AP 때문에 막혔으면 apShort
+// 바로 생기는 결과만 셈 (약속을 지키거나 어긴 결과처럼 나중에 오는 것은 안 셈)
+const PROBE_RUNS = 12;
+function judge(G, ev, ok) {
+  const type = G.EVENT_TYPES[ev.type];
+  const fx = type.options.map((_, i) => G.probe(ev, i, PROBE_RUNS));
+  const dims = ['sat', 'bond', 'money', 'rep'];
+  const eps = { sat: 0.01, bond: 0.01, money: 1, rep: 0.01 };
+  const top = fx.findIndex((a, i) => fx.every((b, j) => i === j || dims.every(d => a[d] >= b[d] - eps[d])));
+  const opt = type.options[top];
+  const apShort = top >= 0 && !ok(top) && Boolean(opt.ap) && G.state.ap < opt.ap;
+  return { fx, obvious: top >= 0 && ok(top), apShort };
+}
+
 // 소식 답: 성실한 봇은 상황을 보고 고름, 대충 하는 봇은 아무거나
-function answer(G, bot, ev, m) {
+// 그 답을 지금 고를 수 있는지 (AP·돈)
+function pickable(G, ev) {
   const st = G.state;
   const c = G.clientOf(ev.s);
-  const p = G.getPlayer(ev.s);
   const type = G.EVENT_TYPES[ev.type];
-  const ok = i => {
+  return i => {
     const o = type.options[i];
     if (!o) return false;
     const cost = o.cost ? o.cost(ev.d, c) : 0;
     return !(o.ap && st.ap < o.ap) && (cost <= 0 || cost <= st.agencyCash); // 게임과 같게: 비용 없는 답은 자금이 마이너스여도 고름
   };
-  if (type.tale) {
-    m.tales += 1;
-    m.taleKinds[ev.type] = (m.taleKinds[ev.type] || 0) + 1;
-    if (ev.type === 'junior') m.juniors += 1;
-  }
+}
+
+function answer(G, bot, ev, judged) {
+  const c = G.clientOf(ev.s);
+  const p = G.getPlayer(ev.s);
+  const type = G.EVENT_TYPES[ev.type];
+  const ok = pickable(G, ev);
   if (bot === 'careless') {
     const opts = type.options.map((_, i) => i).filter(ok);
     return opts.length ? opts[Math.floor(Math.random() * opts.length)] : type.def;
   }
+  if (bot === 'greedy') {
+    const kind = attentiveAnswer(G, ev, c, p, type, ok);
+    const opts = type.options.map((_, i) => i).filter(ok);
+    if (!opts.length) return kind;
+    const most = Math.max(...opts.map(i => judged.fx[i].money));
+    return judged.fx[kind] && ok(kind) && judged.fx[kind].money >= most - 1 ? kind : opts.find(i => judged.fx[i].money >= most - 1);
+  }
+  if (bot === 'human' && (ev.type === 'offer' || ev.type === 'buy')) return G.offerFit(p, ev.d).consent >= 50 ? 0 : 2;
+  return attentiveAnswer(G, ev, c, p, type, ok);
+}
+
+function attentiveAnswer(G, ev, c, p, type, ok) {
+  const st = G.state;
   // 관계 이야기: 성실한 봇은 할 수 있으면 가장 따뜻한 답(0번), 아니면 다음 답
   if (type.tale) return ok(0) ? 0 : ok(1) ? 1 : type.def;
   switch (ev.type) {
@@ -237,6 +327,27 @@ function botWeek(G, bot, m) {
   }
   let acted = false;
   for (const ev of [...st.events]) {
+    // 넘긴 소식은 기한까지 그대로 두므로 다음 주에도 보임: 넘길지는 처음 볼 때 한 번 정하고, 넘긴 소식은 다시 보지 않음
+    if (m.skipped.has(ev.id)) continue;
+    const fresh = !m.seen.has(ev.id);
+    m.seen.add(ev.id);
+    if (fresh) {
+      // 반복: 같은 종류의 소식에서 상황 글·선수의 말 조합을 이 게임에서 이미 봤는지
+      m.eventsSeen += 1;
+      const key = G.variety(ev);
+      if (m.combos.has(key)) m.repeats += 1;
+      else m.combos.add(key);
+      if (SKIP[bot] && Math.random() < SKIP[bot]) {
+        m.skipped.add(ev.id);
+        continue;
+      }
+    }
+    const type = G.EVENT_TYPES[ev.type];
+    if (type.tale) {
+      m.tales += 1;
+      m.taleKinds[ev.type] = (m.taleKinds[ev.type] || 0) + 1;
+      if (ev.type === 'junior') m.juniors += 1;
+    }
     if (ev.type === 'offer') {
       m.offers += 1;
       m.consentSum += G.offerFit(G.getPlayer(ev.s), ev.d).consent;
@@ -252,7 +363,16 @@ function botWeek(G, bot, m) {
       m.buyOffers += 1;
       m.buyWish[G.buyWish(G.getPlayer(ev.s), ev.d)] += 1; // 남고 싶음·반반·돌아오고 싶음
     }
-    const go = G.resolveEvent(ev.id, answer(G, bot, ev, m));
+    const judged = judge(G, ev, pickable(G, ev));
+    m.answered += 1;
+    if (judged.obvious) m.obvious += 1;
+    else m.realWeek = true;
+    if (judged.apShort) m.apShortWeek = true;
+    const pick = answer(G, bot, ev, judged);
+    // 후회: 이적·완전 이적 제안에 답한 뒤 26주 안에 그 선수를 잃었는지
+    const owner = G.clientOf(ev.s);
+    if (owner && (ev.type === 'offer' || ev.type === 'buy')) m.pend.push({ s: ev.s, g: owner.g, w: G.absWeek() });
+    const go = G.resolveEvent(ev.id, pick);
     acted = true;
     if (go !== null && !G.clientOf(go) && !G.recruitBlock(G.getPlayer(go))) {
       m.recruitTry += 1;
@@ -267,11 +387,15 @@ function botWeek(G, bot, m) {
     acted = true;
   }
   if (bot !== 'careless') {
+    // human은 할 일 줄(앞 4개)에 면담이 뜬 선수만 만남
+    const todo = bot === 'human' ? G.todoList() : null;
     for (const c of [...st.clients].sort((a, b) => a.sat - b.sat)) {
-      if (c.sat < 55 && !G.meetBlock(c)) {
+      const want = todo ? todo.some(t => t.act === 'player' && t.v === c.s && t.text.endsWith(' 면담')) : c.sat < 55;
+      if (!want) continue;
+      if (!G.meetBlock(c)) {
         G.meet(c.s);
         acted = true;
-      }
+      } else if (st.ap < 1 && !(c.met && G.absWeek() - c.met < G.TUNE.meetGap)) m.apShortWeek = true; // 만나고 싶은데 AP가 없음
     }
   }
   // 15단계 임대: 성실·유망주·베테랑 봇은 회사를 세운 뒤(AP 2) 이적 기간에, 소속 구단에서 벤치이고 더 자랄 여유(잠재력 - 능력 5 이상)가 있는 23세 이하 선수를
@@ -328,6 +452,7 @@ function botWeek(G, bot, m) {
 // 3) 아이템: 배당액(세금 포함)이 주 수입 4주치 이하로 싸거나, 다음 투자 비용의 1.5배 + 지출 20주치 + 주 수입 6주치를 넘는
 //    여유가 있으면 그만큼만 배당해서 다음 아이템을 삼 (투자용 여유 자금은 남김)
 const INVEST_ORDER = { attentive: ['lawyer', 'scout', 'coach', 'office'], youth: ['coach', 'scout', 'lawyer', 'office'], veteran: ['lawyer', 'office', 'scout', 'coach'] };
+for (const bot of LIKE_ATTENTIVE) INVEST_ORDER[bot] = INVEST_ORDER.attentive;
 function botMoney(G, bot, m) {
   const st = G.state;
   const order = workerData.order || INVEST_ORDER[bot];
@@ -394,6 +519,66 @@ function trackVows(G, m) {
   m.vowLive = live;
 }
 
+// ----- P19 재미 지표 (정의는 AGENTS.md 8장 "재미 지표") -----
+// 처음 겪는 일: 소식 종류마다 처음 온 것 + 기록(stats)이 처음 생긴 것 + 회사 설립·첫 투자·첫 아이템
+const FIRST_STATS = ['lost', 'transfers', 'dream', 'callups', 'renewWin', 'signed', 'loans', 'loanBuys', 'vows', 'vowKept', 'vowBroken'];
+function newFirsts(G, m) {
+  const st = G.state;
+  const keys = [...st.events.map(ev => `ev:${ev.type}`), ...FIRST_STATS.filter(key => st.stats[key] > 0).map(key => `st:${key}`)];
+  if (st.founded) keys.push('founded');
+  if (G.INVEST_KEYS.some(key => st.invest[key])) keys.push('invest');
+  if (st.items.length) keys.push('item');
+  let n = 0;
+  for (const key of keys) {
+    if (m.firsts.has(key)) continue;
+    m.firsts.add(key);
+    n += 1;
+  }
+  return n;
+}
+const memberKey = c => `${c.s}:${c.g}`;
+function funWeekStart(G, m) {
+  const st = G.state;
+  // 긴장 주: 만족이 경고선(TUNE.satWarn 35) 미만인 선수가 있거나 다른 에이전시 접근 소식이 있는 주
+  if (st.clients.some(c => c.sat < G.TUNE.satWarn) || st.events.some(ev => ev.type === 'poach')) m.tenseWeeks += 1;
+  m.realWeek = false;
+  m.apShortWeek = false;
+  m.uncapped = new Set(st.clients.filter(c => !c.capped).map(memberKey));
+}
+function funWeekEnd(G, m) {
+  const st = G.state;
+  const now = G.absWeek();
+  if (m.realWeek || m.apShortWeek) m.realWeeks += 1;
+  m.firstCaps += st.clients.filter(c => c.capped && m.uncapped.has(memberKey(c))).length;
+  const season = Math.floor((m.weeks - 1) / 52);
+  m.novel[season] = (m.novel[season] || 0) + newFirsts(G, m);
+  // 애착: 떠난 선수는 함께한 주 수를 남김
+  const live = new Set(st.clients.map(memberKey));
+  for (const [key, since] of m.members) {
+    if (live.has(key)) continue;
+    m.tenure.push(now - since);
+    m.members.delete(key);
+  }
+  for (const c of st.clients) if (!m.members.has(memberKey(c))) m.members.set(memberKey(c), c.since);
+  // 후회: 이적 제안에 답한 뒤 26주 안에 선수를 잃음 (26주를 다 채우지 못하고 게임이 끝난 답은 뺌)
+  m.pend = m.pend.filter(x => {
+    if (!live.has(`${x.s}:${x.g}`)) {
+      m.regret += 1;
+      m.regretDone += 1;
+      return false;
+    }
+    if (now - x.w < 26) return true;
+    m.regretDone += 1;
+    return false;
+  });
+  // 시즌 끝 점검: 유대 100 비율, 법인 자금, 재계약 누적
+  if (m.weeks % 52 === 0) {
+    m.bond100.push(st.clients.length ? (st.clients.filter(c => c.bond >= 100).length / st.clients.length) * 100 : null);
+    m.cashBy.push(st.agencyCash);
+    m.renewBy.push([st.stats.renewWin, st.stats.renewTry]);
+  }
+}
+
 // 한 판: 지표를 숫자로 돌려줌
 function playGame(G, bot, seasons) {
   G.newGame();
@@ -402,9 +587,15 @@ function playGame(G, bot, seasons) {
     firstInvest: 0, investSpent: 0, upkeepPaid: 0, taxPaid: 0, itemSpent: 0, downgrades: 0, deficitWeeks: 0, buyWeek: {},
     scouts: 0, scoutWeeks: 0, busyWithScout: 0, youthTry: 0, youthPotSum: 0, youthMissSum: 0, foundWeek: 0, soloWeeks: 0, soloBusy: 0, apAvail: 0, tales: 0, juniors: 0, taleKinds: {},
     lateOffers: 0, closedOffers: 0, asks: 0, pitches: 0, pitchOffers: 0, worldDeals: 0, loans: 0, buyOffers: 0, buyWish: { stay: 0, mid: 0, back: 0 }, vowAsks: 0,
-    vowBy: {}, vowSeen: new Set(), vowLive: new Map(), vowLost: 0 };
+    vowBy: {}, vowSeen: new Set(), vowLive: new Map(), vowLost: 0,
+    // P19 재미 지표
+    seen: new Set(), skipped: new Set(), eventsSeen: 0, repeats: 0, combos: new Set(), answered: 0, obvious: 0,
+    realWeek: false, apShortWeek: false, realWeeks: 0, tenseWeeks: 0, pend: [], regret: 0, regretDone: 0, firstCaps: 0,
+    firsts: new Set(), novel: [], bond100: [], cashBy: [], renewBy: [], tenure: [], members: new Map() };
   const signed0 = st.stats.signed;
+  newFirsts(G, m); // 시작할 때 이미 있는 것은 "처음 겪는 일"로 세지 않음
   for (let w = 0; w < seasons * 52; w++) {
+    funWeekStart(G, m);
     const news = st.events.length;
     m.news += news;
     if (news >= 3) m.overload += 1;
@@ -433,11 +624,13 @@ function playGame(G, bot, seasons) {
     trackVows(G, m);
     m.worldDeals += st.news.filter(n => n.k === 'sign' && n.w === G.absWeek()).length;
     if (!m.firstTransfer && st.stats.transfers > transfers0) m.firstTransfer = m.weeks;
+    funWeekEnd(G, m);
     if (st.over) {
       m.bankrupt = 1;
       break;
     }
   }
+  for (const since of m.members.values()) m.tenure.push(G.absWeek() - since); // 끝날 때 남은 선수도 그때까지 함께한 기간으로
   const k = st.stats;
   // 번 돈 = 쓴 돈 + 늘어난 자금(법인 + 개인). 쓴 돈 = 투자 도입비 + 유지비 + 배당 세금 + 아이템
   const spent = m.investSpent + m.upkeepPaid + m.taxPaid + m.itemSpent;
@@ -512,6 +705,23 @@ function playGame(G, bot, seasons) {
     vowLost: m.vowLost,                                                     // 지키는 중에 선수가 떠난 약속
     vowKept: k.vowKept + k.vowBroken ? (k.vowKept / (k.vowKept + k.vowBroken)) * 100 : null, // 끝난 약속 중 지킨 비율 (게임 끝에 지키는 중인 것은 빼고)
     worldDealsPerSeason: m.worldDeals / Math.max(1, m.weeks / 52),          // 세계 이적(뉴스) 시즌당
+    // P19 재미 지표
+    realWeeks: (m.realWeeks / m.weeks) * 100,
+    obviousShare: m.answered ? (m.obvious / m.answered) * 100 : null,
+    tenseWeeks: (m.tenseWeeks / m.weeks) * 100,
+    regret: m.regret,
+    regretDone: m.regretDone,
+    surprise: (k.dream + m.firstCaps) / Math.max(1, m.weeks / 52),
+    dreamN: k.dream,
+    firstCaps: m.firstCaps,
+    novel: m.novel,
+    repeat: m.eventsSeen ? (m.repeats / m.eventsSeen) * 100 : null,
+    skippedN: m.skipped.size,
+    eventsSeen: m.eventsSeen,
+    bond100: m.bond100,
+    cashBy: m.cashBy,
+    renewBy: m.renewBy,
+    tenure: m.tenure,
     cash: st.agencyCash,
     income: st.clients.reduce((n, c) => n + G.clientIncome(c), 0),
     clients: st.clients.length,
@@ -538,7 +748,8 @@ const arg = (name, fallback) => {
 const games = Number(arg('games', 400));
 const seasons = Number(arg('seasons', 3));
 const tune = JSON.parse(arg('tune', '{}'));
-const bots = args.includes('--all') ? ['attentive', 'youth', 'veteran', 'careless', 'passive'] : [arg('bot', 'attentive')];
+// --bots attentive,human,greedy,skipper: 여러 봇을 한 번에 돌리고 끝에 재미 지표 비교표
+const bots = args.includes('--all') ? ['attentive', 'youth', 'veteran', 'careless', 'passive'] : arg('bots', '') ? arg('bots').split(',') : [arg('bot', 'attentive')];
 const noMoney = args.includes('--no-money');           // 투자·배당·아이템을 하지 않는 봇과 비교
 const noScout = args.includes('--no-scout');           // 유망주 봇이 스카우트 없이 보이는 범위만 보고 영입
 const noPitch = args.includes('--no-pitch');           // 봇이 보강이 필요한 구단에 선수를 추천하지 않음 (추천의 값어치 비교)
@@ -573,10 +784,46 @@ const median = (rows, key) => {
   const vals = rows.map(r => r[key]).sort((a, b) => a - b);
   return vals[Math.floor(vals.length / 2)];
 };
+const midOf = vals => (vals.length ? [...vals].sort((a, b) => a - b)[Math.floor(vals.length / 2)] : NaN);
+const avgOf = vals => {
+  const ok = vals.filter(v => v !== null && v !== undefined);
+  return ok.length ? ok.reduce((a, b) => a + b, 0) / ok.length : NaN;
+};
+const pct = v => (Number.isNaN(v) ? '-' : `${v.toFixed(1)}%`);
+// P19 재미 지표 9개 (모든 판을 합쳐서). 시즌별 값은 그 시즌까지 간 판만
+function funStats(rows) {
+  const seasonsRun = Math.max(...rows.map(r => r.cashBy.length));
+  const at = (key, i) => rows.map(r => r[key][i]).filter(v => v !== undefined);
+  const novelBy = Array.from({ length: seasonsRun }, (_, i) => avgOf(rows.filter(r => r.cashBy.length > i).map(r => r.novel[i] || 0)));
+  const bond100By = Array.from({ length: seasonsRun }, (_, i) => avgOf(at('bond100', i)));
+  const regretDone = rows.reduce((n, r) => n + r.regretDone, 0);
+  return {
+    realWeeks: mean(rows, 'realWeeks'),
+    obviousShare: mean(rows, 'obviousShare'),
+    tenseWeeks: mean(rows, 'tenseWeeks'),
+    regret: regretDone ? (rows.reduce((n, r) => n + r.regret, 0) / regretDone) * 100 : NaN,
+    regretDone,
+    surprise: mean(rows, 'surprise'),
+    dream: mean(rows, 'dreamN'),
+    firstCaps: mean(rows, 'firstCaps'),
+    novel: avgOf(novelBy),
+    novelBy,
+    repeat: mean(rows, 'repeat'),
+    bond100By,
+    bond100: bond100By[bond100By.length - 1],
+    tenure: midOf(rows.flatMap(r => r.tenure)),
+    skipped: rows.reduce((n, r) => n + r.skippedN, 0) / Math.max(1, rows.reduce((n, r) => n + r.eventsSeen, 0)) * 100,
+    check: Array.from({ length: seasonsRun }, (_, i) => {
+      const renew = at('renewBy', i).reduce((t, [win, all]) => [t[0] + win, t[1] + all], [0, 0]);
+      return { cash: midOf(at('cashBy', i)), bond100: bond100By[i], renew: renew[1] ? (renew[0] / renew[1]) * 100 : NaN };
+    })
+  };
+}
 
 (async () => {
   const t0 = Date.now();
   const summary = {};
+  const fun = {};
   for (const bot of bots) {
     const rows = await runBot(bot);
     summary[bot] = rows;
@@ -625,6 +872,23 @@ const median = (rows, key) => {
       console.log(`    약속: 부탁 게임당 ${mean(rows, 'vowAsks').toFixed(2)}건, 약속 ${mean(rows, 'vows').toFixed(2)}건, 끝난 약속 중 지킨 비율 ${Number.isNaN(mean(rows, 'vowKept')) ? '-' : `${mean(rows, 'vowKept').toFixed(1)}%`} (종류별 지킴/끝남 ${kinds || '-'}), 지키는 중에 선수가 떠난 약속 게임당 ${mean(rows, 'vowLost').toFixed(2)}건(비율에서 뺌)`);
     }
     console.log(`    중앙값: 번 돈 $${Math.round(median(rows, 'earned')).toLocaleString()}, 법인 자금 $${Math.round(median(rows, 'cash')).toLocaleString()}, 개인 자산 $${Math.round(median(rows, 'netWorth')).toLocaleString()}, 주 수입 $${Math.round(median(rows, 'income')).toLocaleString()}`);
+    if (bot !== 'passive') {
+      const f = funStats(rows);
+      fun[bot] = f;
+      console.log(`  [재미 지표] (목표 범위는 아직 없음, AGENTS.md 8장)${SKIP[bot] ? ` · 넘긴 소식 ${f.skipped.toFixed(1)}%` : ''}`);
+      console.log(`    진짜 고민이 있는 주 ${pct(f.realWeeks)}, 뻔한 답 ${pct(f.obviousShare)}, 긴장 주 ${pct(f.tenseWeeks)}, 후회 ${pct(f.regret)} (답한 이적 제안 ${f.regretDone}건 중)`);
+      console.log(`    놀람 시즌당 ${f.surprise.toFixed(2)}건 (게임당 꿈의 구단 이적 ${f.dream.toFixed(2)} · 첫 국가대표 ${f.firstCaps.toFixed(2)}), 새로움 시즌당 ${f.novel.toFixed(2)}건, 반복 ${pct(f.repeat)}, 유대 100 비율 ${pct(f.bond100)}(마지막 시즌 끝), 애착(함께한 기간 중앙값) ${f.tenure}주`);
+      console.log(`    시즌별 새로움: ${f.novelBy.map((v, i) => `${i + 1}시즌 ${v.toFixed(2)}`).join(', ')}`);
+      console.log('    시즌별 점검 (시즌 끝): 법인 자금 중앙값 · 유대 100 비율 · 재계약 누적 성공률');
+      f.check.forEach((x, i) => console.log(`      ${String(i + 1).padStart(2)}시즌  $${Math.round(x.cash).toLocaleString().padStart(11)} · ${pct(x.bond100).padStart(6)} · ${pct(x.renew).padStart(6)}`));
+    }
+  }
+  const funBots = Object.keys(fun);
+  if (funBots.length > 1) {
+    const rowsOut = [['진짜 고민이 있는 주', f => pct(f.realWeeks)], ['뻔한 답 비율', f => pct(f.obviousShare)], ['긴장 주', f => pct(f.tenseWeeks)], ['후회', f => pct(f.regret)],
+      ['놀람 (시즌당)', f => f.surprise.toFixed(2)], ['새로움 (시즌당)', f => f.novel.toFixed(2)], ['반복', f => pct(f.repeat)], ['유대 100 비율 (마지막 시즌)', f => pct(f.bond100)], ['애착 (중앙값, 주)', f => String(f.tenure)]];
+    console.log(`\n  재미 지표 비교 (${seasons}시즌)\n  | 지표 | ${funBots.join(' | ')} |\n  |---|${funBots.map(() => '---').join('|')}|`);
+    for (const [label, show] of rowsOut) console.log(`  | ${label} | ${funBots.map(b => show(fun[b])).join(' | ')} |`);
   }
   if (summary.youth && summary.veteran) {
     // 5단계부터 자금은 투자·아이템에 쓰이므로 "번 돈"(쓴 돈 + 늘어난 자금)으로 비교
