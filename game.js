@@ -1376,6 +1376,7 @@ function release(s) {
 // ===== 6-2. 만족도·협상·소식·경기 기록 (3~4단계) =====
 // 밸런스 숫자는 모두 여기서 조정합니다. tools/sim.js가 이 값을 바꿔 가며 수천 판을 돌려 봅니다.
 const TUNE = {
+  uiFold: { log: 12, news: 12, needs: 8 },    // 긴 목록은 앞 몇 개만 펴 두고 나머지는 접음 (스크롤 줄이기: 기록 줄 수, 뉴스 줄 수, 보강 구단 수)
   ap: 2,                                      // 주당 행동력
   natSquad: 30,                               // 국가대표 후보 인원 (국적별 상위 30명)
   repGain: 1, repSoftCap: 120,                // 평판 오름폭 = 기본 × (1 - 평판/120)
@@ -5238,6 +5239,15 @@ function newsBox() {
   return box;
 }
 
+// 긴 목록: 앞 keep개는 그대로 두고 나머지는 브라우저 표준 접기(details)에 넣음. label(남은 수)가 펼침 줄의 글
+function foldList(root, nodes, keep, label) {
+  root.append(...nodes.slice(0, keep));
+  if (nodes.length <= keep) return;
+  const fold = el('details', 'fold');
+  fold.append(el('summary', '', label(nodes.length - keep)), ...nodes.slice(keep));
+  root.append(fold);
+}
+
 function renderNews(root) {
   root.append(actButton('back', 'up', undefined, BACK()), el('h1', 'title', L('세계 뉴스', 'World news')), marketLine());
   if (windowAt()) {
@@ -5245,20 +5255,19 @@ function renderNews(root) {
     if (!state.needs.length) root.append(el('p', 'empty', L('이번 이적 기간에 보강을 찾던 구단들이 모두 선수를 구했습니다.', 'Every club that was shopping this window has found its player.')));
     // 18단계: 약속에 맞는 보강을 먼저 (나머지는 원래 순서)
     const order = [...state.needs.filter(vowNeed), ...state.needs.filter(n => !vowNeed(n))];
+    const needBoxes = [];
     for (const need of order) {
       const box = el('div', 'nitem nitem-need');
       const body = actButton('nbody', 'clubAt', need.club);
       body.append(el('span', 'ntag ntag-need', posName(need.pos)), el('span', 'ntext', L(`${clubLabel(need.club)} · 주전 평균 능력 ${need.avg} (구단 수준보다 ${need.gap} 낮음)`, `${clubLabel(need.club)} · starters average ${need.avg} (${need.gap} below the club's level)`)));
       box.append(body, ...pitchButtons(need));
-      root.append(box);
+      needBoxes.push(box);
     }
+    foldList(root, needBoxes, TUNE.uiFold.needs, n => L(`나머지 ${n}곳 더 보기`, `Show ${n} more clubs`));
   } else root.append(el('p', 'sub', L('이적 기간이 열리면 구단들이 보강할 포지션을 알리고, 기간 동안 실제로 선수를 데려옵니다.', 'When a window opens, clubs reveal the positions they want to strengthen, then go and sign players during it.')));
   root.append(el('h2', 'section', L(`최근 뉴스 ${state.news.length}건`, `Latest news (${state.news.length})`)));
   if (!state.news.length) root.append(el('p', 'empty', L('아직 뉴스가 없습니다.', 'No news yet.')));
-  for (const n of state.news) {
-    const row = safeNewsRow(n);
-    if (row) root.append(row);
-  }
+  foldList(root, state.news.map(safeNewsRow).filter(Boolean), TUNE.uiFold.news, n => L(`이전 뉴스 ${n}건 더 보기`, `Show ${n} older stories`));
 }
 
 // 18단계 할 일 줄의 약속 한 줄 (지금 손쓸 수 있을 때만, 없으면 null)
@@ -5815,9 +5824,15 @@ function renderPlayer(root, s) {
   const vow = client ? vowPanel(client, p) : null;
   if (vow) root.append(el('h2', 'section', L('약속', 'Promise')), vow);
 
-  root.append(el('h2', 'section', L(`${state.season}시즌 기록`, `Season ${state.season} stats`)), statsTable(client ? client.st : worldStats(p, state.week), p.club, p.nat, true),
-    el('p', isNationalPick(p) ? 'sub up' : 'sub', nationalLine(p)));
-  if (client && client.hist.length) root.append(el('h2', 'section', L('지난 기록', 'Career history')), careerTable(client.hist, p.nat));
+  // 기록표(이번 시즌·지난 시즌)는 소속 선수에서는 접어 둬서 아래 "성향과 조건"·버튼이 한 화면 가까이 오게 함 (영입 후보는 판단 근거라 펴 둠)
+  const records = [el('h2', 'section', L(`${state.season}시즌 기록`, `Season ${state.season} stats`)), statsTable(client ? client.st : worldStats(p, state.week), p.club, p.nat, true),
+    el('p', isNationalPick(p) ? 'sub up' : 'sub', nationalLine(p))];
+  if (client && client.hist.length) records.push(el('h2', 'section', L('지난 기록', 'Career history')), careerTable(client.hist, p.nat));
+  if (client) {
+    const fold = el('details', 'fold');
+    fold.append(el('summary', '', L('시즌 기록·지난 기록 보기', 'Season and career stats')), ...records);
+    root.append(fold);
+  } else root.append(...records);
   root.append(el('h2', 'section', L('성향과 원하는 조건', 'Priorities and wishes')), prefsBlock(p, client));
 
   const box = el('div', 'detail-actions');
@@ -5957,9 +5972,19 @@ function renderLog(root) {
   root.append(el('p', 'sub', L(`에이전시 기록: 영입 ${k.signed}명 · 이적 ${k.transfers}건(꿈의 구단 ${k.dream}건) · 재계약 ${k.renewWin}/${k.renewTry}건 성공 · 국가대표 소집 ${k.callups}번 · 떠난 선수 ${k.lost}명`,
     `Agency record: ${k.signed} signed · ${pl(k.transfers, 'transfer')} (dream clubs: ${k.dream}) · ${k.renewWin}/${k.renewTry} renewals done · ${pl(k.callups, 'call-up')} · ${k.lost} lost`)));
   if (state.summary) root.append(actButton('btn', 'summary', undefined, L(`${state.summary.season}시즌 결산 다시 보기`, `Review season ${state.summary.season}`)));
+  // 기록은 최대 80줄이라 앞 몇 줄만 펴 두고 나머지는 접음 (언어·저장 설정이 5화면 아래로 밀리던 것)
+  const keep = TUNE.uiFold.log;
   const list = el('ol', 'log');
-  state.logs.forEach(line => list.append(el('li', '', line)));
-  root.append(list, el('h2', 'section', L('언어 · Language', 'Language · 언어')));
+  state.logs.slice(0, keep).forEach(line => list.append(el('li', '', line)));
+  root.append(list);
+  if (state.logs.length > keep) {
+    const older = el('ol', 'log');
+    state.logs.slice(keep).forEach(line => older.append(el('li', '', line)));
+    const fold = el('details', 'fold');
+    fold.append(el('summary', '', L(`이전 기록 ${state.logs.length - keep}줄 더 보기`, `Show ${state.logs.length - keep} older entries`)), older);
+    root.append(fold);
+  }
+  root.append(el('h2', 'section', L('언어 · Language', 'Language · 언어')));
   // 언어는 기기 설정 (세이브와 따로). 기록 목록은 쓰던 때의 언어로 남음
   const langs = el('div', 'segment');
   langs.append(segButton('lang', 0, '한국어', LANG === 'ko'), segButton('lang', 1, 'English', LANG === 'en'));
