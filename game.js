@@ -59,7 +59,10 @@ const MEMO = {
   injured: M('부상 소식에 바로 달려옴', 'Rushed over when he got injured'),
   // 15단계 임대
   loaned: M('뛸 곳을 찾아 임대를 보내 줌', 'Found him a loan where he could play'),
-  loanBack: M('임대에서 많이 뛰고 돌아와 고마워함', 'Came back from a busy loan grateful')
+  loanBack: M('임대에서 많이 뛰고 돌아와 고마워함', 'Came back from a busy loan grateful'),
+  // 17단계 임대 뒤 완전 이적: 임대 구단의 제안을 거절하고 돌아오게 함 (선수가 남고 싶어 했을 때 / 돌아오고 싶어 했을 때)
+  buyRefused: M('남고 싶어 한 임대 팀의 완전 이적 제안을 거절함', 'Turned down the permanent move he wanted at his loan club'),
+  buyBack: M('돌아오고 싶은 마음을 들어줌', 'Respected his wish to come back to his own club')
 };
 // 영어 셈: pl(3, 'week') → "3 weeks"
 const pl = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -71,6 +74,12 @@ function phrase(text) {
   const noReply = '(답하지 않음) ';
   if (text.startsWith(noReply)) return `(no reply) ${phrase(text.slice(noReply.length))}`;
   if (PHRASES.has(text)) return PHRASES.get(text);
+  // 17단계: 임대로 뛰던 구단에 완전 이적 ("정든 런던 크라운에 남게 해 줌")
+  const stayed = text.match(/^정든 (.+)에 남게 해 줌$/);
+  if (stayed) {
+    const club = CLUB_BY_KO.get(stayed[1]);
+    return `Let him stay on at ${club ? club.en : stayed[1]}, where he had settled`;
+  }
   const moved = text.match(/^(원하던 )?(.+) 이적을 성사시킴$/);
   if (moved) {
     const club = CLUB_BY_KO.get(moved[2]);
@@ -1033,7 +1042,7 @@ const newClient = (p, end, sat, bond, how) => ({
   bond, since: absWeek(), how, memo: [], tales: [], hunt: 0, pitch: null, out: null, lw: null, loan: null, noLoan: 0
 });
 // 에이전시 커리어 통계 (기록 탭·시뮬레이션용)
-const newCareerStats = () => ({ lost: 0, transfers: 0, dream: 0, callups: 0, renewTry: 0, renewWin: 0, signed: 0, loans: 0 });
+const newCareerStats = () => ({ lost: 0, transfers: 0, dream: 0, callups: 0, renewTry: 0, renewWin: 0, signed: 0, loans: 0, loanBuys: 0 });
 
 function addLog(text) {
   state.logs.unshift(`${L(`${state.season}시즌 ${state.week}주`, `S${state.season} W${state.week}`)} · ${text}`);
@@ -1097,10 +1106,14 @@ function advanceWeek() {
   const last = state.week - 1;
   if (last === CUP_WEEKS[CUP_WEEKS.length - 1]) cupFinale();
   if (last === CONT_WEEKS[CONT_WEEKS.length - 1]) contFinale();
-  if (last === LEAGUE_WEEKS) leagueFinale();
+  let bids = 0;
+  if (last === LEAGUE_WEEKS) {
+    leagueFinale();
+    bids = loanBids(); // 17단계: 리그가 끝나면 임대 구단이 완전 이적을 제안할지 정함
+  }
   checkDebt();
   saveState();
-  return week.added;
+  return week.added + bids;
 }
 
 // 자금이 마이너스면 평판 -1, 8주 이어지면 파산
@@ -1130,7 +1143,10 @@ function seasonFinish(c) {
   const club = CLUBS[main.club];
   const row = tableRow(club, finalTable(club.country, club.t));
   const zone = zoneOf(club.country, club.t, row.rk);
-  const still = !isFreeAgent(c) && clubOf(c.s) === club && !main.ln; // 임대 구단의 승강은 돌아오는 선수와 관계없음
+  // 승강은 다음 시즌에도 그 구단에서 뛸 때만: 이번 시즌으로 임대가 끝나면 소속 구단으로 돌아가니 임대 구단 승강은 관계없고,
+  // 임대 구단에 완전 이적했으면(17단계) 그 구단 승강이 선수 일
+  const next = c.loan && loanEnding(c) ? homeClub(c.s) : clubOf(c.s);
+  const still = !isFreeAgent(c) && next === club;
   const tr = [];
   for (const st of stints) {
     const at = CLUBS[st.club];
@@ -1232,7 +1248,8 @@ function endSeason() {
     const value = valueOf(p);
     const b = before[i];
     rows.push({ name: p.ko, nk: p.nk, ageFrom: b.age, ageTo: ageOf(p), abilityFrom: b.ability, abilityTo: p.ability, valueFrom: b.value, valueTo: value, apps: b.apps, goals: b.goals, rating: b.rating, caps: b.caps, fin: b.fin });
-    c.st = newStint(p.club);
+    // 다음 시즌 끝까지인 임대(여름 이적 기간 뒤쪽에 감)는 새 시즌 기록도 임대 구간 (빠지면 돌아올 때 47~52주 구간의 0경기로 셈)
+    c.st = c.loan ? { ...newStint(p.club), ln: 1 } : newStint(p.club);
     valueFrom += before[i].value;
     valueTo += value;
     return true;
@@ -1331,9 +1348,10 @@ const TUNE = {
   transferCut: 0.02, dealShare: 0.25,
   eventTtl: 2, eventMax: 3,
   // offerBase: 13단계에서 0.018 → 0.015. 이적 요청을 받아 알아보면 아래 수준 구단도 제안해 이적이 늘어서(시즌당 2.1건 → 1.8건)
+  // 17단계에서 0.015 → 0.014. 임대 뒤 완전 이적이 이적 길을 하나 더 열어서(400판: 시즌당 2.08건 → 1.90건)
   // offerFirst: 첫 시즌 첫 이적 보너스. 7단계부터 혼자 시작해 선수가 2~3명뿐이라 0.06 → 0.12.
   // 9단계부터 이적 기간(22주부터 11주)에만 붙어서 0.12 → 0.25 (1시즌 안 첫 이적·회사 설립을 8단계 수준으로)
-  offerBase: 0.015, offerStar: 0.025, offerForm: 0.015, offerFree: 0.1, offerYouth: 0.02, offerFirst: 0.25, dreamChance: 0.02, dreamReach: 4, offerRespect: 0.5,
+  offerBase: 0.014, offerStar: 0.025, offerForm: 0.015, offerFree: 0.1, offerYouth: 0.02, offerFirst: 0.25, dreamChance: 0.02, dreamReach: 4, offerRespect: 0.5,
   consentBase: 50, consentStep: 12,
   // poachStar: 몸값 $300만 이상 스타를 노리는 다른 에이전시. 7단계에서 유대가 시험받는 순간을 늘리려고 0.002 → 0.004
   playtimeChance: 0.09, raiseChance: 0.08, poachBase: 0.0018, poachStar: 0.004, poachLow: 0.04, sponsorChance: 0.05, snsChance: 0.008,
@@ -1379,7 +1397,12 @@ const TUNE = {
   injuryWeeks: [2, 6], minutesGrow: 0.3, minutesMid: [0.21, 0.26, 0.33, 0.39, 0.47, 0.51, 0.56],
   // 15단계 임대: 지금 구단 출전 확률이 loanBench 미만인 소속 선수만, 후보 구단은 수준이 능력 -loanRange ~ 능력(주전 가능)인 곳 loanPick곳.
   // 임대를 가면 만족 +loanSat·유대 +loanBond, 돌아올 때 리그 loanApps경기 이상 뛰었으면 유대 +loanBack
-  loanBench: 0.45, loanRange: 6, loanPick: 3, loanSat: 5, loanBond: 3, loanBack: 2, loanApps: 10
+  loanBench: 0.45, loanRange: 6, loanPick: 3, loanSat: 5, loanBond: 3, loanBack: 2, loanApps: 10,
+  // 17단계 임대 뒤 완전 이적: 리그가 끝난 다음 주(47주)에, 이번 시즌으로 임대가 끝나는 선수가 임대 구단에서 리그 buyApps경기 이상 뛰었으면
+  // 그 구단이 완전 이적을 제안할 확률 = buyBase + (임대 동안 리그 평균 평점 - buyMid) × buyStep (0 ~ buyMax). 이적료는 몸값의 buyFee배.
+  // 임대 선수 평균 평점은 가운데 6.53(10~90%: 6.20~6.82, 성실한 봇 200판)이라 절반쯤이 제안을 받음.
+  // 돌아오게 하면: 남고 싶어 했으면 만족 -buyStaySat·유대 -buyStayBond, 돌아오고 싶어 했으면 만족 +buyBackSat·유대 +buyBackBond
+  buyApps: 8, buyMid: 6.5, buyBase: 0.5, buyStep: 1.5, buyMax: 0.85, buyFee: [0.8, 1.1], buyStaySat: 4, buyStayBond: 3, buyBackSat: 2, buyBackBond: 2
 };
 // 평판 오르는 양은 평판이 높을수록 줄어듦 (30시즌 커리어 동안 천천히 오르게). 소수점은 확률로 반올림
 function gainRep(n) {
@@ -2183,10 +2206,14 @@ function transfer(c, d) {
   const from = p.club;
   const to = CLUBS[d.club];
   const fit = offerFit(p, d);
-  archiveStint(c);
+  // 17단계: 임대로 뛰던 구단에 완전 이적이면 뉴스·기억이 다르고(ln = 1), 이번 시즌 기록은 임대 구간에 이어서 씀 (같은 구단 기록이 둘로 나뉘지 않게)
+  const stay = d.from === 'loan';
+  if (!stay || c.st.club !== to.id) {
+    archiveStint(c);
+    c.st = newStint(to);
+  }
   if (to.id === Math.floor(c.s / SQUAD)) delete state.moved[c.s];
   else state.moved[c.s] = to.id;
-  c.st = newStint(to);
   const gain = offerCut(d);
   c.wage = d.wage;
   c.end = absWeek() + WEEKS * (d.years || 3);
@@ -2194,16 +2221,18 @@ function transfer(c, d) {
   c.pitch = null;
   state.needs = state.needs.filter(n => !(n.club === to.id && n.pos === p.pos));
   if (windowAt()) countDeal(p, d.fee, to.id);
-  pushNews({ k: 'mine', s: c.s, g: c.g, nm: p.ko, nk: p.nk, from: from.id, to: to.id, pos: p.pos, fee: d.fee, age: ageOf(p), ab: p.ability });
+  pushNews({ k: 'mine', s: c.s, g: c.g, nm: p.ko, nk: p.nk, from: from.id, to: to.id, pos: p.pos, fee: d.fee, age: ageOf(p), ab: p.ability, ...(stay ? { ln: 1 } : {}) });
   addSat(c, clamp(5 + fit.score * 2, -10, 20));
-  addBond(c, fit.score >= 1 ? 5 : 2, fit.score >= 1 ? `원하던 ${to.ko} 이적을 성사시킴` : `${to.ko} 이적을 성사시킴`); // 기억은 한국어로 저장, 화면에서 phrase()
+  // 기억은 한국어로 저장, 화면에서 phrase()
+  addBond(c, fit.score >= 1 ? 5 : 2, fit.score >= 1 ? (stay ? `정든 ${to.ko}에 남게 해 줌` : `원하던 ${to.ko} 이적을 성사시킴`) : `${to.ko} 이적을 성사시킴`);
   state.agencyCash += gain;
   const got = gainRep(2);
   state.stats.transfers += 1;
+  if (stay) state.stats.loanBuys += 1;
   if (to.id === prefsOf(p).dream) state.stats.dream += 1;
-  toast(L(`이적 성사! 수수료 +${cash(gain)}`, `Transfer done! Commission +${cash(gain)}`));
-  return L(`${p.name} 이적: ${from.name} → ${to.name} (${leagueName(to.country, to.t)}), 주급 ${cash(d.wage)}, 수수료 +${cash(gain)}, 평판 +${got}, 선수 반응 ${moodText(fit.score)}`,
-    `${p.name} transfer: ${from.name} → ${to.name} (${leagueName(to.country, to.t)}), wage ${cash(d.wage)}, commission +${cash(gain)}, reputation +${got}, player reaction ${moodText(fit.score)}`);
+  toast(L(`${stay ? '완전 이적' : '이적'} 성사! 수수료 +${cash(gain)}`, `${stay ? 'Permanent move' : 'Transfer'} done! Commission +${cash(gain)}`));
+  return L(`${p.name} ${stay ? '임대 뒤 완전 이적' : '이적'}: ${from.name} → ${to.name} (${leagueName(to.country, to.t)}), 주급 ${cash(d.wage)}, 수수료 +${cash(gain)}, 평판 +${got}, 선수 반응 ${moodText(fit.score)}`,
+    `${p.name} ${stay ? 'loan made permanent' : 'transfer'}: ${from.name} → ${to.name} (${leagueName(to.country, to.t)}), wage ${cash(d.wage)}, commission +${cash(gain)}, reputation +${got}, player reaction ${moodText(fit.score)}`);
 }
 
 // 수락: 선수 동의 확률을 굴림
@@ -2253,9 +2282,12 @@ function offerHead(p, d) {
   const played = playedRounds(club.country, club.t);
   const row = played ? tableRow(club) : null;
   const rk = row ? (leagueOver() ? [` 최종 ${row.rk}위`, `, finished ${ordinal(row.rk)}`] : [` ${row.rk}위`, `, ${ordinal(row.rk)}`]) : ['', ''];
+  // 17단계: 임대 구단의 완전 이적 제안은 리그가 끝난 뒤라, 남으면 다음 시즌 어디서 뛰는지(승격·강등·대륙 대회)도 붙임
+  const zone = row && leagueOver() && d.from === 'loan' ? zoneOf(club.country, club.t, row.rk) : '';
+  const mv = { up: [' · 승격 확정', ', promoted'], down: [' · 강등 확정', ', relegated'], cont: [' · 대륙 대회 진출', ', into continental competition'] }[zone] || ['', ''];
   return {
-    ko: `${d.from === 'pitch' ? '추천해 둔 ' : d.from === 'need' ? `${POS_NAME[p.pos][0]} 보강이 필요한 ` : ''}${dream ? '꿈의 구단 ' : ''}${club.ko}(${club.country.ko} ${club.t + 1}부${rk[0]})`,
-    en: `${club.en} (${club.country.en} Div. ${club.t + 1}${rk[1]}${dream ? ', his dream club' : ''}${d.from === 'pitch' ? ', the club you pitched him to' : d.from === 'need' ? `, short of a ${POS_NAME[p.pos][1]}` : ''})`
+    ko: `${d.from === 'pitch' ? '추천해 둔 ' : d.from === 'need' ? `${POS_NAME[p.pos][0]} 보강이 필요한 ` : ''}${dream ? '꿈의 구단 ' : ''}${club.ko}(${club.country.ko} ${club.t + 1}부${rk[0]}${mv[0]})`,
+    en: `${club.en} (${club.country.en} Div. ${club.t + 1}${rk[1]}${mv[1]}${dream ? ', his dream club' : ''}${d.from === 'pitch' ? ', the club you pitched him to' : d.from === 'need' ? `, short of a ${POS_NAME[p.pos][1]}` : ''})`
   };
 }
 const feeText = d => (d.fee ? L(`이적료 ${money(d.fee)}`, `a ${money(d.fee)} fee`) : L('자유 이적', 'free transfer'));
@@ -2343,6 +2375,54 @@ const EVENT_TYPES = {
       { label: (p, d) => L(`수락한다 (선수 동의 ${offerFit(p, d).consent}%)`, `Accept (player agrees ${offerFit(p, d).consent}%)`), run: acceptOffer },
       { label: () => L(`더 요구한다 (구단 수락 ${counterChance()}%)`, `Push for more (club agrees ${counterChance()}%)`), run: counterOffer },
       { label: () => L('거절한다', 'Turn it down'), run: (c, p) => (addSat(c, -3), L(`${p.name} 이적 제안을 거절했습니다 (만족 -3).`, `You turned down the offer for ${p.name} (morale -3).`)) }
+    ],
+    def: 2
+  },
+  // 17단계 임대 뒤 완전 이적: 리그가 끝난 다음 주(47주)에 loanBids가 만듦 (주마다 굴리는 확률이 없어서 chance 없음).
+  // d = { club: 임대 구단, wage, fee, years, from: 'loan', ap: 임대 동안 리그 경기, gl: 골, rt: 평균 평점×10 }.
+  // 선수 마음(buyWish)에 따라 선수의 말과 "돌아오게 한다"의 만족·유대가 다름
+  buy: {
+    text: (p, d) => {
+      const h = offerHead(p, d);
+      const home = homeClub(p.s).name;
+      const years = d.years || 3;
+      const rt = (d.rt / 10).toFixed(1);
+      const perf = L(`리그 ${d.ap}경기 평균 평점 ${rt}${d.gl ? `(${d.gl}골)` : ''}`, `${pl(d.ap, 'league game')}, averaging ${rt}${d.gl ? ` with ${pl(d.gl, 'goal')}` : ''}`);
+      return vary(d, [
+        () => L(`임대 구단 ${h.ko}에서 ${p.name} 선수를 완전히 데려가고 싶다고 합니다. 임대 동안 ${perf}. 제안은 주급 ${cash(d.wage)}, ${years}시즌, 이적료 ${money(d.fee)}(소속 구단 ${home}에 지급)이고, 성사되면 내 수수료 ${cash(offerCut(d))}입니다.`,
+          `${h.en}, where ${p.name} is on loan, want to sign him for good. On loan he has played ${perf}. They offer ${cash(d.wage)} a week for ${pl(years, 'season')} and a ${money(d.fee)} fee to ${home}. Your commission if it goes through: ${cash(offerCut(d))}.`),
+        () => L(`${h.ko} 단장이 직접 전화했습니다. 임대로 온 ${p.name} 선수(${perf})를 보내고 싶지 않다며 완전 이적을 제안합니다. 주급 ${cash(d.wage)} · ${years}시즌 · 이적료 ${money(d.fee)}. 내 수수료 ${cash(offerCut(d))}.`,
+          `The sporting director of ${h.en} rang you himself. He doesn't want to let ${p.name} go after his loan (${perf}) and is offering a permanent deal: ${cash(d.wage)} a week, ${pl(years, 'season')}, a ${money(d.fee)} fee to ${home}. Your cut: ${cash(offerCut(d))}.`),
+        () => L(`시즌 마지막 경기에서 ${h.ko} 팬들이 ${p.name} 선수 이름을 연호했습니다. 구단이 곧바로 완전 이적 제안서를 보냈습니다. 주급 ${cash(d.wage)}, ${years}시즌, 이적료 ${money(d.fee)}(${home}에 지급). 성사되면 수수료 ${cash(offerCut(d))}. (임대 동안 ${perf})`,
+          `At the last game of the season, fans of ${h.en} sang ${p.name}'s name. The club have followed up with a permanent offer: ${cash(d.wage)} a week for ${pl(years, 'season')}, a ${money(d.fee)} fee to ${home}. Commission if it happens: ${cash(offerCut(d))}. (On loan: ${perf}.)`)
+      ]);
+    },
+    quote: (p, d) => vary(d, BUY_LINES[buyWish(p, d)], 1),
+    // 두 구단 비교: 출전 확률과 내 주 수수료 (남기면 뛰고, 돌아가면 벤치일 수 있음)
+    note: (p, d, c) => {
+      const back = Math.round(startChance(p.ability, clubLevel(homeClub(p.s)), 5.5) * 100);
+      const here = Math.round(startChance(p.ability, clubLevel(CLUBS[d.club]), 5.5) * 100);
+      return L(`출전 확률 ${homeClub(p.s).name} ${back}% · 이 구단 ${here}% · 완전 이적하면 내 주 수수료 ${cash(commissionOf(c.wage))} → ${cash(commissionOf(d.wage))}`,
+        `Starts: ${homeClub(p.s).name} ${back}%, here ${here}% · your weekly commission if he stays: ${cash(commissionOf(c.wage))} → ${cash(commissionOf(d.wage))}`);
+    },
+    fit: (p, d) => offerFit(p, d),
+    options: [
+      { label: (p, d) => L(`완전 이적에 동의한다 (선수 동의 ${offerFit(p, d).consent}%)`, `Agree the permanent move (player agrees ${offerFit(p, d).consent}%)`), run: acceptOffer },
+      { label: () => L(`더 요구한다 (구단 수락 ${counterChance()}%)`, `Push for more (club agrees ${counterChance()}%)`), run: counterOffer },
+      { label: (p, d) => ({ stay: L('돌아오게 한다 · 남고 싶어 함', 'Bring him back · he wants to stay'), back: L('돌아오게 한다 · 돌아오고 싶어 함', 'Bring him back · as he wants') }[buyWish(p, d)] || L('돌아오게 한다', 'Bring him back')),
+        bond: (p, d) => ({ stay: -TUNE.buyStayBond, back: TUNE.buyBackBond }[buyWish(p, d)] || 0),
+        memo: (p, d) => ({ stay: MEMO.buyRefused, back: MEMO.buyBack }[buyWish(p, d)] || ''),
+        run: (c, p, d) => {
+          const wish = buyWish(p, d);
+          const sat = wish === 'stay' ? -TUNE.buyStaySat : wish === 'back' ? TUNE.buyBackSat : 0;
+          addSat(c, sat);
+          const back = homeClub(p.s).name;
+          return wish === 'stay' ? L(`${CLUBS[d.club].name}의 완전 이적 제안을 거절했습니다. 남고 싶어 하던 ${p.name} 선수가 시즌이 끝나면 ${back}에 돌아옵니다 (만족 -${TUNE.buyStaySat}).`,
+            `You turned down ${CLUBS[d.club].name}'s permanent offer. ${p.name}, who wanted to stay, returns to ${back} at the end of the season (morale -${TUNE.buyStaySat}).`)
+            : wish === 'back' ? L(`${CLUBS[d.club].name}의 완전 이적 제안을 거절했습니다. ${p.name} 선수는 바라던 대로 시즌이 끝나면 ${back}에 돌아옵니다 (만족 +${TUNE.buyBackSat}).`,
+              `You turned down ${CLUBS[d.club].name}'s permanent offer. As he hoped, ${p.name} returns to ${back} at the end of the season (morale +${TUNE.buyBackSat}).`)
+            : L(`${CLUBS[d.club].name}의 완전 이적 제안을 거절했습니다. ${p.name} 선수는 시즌이 끝나면 ${back}에 돌아옵니다.`, `You turned down ${CLUBS[d.club].name}'s permanent offer. ${p.name} returns to ${back} at the end of the season.`);
+        } }
     ],
     def: 2
   },
@@ -2775,6 +2855,9 @@ function findTip() {
   return best ? best.s : null;
 }
 
+// 선택지의 유대 변화 (숫자, 또는 선수 마음에 따라 다르면 (p, d) => 숫자)
+const optBond = (opt, p, d) => (typeof opt.bond === 'function' ? opt.bond(p, d) : opt.bond || 0);
+
 function pushEvent(type, s, d) {
   // 이적 기간에 계약 중인 선수에게 온 제안은 마감일까지 답해야 함 (마감일 막판 제안은 그 주 안에)
   const c = clientOf(s);
@@ -2803,14 +2886,17 @@ function resolveEvent(id, index, auto = false) {
   state.events = state.events.filter(e => e !== ev);
   if (opt.ap) state.ap -= opt.ap;
   state.agencyCash -= cost;
+  // 유대 변화·기억 문구는 답하기 전 상황으로 (17단계: 선수 마음에 따라 다른 답은 함수)
+  const bond = optBond(opt, p, ev.d);
+  const memo = typeof opt.memo === 'function' ? opt.memo(p, ev.d) : opt.memo;
   const result = opt.run(c, p, ev.d);
   // 답하지 않고 넘어간 것도 선수는 기억함
-  if (opt.bond && c && clientOf(ev.s)) addBond(c, opt.bond, auto ? `(답하지 않음) ${opt.memo}` : opt.memo);
+  if (bond && c && clientOf(ev.s)) addBond(c, bond, auto ? `(답하지 않음) ${memo}` : memo);
   // 관계 이야기는 고른 답을 이야기 기록에 남김
   const tale = type.tale && c ? c.tales.find(t => t.k === ev.type) : null;
-  if (tale) tale.t = `${auto ? '(답하지 않음) ' : ''}${opt.memo || opt.label(p, ev.d, c)}`;
+  if (tale) tale.t = `${auto ? '(답하지 않음) ' : ''}${memo || opt.label(p, ev.d, c)}`;
   // 결과 문장이 마침표 없이 끝나면 붙여서 "만족 +3. 유대 +1."
-  const bondNote = opt.bond && c && result ? `${/[.!?]$/.test(result) ? '' : '.'} ${L('유대', 'Bond')} ${opt.bond > 0 ? '+' : ''}${opt.bond}.` : '';
+  const bondNote = bond && c && result ? `${/[.!?]$/.test(result) ? '' : '.'} ${L('유대', 'Bond')} ${bond > 0 ? '+' : ''}${bond}.` : '';
   if (result) addLog(`${auto ? L('(답하지 않아 기본 처리) ', '(No reply, so the default was used) ') : ''}${result}${bondNote}`);
   // go = true면 이 선수 상세로, 문자열이면 소식에 담긴 다른 선수(예: 소개받은 후배)로 이동
   return opt.go ? (opt.go === true ? ev.s : ev.d[opt.go]) : null;
@@ -2934,7 +3020,8 @@ function weeklyClients() {
     if (state.events.some(e => e.s === c.s)) continue;
     const p = getPlayer(c.s);
     for (const [key, type] of Object.entries(EVENT_TYPES)) {
-      if (key === 'tip' || Math.random() >= type.chance(c, p)) continue;
+      // 유망주 추천(tip)·임대 뒤 완전 이적(buy)은 주마다 굴리지 않음 (chance 없음)
+      if (!type.chance || Math.random() >= type.chance(c, p)) continue;
       const d = type.make ? type.make(c, p) : {};
       if (d === null) continue;
       pushEvent(key, c.s, d);
@@ -3532,13 +3619,80 @@ function endLoan(c, mid) {
   if (mid) archiveStint(c);
   c.loan = null;
   applyLoans();
+  // 17단계: 임대가 끝나면(계약 만료로 일찍 끝날 때 포함) 임대 구단의 완전 이적 제안도 없어짐
+  const lapsed = state.events.some(e => e.type === 'buy' && e.s === c.s);
+  state.events = state.events.filter(e => !(e.type === 'buy' && e.s === c.s));
   const p = getPlayer(c.s);
   if (mid) c.st = newStint(p.club);
   const apps = stint.L[0];
   if (apps >= TUNE.loanApps) addBond(c, TUNE.loanBack, MEMO.loanBack);
   pushNews({ k: 'loan', back: 1, s: c.s, g: c.g, nm: p.ko, nk: p.nk, from: club.id, to: p.club.id, my: 1, apps, goals: stint.L[1] });
-  addLog(L(`${p.name} 선수가 ${club.name} 임대를 마치고 돌아왔습니다 (리그 ${apps}경기 ${stint.L[1]}골${apps >= TUNE.loanApps ? `, 유대 +${TUNE.loanBack}` : ''}).`,
-    `${p.name} is back from his loan at ${club.name} (${pl(apps, 'league game')}, ${pl(stint.L[1], 'goal')}${apps >= TUNE.loanApps ? `, bond +${TUNE.loanBack}` : ''}).`));
+  addLog(L(`${p.name} 선수가 ${club.name} 임대를 마치고 돌아왔습니다 (리그 ${apps}경기 ${stint.L[1]}골${apps >= TUNE.loanApps ? `, 유대 +${TUNE.loanBack}` : ''}).${lapsed ? ' 임대가 끝나 완전 이적 제안도 없어졌습니다.' : ''}`,
+    `${p.name} is back from his loan at ${club.name} (${pl(apps, 'league game')}, ${pl(stint.L[1], 'goal')}${apps >= TUNE.loanApps ? `, bond +${TUNE.loanBack}` : ''}).${lapsed ? ' With the loan over, the permanent offer has lapsed.' : ''}`));
+}
+
+// --- 17단계 임대 뒤 완전 이적 (축구 감독 게임의 "완전 이적 옵션이 붙은 임대"에서 가져옴) ---
+// 리그가 끝난 다음 주(47주), 이번 시즌으로 임대가 끝나는 선수의 임대 구단이 임대 동안의 리그 경기 수·평점을 보고 완전 이적을 제안할지 정함.
+// 받아들이면 그대로 그 구단 선수가 되고(이적료는 소속 구단에, 내 수수료는 보통 이적과 같음), 거절하면 시즌이 끝날 때 돌아옴
+// 선수의 말: 남고 싶음(stay)·반반(mid)·돌아오고 싶음(back). 남고 싶은 선수는 정든 팀·매주 뛰는 기쁨, 돌아오고 싶은 선수는 원래 팀에서 증명하고 싶은 마음
+const BUY_LINES = {
+  stay: [
+    SAY('여기 사람들은 제 이름을 불러 줘요. 오랜만에 축구가 다시 즐거워졌어요. 남고 싶어요.', "People here sing my name. For the first time in ages I'm enjoying football again. I want to stay."),
+    SAY('매주 뛰면서 제가 어떤 선수인지 알게 됐어요. 이 팀에서 계속 크고 싶어요.', "Playing every week, I've found out what kind of player I am. I want to keep growing at this club."),
+    SAY('벤치로 돌아가는 건 생각만 해도 싫어요. 에이전트님, 여기 남게 해 주실 수 있죠?', "I can't bear the thought of going back to the bench. You can make it so I stay, can't you?")
+  ],
+  mid: [
+    SAY('좋은 팀이고 고마운 사람들이에요. 그래도 제 앞날이 걸린 일이니 에이전트님 생각을 먼저 듣고 싶어요.', "It's a good club and the people have been great to me. But it's my future, so I want to hear what you think first."),
+    SAY('남아도 좋고 돌아가도 좋아요. 어느 쪽이 저한테 맞는지 같이 따져 봐요.', "I'd be fine staying or going back. Let's work out together which suits me."),
+    SAY('솔직히 마음이 반반이에요. 에이전트님이 정해 주시면 따를게요.', "Honestly, I'm torn down the middle. Whatever you decide, I'll go with it.")
+  ],
+  back: [
+    SAY('여기서 많이 배웠지만, 원래 팀에서 제 자리를 찾고 싶어요. 그러려고 임대를 간 거잖아요.', "I've learned a lot here, but I want to win my place back at my own club. That's why I went on loan in the first place."),
+    SAY('고마운 제안인데요, 여기가 제가 오래 있을 곳인지는 잘 모르겠어요.', "It's a kind offer, but I'm not sure this is a place I'd stay for years."),
+    SAY('이번 시즌으로 충분히 보여 준 것 같아요. 이제 돌아가서 증명할 차례예요.', "I think this season showed what I can do. Now it's time to go back and prove it.")
+  ]
+};
+// 임대 구단이 완전 이적을 제안할 확률 (row = 임대 동안 리그 기록 [출전, 골, 도움, 평점 합×10])
+const buyChance = row => (row[0] < TUNE.buyApps ? 0 : clamp(TUNE.buyBase + (row[3] / row[0] / 10 - TUNE.buyMid) * TUNE.buyStep, 0, TUNE.buyMax));
+// 선수 마음: 이 제안의 조건 점수(보통 이적 제안과 같은 점검)가 1 이상이면 남고 싶어 함, -1 이하면 돌아오고 싶어 함
+const buyWish = (p, d) => {
+  const score = offerFit(p, d).score;
+  return score >= 1 ? 'stay' : score <= -1 ? 'back' : 'mid';
+};
+// 지금 임대 구간 (임대 구단 기록이 아니면 null)
+const loanStint = c => (c.loan && c.st.ln && c.st.club === c.loan.club ? c.st : null);
+
+// 제안 조건: 주급은 13단계 낮은 수준 구단 제안처럼 능력에 맞는 주급의 0.9~1.2배(지금 주급을 맞춰 주지 않음), 이적료는 몸값의 buyFee배
+function makeBuy(c, p, st) {
+  const club = CLUBS[c.loan.club];
+  const r = Math.random;
+  const wage = Math.round((weeklyWage(Math.max(marketAbility(p), Math.round(clubLevel(club)))) * (0.9 + r() * 0.3)) / 50) * 50;
+  const [lo, hi] = TUNE.buyFee;
+  const fee = Math.round((valueOf(p) * (lo + r() * (hi - lo))) / 5000) * 5000;
+  return { club: club.id, wage, fee, years: 2 + Math.floor(r() * 3), from: 'loan', ap: st.L[0], gl: st.L[1], rt: Math.round(st.L[3] / st.L[0]) };
+}
+
+// 47주: 이번 시즌으로 임대가 끝나는 선수마다 임대 구단의 결정. 제안하지 않으면 이유(경기 수·평점·확률)를 기록에 남김. 반환값 = 새로 온 제안 수
+// 임대마다 한 번뿐인 기회라 소식 한도(선수마다 하나·전체 3건)를 넘어도 보냄 (다른 소식과 함께 와 있을 수 있음)
+function loanBids() {
+  let n = 0;
+  for (const c of state.clients) {
+    const st = loanStint(c);
+    if (!st || !loanEnding(c) || isFreeAgent(c)) continue;
+    const p = getPlayer(c.s);
+    const club = CLUBS[c.loan.club];
+    const chance = buyChance(st.L);
+    if (Math.random() < chance) {
+      pushEvent('buy', c.s, makeBuy(c, p, st));
+      n += 1;
+      continue;
+    }
+    const why = st.L[0] < TUNE.buyApps ? L(`리그 ${st.L[0]}경기로 ${TUNE.buyApps}경기가 안 됨`, `only ${pl(st.L[0], 'league game')}, fewer than ${TUNE.buyApps}`)
+      : L(`리그 ${st.L[0]}경기 평균 평점 ${avgRating(st.L)} · 제안 가능성 ${Math.round(chance * 100)}%`, `${pl(st.L[0], 'league game')}, average ${avgRating(st.L)}, ${Math.round(chance * 100)}% chance`);
+    addLog(L(`임대 구단 ${named(club.name, '은', '는')} ${p.name} 선수 완전 이적을 제안하지 않았습니다(${why}). 시즌이 끝나면 ${homeClub(c.s).name}에 돌아옵니다.`,
+      `${club.name} have decided not to make ${p.name}'s move permanent (${why}). He returns to ${homeClub(c.s).name} at the end of the season.`));
+  }
+  return n;
 }
 
 
@@ -3658,7 +3812,9 @@ function deserialize(text) {
   }
   const events = (Array.isArray(d.events) ? d.events : []).filter(e => e && int(e.id) && EVENT_TYPES[e.type] && int(e.s) && e.s >= 0 && e.s < SLOTS && int(e.until))
     .map(e => ({ id: e.id, type: e.type, s: e.s, g: int(e.g) ? e.g : 0, until: e.until, d: e.d && typeof e.d === 'object' ? e.d : {} }))
-    .filter(e => e.type !== 'offer' || (int(e.d.club) && e.d.club >= 0 && e.d.club < CLUBS.length && Number.isFinite(e.d.wage) && Number.isFinite(e.d.fee)))
+    .filter(e => (e.type !== 'offer' && e.type !== 'buy') || (int(e.d.club) && e.d.club >= 0 && e.d.club < CLUBS.length && Number.isFinite(e.d.wage) && Number.isFinite(e.d.fee)))
+    // 17단계 임대 뒤 완전 이적: 임대 동안 리그 경기·골·평점이 있어야 글을 만듦
+    .filter(e => e.type !== 'buy' || (e.d.from === 'loan' && int(e.d.ap) && e.d.ap > 0 && int(e.d.gl) && int(e.d.rt)))
     .filter(e => (e.type !== 'junior' || (int(e.d.junior) && e.d.junior >= 0 && e.d.junior < SLOTS)) && (e.type !== 'wedding' || FAMILY.includes(e.d.who)));
   const nextEventId = Math.max(int(d.nextEventId) ? d.nextEventId : 1, ...events.map(e => e.id + 1));
   const intOr = (v, fallback) => (int(v) ? v : fallback);
@@ -3693,7 +3849,7 @@ function deserialize(text) {
     // 13단계: 리그 우승, 내 선수 구단 승격·강등, 컵·대륙 대회 결승
     champ: n => clubOk(n.club) && int(n.pts), up: n => clubOk(n.club) && int(n.t) && int(n.rk), down: n => clubOk(n.club) && int(n.t) && int(n.rk),
     cup: n => clubOk(n.club) && clubOk(n.opp) && int(n.ga) && int(n.gb), loan: n => clubOk(n.from) && clubOk(n.to) && int(n.s), cont: n => clubOk(n.club) && clubOk(n.opp) && int(n.ga) && int(n.gb) && (n.ci === undefined || (int(n.ci) && n.ci >= 0 && n.ci <= CONT_LOWER.length)) };
-  const NEWS_NUMS = ['w', 'club', 'gap', 'avg', 's', 'g', 'from', 'to', 'fee', 'age', 'ab', 'win', 'n', 'opp', 'ga', 'gb', 'pa', 'pb', 'pts', 't', 'tb', 'rk', 'my', 'ci', 'back', 'apps', 'goals'];
+  const NEWS_NUMS = ['w', 'club', 'gap', 'avg', 's', 'g', 'from', 'to', 'fee', 'age', 'ab', 'win', 'n', 'opp', 'ga', 'gb', 'pa', 'pb', 'pts', 't', 'tb', 'rk', 'my', 'ci', 'back', 'apps', 'goals', 'ln'];
   const news = (Array.isArray(d.news) ? d.news : []).filter(n => n && int(n.w) && NEWS_KINDS[n.k] && NEWS_KINDS[n.k](n)).slice(0, TUNE.newsMax).map(n => {
     const out = { k: n.k, nm: typeof n.nm === 'string' ? n.nm.slice(0, 30) : '', nk: nkOk(n.nk) };
     for (const key of NEWS_NUMS) if (Number.isFinite(n[key])) out[key] = n[key];
@@ -3795,6 +3951,8 @@ function fillWages() {
     if (c.wage === null) c.wage = weeklyWage(p.ability);
     if (!c.st) c.st = newStint(p.club, worldStats(p, state.week));
     if (c.since === null) c.since = Math.min(absWeek(), (Math.min(c.st.season, ...c.hist.map(h => h.season)) - 1) * WEEKS + 1);
+    // 17단계 전(15·16단계) 세이브: 두 시즌 임대의 둘째 시즌 기록 구간에 임대 표시가 없었음
+    if (c.loan && c.st.club === c.loan.club) c.st.ln = 1;
   }
 }
 
@@ -4079,7 +4237,8 @@ function checkList(checks, score, extra) {
 // 선택지에 붙는 표시 "1 AP · $500 · 유대 +5"와, AP·자금이 모자라서 막히는지 (소식 카드와 이야기 장면이 같이 씀)
 function optionInfo(ev, opt, c) {
   const cost = opt.cost ? opt.cost(ev.d, c) : 0;
-  const bond = opt.bond && c ? L(`유대 ${opt.bond > 0 ? '+' : ''}${opt.bond}`, `bond ${opt.bond > 0 ? '+' : ''}${opt.bond}`) : '';
+  const n = c ? optBond(opt, getPlayer(ev.s), ev.d) : 0;
+  const bond = n ? L(`유대 ${n > 0 ? '+' : ''}${n}`, `bond ${n > 0 ? '+' : ''}${n}`) : '';
   return { tags: [opt.ap ? `${opt.ap} AP` : '', cost ? cash(cost) : '', bond].filter(Boolean).join(' · '), blocked: Boolean((opt.ap && state.ap < opt.ap) || cost > state.agencyCash) };
 }
 const dueText = (ev, type, p, c) => (ev.until > absWeek() ? L(`${ev.until - absWeek()}주 안에 답하지 않으면 "${type.options[type.def].label(p, ev.d, c)}"`, `No reply within ${pl(ev.until - absWeek(), 'week')} means "${type.options[type.def].label(p, ev.d, c)}"`) : L('이번 주까지 답해야 합니다', 'You must answer this week'));
@@ -4097,9 +4256,12 @@ function newsCard(ev) {
     card.append(lab);
   }
   if (ev.type === 'offer' && ev.d.late) card.append(el('p', 'news-tag', L('이적 마감일 막판 제안', 'Deadline-day bid')));
+  if (ev.type === 'buy') card.append(el('p', 'news-tag', L('임대 뒤 완전 이적 제안', 'Loan-to-permanent offer')));
   card.append(el('p', 'news-text', type.text(p, ev.d, c)));
   const quote = type.quote ? type.quote(p, ev.d, c) : '';
   if (quote) card.append(el('p', 'quote', `"${quote}"`));
+  // 17단계: 고를 때 견줄 숫자 한 줄 (임대 뒤 완전 이적: 두 구단 출전 확률과 내 주 수수료)
+  if (type.note && c) card.append(el('p', 'news-bond', type.note(p, ev.d, c)));
   if (c) card.append(el('p', 'news-bond', type.tale ? L(`인연: ${c.how} · ${togetherText(c)}`, `How you met: ${phrase(c.how)} · ${togetherText(c)}`) : L(`관계: ${bondName(c.bond)} · 유대 ${c.bond} · ${c.how}`, `Relationship: ${bondName(c.bond)} · bond ${c.bond} · ${phrase(c.how)}`)));
   if (type.fit) {
     const fit = type.fit(p, ev.d);
@@ -4215,6 +4377,15 @@ const NEWS_LINES = {
     (to, from, name) => L(`"새 팀에서 다시 시작합니다." ${clubKo(to)}에 입단한 내 선수 ${name}의 소감이 기사 제목이 됐습니다.`,
       `"A fresh start with a new team." Your player ${name}'s words on joining ${clubEn(to)} made the headline.`)
   ],
+  // 17단계: 임대로 뛰던 구단에 완전 이적 (mine 뉴스에 ln = 1)
+  mineLoan: [
+    (to, from, name, n) => L(`내 선수 ${named(name, '이', '가')} 임대로 뛰던 ${clubKo(to)}에 완전 이적했습니다 (이적료 ${money(n.fee)}). ${named(CLUBS[from].ko, '을', '를')} 떠나 정든 팀에 남습니다.`,
+      `Your player ${name} has made his loan at ${clubEn(to)} permanent (fee ${money(n.fee)}). He leaves ${CLUBS[from].en} to stay where he has settled.`),
+    (to, from, name, n) => L(`${named(clubKo(to), '이', '가')} 임대로 데려왔던 내 선수 ${named(name, '을', '를')} 완전히 영입했습니다. 이적료는 ${money(n.fee)}입니다.`,
+      `${clubEn(to)} have signed your player ${name} for good after his loan. The fee is ${money(n.fee)}.`),
+    (to, from, name) => L(`"여기가 제 팀이에요." 임대를 마치고 ${clubKo(to)}에 남기로 한 내 선수 ${name}의 말이 기사 제목이 됐습니다.`,
+      `"This is my club now." Your player ${name}'s words on staying at ${clubEn(to)} after his loan made the headline.`)
+  ],
   call: [
     (nat, name) => L(`${nat.ko} 국가대표 명단이 발표됐습니다. 내 선수 ${named(name, '이', '가')} 처음으로 이름을 올렸습니다.`, `The ${nat.en} squad has been announced, and your player ${name} is in it for the first time.`),
     (nat, name) => L(`${name}, 생애 첫 ${nat.ko} 국가대표 발탁. 감독은 "꾸준함을 높이 샀다"고 말했습니다.`, `${name} earns his first ${nat.en} call-up. The coach praised his "consistency".`)
@@ -4284,7 +4455,7 @@ function newsText(n) {
   if (n.k === 'need') return { tag: L(...NEWS_TAG.need), text: pick(NEWS_LINES.need)(n.club, POS_NAME[n.pos], n), go: ['clubAt', n.club] };
   if (n.k === 'sign' || n.k === 'mine') {
     const go = state.world.gen[n.s] === n.g ? ['player', n.s] : ['clubAt', n.to];
-    return { tag: L(...NEWS_TAG[n.k]), text: pick(NEWS_LINES[n.k])(n.to, n.from, newsName(n), n), go };
+    return { tag: L(...NEWS_TAG[n.k]), text: pick(NEWS_LINES[n.ln ? 'mineLoan' : n.k])(n.to, n.from, newsName(n), n), go };
   }
   if (n.k === 'call') return { tag: L(...NEWS_TAG.call), text: pick(NEWS_LINES.call)(COUNTRY_BY_ID[n.nat], newsName(n)), go: state.world.gen[n.s] === n.g ? ['player', n.s] : null };
   // 13단계: 우승·승강·결승. my = 내 선수 구단 소식 (선수 이름이 들어간 문장, 누르면 선수 상세)
@@ -4781,18 +4952,35 @@ function clientActions(box, c, p) {
   box.append(el('h2', 'section', L('계약 해지', 'Release')), actButton('btn danger', 'release', c.s, L('계약 해지 (평판 -1)', 'Release him (reputation -1)')));
 }
 
+// 17단계: 임대 중인 선수의 완전 이적 전망 한 줄 (임대 성적 → 리그가 끝난 다음 주에 정할 제안 가능성)
+function buyOutlook(c) {
+  const club = CLUBS[c.loan.club].name;
+  const decide = LEAGUE_WEEKS + 1;
+  if (!loanEnding(c)) return L(`임대가 다음 시즌 끝까지라, 다음 시즌 리그가 끝나면(${decide}주) ${named(club, '이', '가')} 완전 이적을 제안할지 정합니다.`,
+    `The loan runs until the end of next season, so ${club} will decide on a permanent move once next season's league ends (week ${decide}).`);
+  if (state.events.some(e => e.type === 'buy' && e.s === c.s)) return L(`${named(club, '이', '가')} 완전 이적을 제안했습니다. 내 선수 탭 소식에서 답해 주세요.`, `${club} have offered to make the move permanent. Answer it in the Players tab.`);
+  if (leagueOver()) return L(`이번 시즌이 끝나면 임대를 마치고 ${homeClub(c.s).name}에 돌아옵니다.`, `He returns to ${homeClub(c.s).name} when the season ends.`);
+  const st = loanStint(c);
+  const apps = st ? st.L[0] : 0;
+  if (apps < TUNE.buyApps) return L(`임대 구단에서 리그 ${apps}경기를 뛰었습니다. ${TUNE.buyApps}경기 이상 뛰면 리그가 끝난 다음 주(${decide}주)에 ${named(club, '이', '가')} 완전 이적을 제안할 수 있습니다.`,
+    `${pl(apps, 'league game')} for ${club} so far. With ${TUNE.buyApps} or more, they may offer a permanent move the week after the league ends (week ${decide}).`);
+  return L(`임대 동안 리그 ${apps}경기 평균 평점 ${avgRating(st.L)}. 리그가 끝난 다음 주(${decide}주)에 ${named(club, '이', '가')} 완전 이적을 제안할지 정합니다. 지금 기록이면 제안 가능성 ${Math.round(buyChance(st.L) * 100)}%입니다.`,
+    `On loan: ${pl(apps, 'league game')}, average rating ${avgRating(st.L)}. ${club} will decide on a permanent move the week after the league ends (week ${decide}). On this form the chance is ${Math.round(buyChance(st.L) * 100)}%.`);
+}
+
 // 15단계 임대 칸: 임대 중이면 안내, 소속 구단에서 벤치면(출전 확률 TUNE.loanBench 미만) 후보 구단마다 버튼 (출전·선수 동의·반응)
 function loanPanel(box, c, p) {
   if (c.loan) {
     box.append(el('h2', 'section', L('임대', 'Loan')), el('p', 'sub', L(`${CLUBS[c.loan.club].name}에서 임대로 뛰는 중입니다(${weekLabel(c.loan.until)}까지). 소속 구단은 ${homeClub(c.s).name}이고 계약·주급·내 수수료는 그대로입니다.`,
-      `He is on loan at ${CLUBS[c.loan.club].name} until ${weekLabel(c.loan.until)}. His club is still ${homeClub(c.s).name}, and his contract, wage and your commission are unchanged.`)));
+      `He is on loan at ${CLUBS[c.loan.club].name} until ${weekLabel(c.loan.until)}. His club is still ${homeClub(c.s).name}, and his contract, wage and your commission are unchanged.`)),
+    el('p', 'sub', buyOutlook(c)));
     return;
   }
   if (isFreeAgent(c) || benchChance(c) >= TUNE.loanBench) return;
   const block = loanBlock(c);
   const pct = Math.round(benchChance(c) * 100);
-  box.append(el('h2', 'section', L('임대 (1 AP)', 'Loan (1 AP)')), el('p', 'sub', L(`지금 구단 출전 확률 ${pct}%. 임대를 가면 ${weekLabel(loanUntil())}까지 주전으로 뛰고 돌아옵니다. 계약·주급·내 수수료는 그대로이고, 23세 이하는 많이 뛸수록 더 자랍니다.`,
-    `He starts ${pct}% of games at his club. On loan he would play regularly until ${weekLabel(loanUntil())}, then come back. His contract, wage and your commission stay the same, and players aged 23 or under develop faster with more minutes.`)));
+  box.append(el('h2', 'section', L('임대 (1 AP)', 'Loan (1 AP)')), el('p', 'sub', L(`지금 구단 출전 확률 ${pct}%. 임대를 가면 ${weekLabel(loanUntil())}까지 주전으로 뛰고 돌아옵니다. 계약·주급·내 수수료는 그대로이고, 23세 이하는 많이 뛸수록 더 자랍니다. 임대 구단에서 리그 ${TUNE.buyApps}경기 이상 뛰며 평점이 좋으면, 리그가 끝난 뒤 그 구단이 완전 이적을 제안하기도 합니다.`,
+    `He starts ${pct}% of games at his club. On loan he would play regularly until ${weekLabel(loanUntil())}, then come back. His contract, wage and your commission stay the same, and players aged 23 or under develop faster with more minutes. If he plays ${TUNE.buyApps}+ league games there and rates well, the loan club may offer to make the move permanent once the league ends.`)));
   if (block && block !== NO_AP()) {
     box.append(el('p', 'note', block));
     return;
@@ -5558,7 +5746,8 @@ function runSelfCheck() {
   check(keepChanceOf(tb) <= 0.95 && bondConsentBonus(tb) <= 10 && bondKeepBonus({ bond: TUNE.bondFrom }) === 0, '유대 효과: 붙잡기 95% 이하, 이적 동의 +10%p 이하, bondFrom 이하는 효과 없음');
   check(BOND_TIERS.every(([lo], i) => i === 0 || lo < BOND_TIERS[i - 1][0]) && bondName(0) === L('서먹함', 'Distant') && bondName(100) === L('가족 같음', 'Like family'), '유대 단계 이름');
   check(foundChecks().length === 3 && TUNE.foundCash > TUNE.foundCost && TUNE.soloLimit < TUNE.limitBase, '회사 설립: 조건 3개, 자금 조건은 설립비보다 큼, 혼자일 때 한도가 더 작음');
-  check(Object.values(EVENT_TYPES).every(t => t.options.every(o => !o.bond || (typeof o.memo === 'string' && Math.abs(o.bond) <= 10))), '소식 선택지의 유대 변화에는 기억 문구가 있어야 함');
+  // 17단계: 선수 마음에 따라 다른 유대 변화(함수)는 기억 문구도 함수
+  check(Object.values(EVENT_TYPES).every(t => t.options.every(o => (typeof o.bond === 'function' ? typeof o.memo === 'function' : !o.bond || (typeof o.memo === 'string' && Math.abs(o.bond) <= 10)))), '소식 선택지의 유대 변화에는 기억 문구가 있어야 함');
   // 8단계: 관계 이야기는 필요한 유대가 낮은 순, 선수의 말과 기본 선택이 있고, 한 번 시작하면 다시 오지 않음
   check(TALE_KEYS.every((k, i) => EVENT_TYPES[k] && EVENT_TYPES[k].tale && typeof EVENT_TYPES[k].quote === 'function' && EVENT_TYPES[k].tale.need <= 100
     && (i === 0 || EVENT_TYPES[k].tale.need > EVENT_TYPES[TALE_KEYS[i - 1]].tale.need)), '관계 이야기: 필요한 유대 순서, 선수의 말');
@@ -5581,7 +5770,7 @@ function runSelfCheck() {
   const c0 = state.clients[0];
   if (c0) {
     const week0 = state.week;
-    const contracted = { ...c0, end: absWeek() + 200, hunt: 0 };
+    const contracted = { ...c0, end: absWeek() + 200, hunt: 0, loan: null }; // 임대 중이면 제안이 없으니 임대 없이 봄
     try {
       state.week = 10;
       const closed = EVENT_TYPES.offer.chance(contracted, getPlayer(c0.s));
@@ -5645,6 +5834,16 @@ function runSelfCheck() {
     const opts = loanClubs(lc);
     const ab = getPlayer(lc.s).ability;
     check(opts.length <= TUNE.loanPick && opts.every(x => clubLevel(x) <= ab && clubLevel(x) >= ab - TUNE.loanRange && x !== homeClub(lc.s)) && loanClubs(lc) === opts, '임대 후보: 주전 가능한 구단, 늘 같음');
+  }
+  // 17단계 임대 뒤 완전 이적: 리그 경기가 모자라면 제안 없음, 평점이 높을수록 잦고 buyMax까지. 선수 마음 세 가지마다 말이 있고, 기본 답은 돌아오게 함
+  const apps0 = TUNE.buyApps;
+  check(buyChance([apps0 - 1, 0, 0, 90 * (apps0 - 1)]) === 0 && buyChance([20, 0, 0, 1240]) < buyChance([20, 0, 0, 1400]) && buyChance([20, 0, 0, 1800]) === TUNE.buyMax
+    && buyChance([20, 0, 0, 1000]) === 0 && ['stay', 'mid', 'back'].every(k => BUY_LINES[k].length >= 3) && !EVENT_TYPES.buy.chance && EVENT_TYPES.buy.def === 2, '임대 뒤 완전 이적: 제안 확률, 선수의 말, 기본 답');
+  if (c0) {
+    // 돌아오게 하는 답의 유대: 남고 싶어 하면 -, 반반이면 0, 돌아오고 싶어 하면 +
+    const p0 = getPlayer(c0.s);
+    const d0 = { club: homeClub(c0.s).id, wage: c0.wage, fee: 0, years: 3, from: 'loan', ap: 12, gl: 1, rt: 68 };
+    check(Math.sign(optBond(EVENT_TYPES.buy.options[2], p0, d0)) === { stay: -1, mid: 0, back: 1 }[buyWish(p0, d0)], '임대 뒤 완전 이적: 선수 마음과 돌아오게 하는 답');
   }
   // 14단계 처음 화면: 할 일 줄은 4개까지, 지난주 줄은 바로 지난주 경기만
   const lw0 = { lw: { w: absWeek() - 1, n: 1, p: 1, r: 74, g: 1, t: [['L', 2, 1, 0]], a: '' } };

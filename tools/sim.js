@@ -55,7 +55,7 @@ function loadGame() {
       weeklyWage, commissionOf, clientIncome, clientLimit, recruit, recruitBlock, recruitChance, recruitCost, renew, renewBlock, renewTerms,
       meet, meetBlock, resolveEvent, offerFit, offerCut, counterChance, clientOf, absWeek,
       INVEST_KEYS, ITEMS, investSteps, investUpkeep, upkeepNow, weeklySpend, invest, downgrade, dividendRoom, afterTax, payDividend, inject, buyItem, netWorth,
-      potRange, scout, scoutBlock, toggleWatch, cooldownKey, foundBlock, foundAgency, windowAt, isFreeAgent, pitch, pitchBlock, CLUBS, clubLevel, loan, loanBlock, loanClubs, loanFit };`);
+      potRange, scout, scoutBlock, toggleWatch, cooldownKey, foundBlock, foundAgency, windowAt, isFreeAgent, pitch, pitchBlock, CLUBS, clubLevel, loan, loanBlock, loanClubs, loanFit, buyWish };`);
   return factory(...Object.values(stubs));
 }
 
@@ -90,6 +90,9 @@ function answer(G, bot, ev, m) {
       if (fit.consent >= 40 && G.counterChance() >= 55) return 1;
       return 2;
     }
+    // 17단계 임대 뒤 완전 이적: 선수 동의 55% 이상이면 받아들이고(남고 싶거나 반반인 선수), 아니면 돌아오게 함(돌아오고 싶은 선수).
+    // --no-buy면 늘 돌아오게 하는 봇과 비교
+    case 'buy': return !workerData.noBuy && G.offerFit(p, ev.d).consent >= 55 ? 0 : 2;
     case 'playtime': return ok(0) ? 0 : 1;
     case 'sns': return st.agencyCash > 20000 && ok(1) ? 1 : ok(0) ? 0 : 2;
     case 'injury': return ok(0) ? 0 : 1;
@@ -218,6 +221,10 @@ function botWeek(G, bot, m) {
       if (c && !G.windowAt() && !G.isFreeAgent(c) && ev.until - G.TUNE.eventTtl === G.absWeek()) m.closedOffers += 1;
     }
     if (ev.type === 'ask') m.asks += 1;
+    if (ev.type === 'buy') {
+      m.buyOffers += 1;
+      m.buyWish[G.buyWish(G.getPlayer(ev.s), ev.d)] += 1; // 남고 싶음·반반·돌아오고 싶음
+    }
     const go = G.resolveEvent(ev.id, answer(G, bot, ev, m));
     acted = true;
     if (go !== null && !G.clientOf(go) && !G.recruitBlock(G.getPlayer(go))) {
@@ -345,7 +352,7 @@ function playGame(G, bot, seasons) {
   const m = { weeks: 0, decisionWeeks: 0, news: 0, overload: 0, apUsed: 0, offers: 0, consentSum: 0, recruitTry: 0, firstTransfer: 0, bankrupt: 0,
     firstInvest: 0, investSpent: 0, upkeepPaid: 0, taxPaid: 0, itemSpent: 0, downgrades: 0, deficitWeeks: 0, buyWeek: {},
     scouts: 0, scoutWeeks: 0, busyWithScout: 0, youthTry: 0, youthPotSum: 0, youthMissSum: 0, foundWeek: 0, soloWeeks: 0, soloBusy: 0, apAvail: 0, tales: 0, juniors: 0, taleKinds: {},
-    lateOffers: 0, closedOffers: 0, asks: 0, pitches: 0, pitchOffers: 0, worldDeals: 0, loans: 0 };
+    lateOffers: 0, closedOffers: 0, asks: 0, pitches: 0, pitchOffers: 0, worldDeals: 0, loans: 0, buyOffers: 0, buyWish: { stay: 0, mid: 0, back: 0 } };
   const signed0 = st.stats.signed;
   for (let w = 0; w < seasons * 52; w++) {
     const news = st.events.length;
@@ -444,6 +451,9 @@ function playGame(G, bot, seasons) {
     pitches: m.pitches,                                                     // 10단계: 게임당 추천 수
     pitchOffers: m.pitchOffers,                                             // 추천한 구단에서 온 제안
     loans: m.loans,                                                         // 15단계: 게임당 임대
+    buyOffers: m.buyOffers,                                                 // 17단계: 임대 구단의 완전 이적 제안
+    buyWish: m.buyWish,
+    loanBuys: k.loanBuys,                                                   // 그중 성사된 완전 이적
     worldDealsPerSeason: m.worldDeals / Math.max(1, m.weeks / 52),          // 세계 이적(뉴스) 시즌당
     cash: st.agencyCash,
     income: st.clients.reduce((n, c) => n + G.clientIncome(c), 0),
@@ -476,6 +486,7 @@ const noMoney = args.includes('--no-money');           // 투자·배당·아이
 const noScout = args.includes('--no-scout');           // 유망주 봇이 스카우트 없이 보이는 범위만 보고 영입
 const noPitch = args.includes('--no-pitch');           // 봇이 보강이 필요한 구단에 선수를 추천하지 않음 (추천의 값어치 비교)
 const noLoan = args.includes('--no-loan');             // 봇이 벤치 선수를 임대 보내지 않음 (임대의 값어치 비교)
+const noBuy = args.includes('--no-buy');               // 봇이 임대 구단의 완전 이적 제안을 늘 거절 (임대 뒤 완전 이적의 값어치 비교)
 const order = arg('order', '') ? arg('order').split(',') : null; // 이 투자만, 이 순서로 (예: --order lawyer)
 const G0 = loadGame(); // 결과 표시용 (TUNE·아이템 목록)
 Object.assign(G0.TUNE, tune);
@@ -484,7 +495,7 @@ function runBot(bot) {
   const workers = Math.min(os.cpus().length, games);
   const per = Array.from({ length: workers }, (_, i) => Math.floor(games / workers) + (i < games % workers ? 1 : 0));
   return Promise.all(per.map(n => new Promise((resolve, reject) => {
-    const w = new Worker(__filename, { workerData: { games: n, bot, seasons, tune, noMoney, noScout, noPitch, noLoan, order } });
+    const w = new Worker(__filename, { workerData: { games: n, bot, seasons, tune, noMoney, noScout, noPitch, noLoan, noBuy, order } });
     w.on('message', resolve);
     w.on('error', reject);
   }))).then(parts => parts.flat());
@@ -493,6 +504,13 @@ function runBot(bot) {
 const mean = (rows, key) => {
   const vals = rows.map(r => r[key]).filter(v => v !== null && v !== undefined);
   return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : NaN;
+};
+// 17단계: 완전 이적 제안을 받은 선수 마음 비율 "남고 싶음 70% · 반반 18% · 돌아오고 싶음 12%"
+const wishText = rows => {
+  const sum = { stay: 0, mid: 0, back: 0 };
+  for (const r of rows) for (const k of Object.keys(sum)) sum[k] += r.buyWish ? r.buyWish[k] : 0;
+  const all = sum.stay + sum.mid + sum.back;
+  return all ? `남고 싶음 ${Math.round((sum.stay / all) * 100)}% · 반반 ${Math.round((sum.mid / all) * 100)}% · 돌아오고 싶음 ${Math.round((sum.back / all) * 100)}%` : '-';
 };
 const median = (rows, key) => {
   const vals = rows.map(r => r[key]).sort((a, b) => a - b);
@@ -534,7 +552,7 @@ const median = (rows, key) => {
     if (rows[0].scoutsPerSeason !== undefined) {
       console.log(`    스카우트: 시즌당 ${mean(rows, 'scoutsPerSeason').toFixed(1)}번, 스카우트까지 넣은 할 일 있는 주 ${mean(rows, 'busyWithScout').toFixed(1)}%, 영입하려 한 21세 이하 진짜 잠재력 평균 ${mean(rows, 'youthPot').toFixed(1)} (보이던 범위 가운데와 차이 ${mean(rows, 'youthMiss').toFixed(1)})`);
     }
-    if (bot !== 'passive') console.log(`    세계 뉴스: 세계 이적 시즌당 ${mean(rows, 'worldDealsPerSeason').toFixed(1)}건, 추천 게임당 ${mean(rows, 'pitches').toFixed(2)}번, 추천한 구단에서 온 제안 ${mean(rows, 'pitchOffers').toFixed(2)}건, 임대 게임당 ${mean(rows, 'loans').toFixed(2)}건`);
+    if (bot !== 'passive') console.log(`    세계 뉴스: 세계 이적 시즌당 ${mean(rows, 'worldDealsPerSeason').toFixed(1)}건, 추천 게임당 ${mean(rows, 'pitches').toFixed(2)}번, 추천한 구단에서 온 제안 ${mean(rows, 'pitchOffers').toFixed(2)}건, 임대 게임당 ${mean(rows, 'loans').toFixed(2)}건 (완전 이적 제안 ${mean(rows, 'buyOffers').toFixed(2)}건 · 성사 ${mean(rows, 'loanBuys').toFixed(2)}건 · 선수 마음 ${wishText(rows)})`);
     if (bot !== 'passive') console.log(`    이적 시장: 마감 주에 온 제안 ${mean(rows, 'lateShare').toFixed(1)}%, 닫힌 기간에 계약 중인 선수에게 온 제안 ${rows.reduce((n, r) => n + r.closedOffers, 0)}건(0이어야 함), 이적 요청 게임당 ${mean(rows, 'asks').toFixed(2)}건`);
     console.log(`    중앙값: 번 돈 $${Math.round(median(rows, 'earned')).toLocaleString()}, 법인 자금 $${Math.round(median(rows, 'cash')).toLocaleString()}, 개인 자산 $${Math.round(median(rows, 'netWorth')).toLocaleString()}, 주 수입 $${Math.round(median(rows, 'income')).toLocaleString()}`);
   }
