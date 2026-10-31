@@ -826,7 +826,7 @@ const koName = (pool, fi, li) => (pool.order === 'join' ? pool.last[li] + pool.f
 // 이름 키 "풀|이름 번호|성 번호" → 지금 언어 이름 (은퇴한 선수 이름도 언어를 바꾸면 같이 바뀌게 저장해 둠)
 function nameFromKey(key) {
   const [k, fi, li] = String(key).split('|');
-  const pool = NAMES[k];
+  const pool = Object.prototype.hasOwnProperty.call(NAMES, k) ? NAMES[k] : null; // 자기 속성만 (constructor 같은 이름을 풀로 읽지 않게)
   if (!pool || pool.first[fi] === undefined || pool.last[li] === undefined) return '';
   if (LANG !== 'en') return koName(pool, fi, li);
   return EN_FAMILY_FIRST.has(k) ? `${pool.lastEn[li]} ${pool.firstEn[fi]}` : `${pool.firstEn[fi]} ${pool.lastEn[li]}`;
@@ -1036,11 +1036,16 @@ function pickStartingClients() {
 // st = 이번 구간 기록(시즌·구단별), hist = 지난 구간들, playRate = 최근 출전 비율, capped = 국가대표 경험
 // bond = 유대(0~100), since = 함께하기 시작한 절대 주차, how = 인연(만난 계기), memo = 유대가 바뀐 최근 일 [{ w, t, n }]
 // hunt = 이적 요청을 받아 새 구단을 알아보는 마감 절대 주차 (0 = 안 알아봄), pitch = 추천해 둔 구단 { club, until } (10단계)
-const newClient = (p, end, sat, bond, how) => ({
-  s: p.s, g: p.g, end, wage: weeklyWage(p.ability), sat, met: 0, negUntil: 0, warned: 0,
-  st: newStint(p.club, worldStats(p, state.week)), hist: [], playRate: 0.6, capped: false,
-  bond, since: absWeek(), how, memo: [], tales: [], hunt: 0, pitch: null, out: null, lw: null, loan: null, noLoan: 0
-});
+function newClient(p, end, sat, bond, how) {
+  const st = newStint(p.club, worldStats(p, state.week));
+  return {
+    s: p.s, g: p.g, end, wage: weeklyWage(p.ability), sat, met: 0, negUntil: 0, warned: 0,
+    // 지금 국가대표이거나 이번 시즌 A매치를 이미 뛴 선수는 국가대표 경험이 있음 (영입한 뒤 "첫 발탁" 보너스가 또 나오지 않게, 17단계 리뷰 1-10.
+    // 시즌 첫 A매치(10주) 전에 영입한 국가대표도 막으려고 isNationalPick도 봄)
+    st, hist: [], playRate: 0.6, capped: st.N[0] > 0 || isNationalPick(p),
+    bond, since: absWeek(), how, memo: [], tales: [], hunt: 0, pitch: null, out: null, lw: null, loan: null, noLoan: 0
+  };
+}
 // 에이전시 커리어 통계 (기록 탭·시뮬레이션용)
 const newCareerStats = () => ({ lost: 0, transfers: 0, dream: 0, callups: 0, renewTry: 0, renewWin: 0, signed: 0, loans: 0, loanBuys: 0 });
 
@@ -1061,6 +1066,7 @@ const cooldownKey = p => `${p.s}-${p.g}`; // 슬롯-세대 키: 영입 대기·�
 
 function advanceWeek() {
   if (state.over) return;
+  worldChanged(); // 폼·시즌 말 성장·은퇴로 세계 배열이 바뀜 (저장 압축 캐시를 비움)
   const w = state.world;
   for (let s = 0; s < SLOTS; s++) {
     const f = nextForm(w.form[s], Math.random());
@@ -1082,9 +1088,11 @@ function advanceWeek() {
   const now = absWeek();
   for (const key of Object.keys(state.cooldowns)) if (state.cooldowns[key] <= now) delete state.cooldowns[key];
   for (const key of Object.keys(state.intros)) if (state.intros[key] <= now) delete state.intros[key];
-  const week = weeklyClients();
+  // 이적 기간이 닫히는 주에는 보강 필요를 먼저 비우고, 열리는 주에는 먼저 찾아서 이번 주 제안이 지금 목록을 씀 (17단계 리뷰 1-8)
   const open = windowAt();
+  if (closing) state.needs = [];
   if (open && state.week === open.from) refreshNeeds(open);
+  const week = weeklyClients();
   if (open) worldSignings(open);
 
   addLog(week.lines.length ? L(`경기: ${week.lines.join(', ')}`, `Matches: ${week.lines.join(', ')}`) : L('이번 주 소속 선수 경기 없음', 'No matches for your players this week'));
@@ -1096,7 +1104,6 @@ function advanceWeek() {
     addLog(L(`${closing.name}이 끝났습니다. 다음은 ${nextWindow().win.name}(${nextWindow().win.from}주부터)입니다. 그때까지는 무소속 선수 제안만 옵니다.`,
       `The ${closing.name} has closed. Next up is the ${nextWindow().win.name} (from week ${nextWindow().win.from}). Until then, only free agents get offers.`));
     pushNews({ k: 'close', win: WINDOWS.indexOf(closing), n: state.deals.n, fee: state.deals.fee, nm: state.deals.nm, nk: state.deals.nk, to: state.deals.to });
-    state.needs = [];
   }
   if (win && state.week === win.from) addLog(L(`${win.name}이 열렸습니다. 마감은 ${weekLabel(windowEnd(win))}이고, 마감 주에는 막판 제안이 몰립니다.`,
     `The ${win.name} is open. The deadline is ${weekLabel(windowEnd(win))}, and last-minute bids pile up in that final week.`));
@@ -1162,8 +1169,14 @@ function endSeason() {
   const w = state.world;
   const before = state.clients.map(c => {
     const p = getPlayer(c.s);
-    const L = c.st.L;
-    return { name: p.ko, nk: p.nk, age: ageOf(p), ability: p.ability, value: valueOf(p), apps: L[0], goals: L[1], rating: L[0] ? L[3] / L[0] / 10 : 0, caps: c.st.N[0], nat: p.nat.id, fin: seasonFinish(c) };
+    // 이번 시즌 기록 구간을 모두 더함 (시즌 중 이적·임대로 구간이 나뉘면 마지막 구간만 세던 것을 고침, 17단계 리뷰 1-3)
+    const stints = [c.st, ...c.hist.filter(h => h.season === state.season)];
+    const total = key => stints.reduce((sum, st) => sum.map((v, i) => v + st[key][i]), [0, 0, 0, 0]);
+    const L = total('L');
+    // 리그가 끝난 뒤 구단을 옮김(마지막으로 구단 경기를 뛴 구간과 지금 구간의 구단이 다름): 성장 뒤에 출전 비율을 새 구단 기준으로 (1-12)
+    const last = stints.find(st => st.L[0] + st.C[0] + st.K[0] > 0);
+    const late = Boolean(last) && last.club !== c.st.club;
+    return { name: p.ko, nk: p.nk, age: ageOf(p), ability: p.ability, value: valueOf(p), apps: L[0], goals: L[1], rating: L[0] ? L[3] / L[0] / 10 : 0, caps: total('N')[0], nat: p.nat.id, fin: seasonFinish(c), late };
   });
   for (const c of state.clients) archiveStint(c);
   for (let s = 0; s < SLOTS; s++) {
@@ -1250,17 +1263,23 @@ function endSeason() {
     rows.push({ name: p.ko, nk: p.nk, ageFrom: b.age, ageTo: ageOf(p), abilityFrom: b.ability, abilityTo: p.ability, valueFrom: b.value, valueTo: value, apps: b.apps, goals: b.goals, rating: b.rating, caps: b.caps, fin: b.fin });
     // 다음 시즌 끝까지인 임대(여름 이적 기간 뒤쪽에 감)는 새 시즌 기록도 임대 구간 (빠지면 돌아올 때 47~52주 구간의 0경기로 셈)
     c.st = c.loan ? { ...newStint(p.club), ln: 1 } : newStint(p.club);
+    if (b.late) c.playRate = startChance(p.ability, clubLevel(p.club), 5.5);
     valueFrom += before[i].value;
     valueTo += value;
     return true;
   });
 
   applyLoans(); // 은퇴한 선수의 임대 정리
+  // 은퇴한 소속 선수·은퇴한 추천 선수의 소식은 버림 (그 슬롯에 들어온 새 선수 이름으로 보이지 않게, 17단계 리뷰 1-4)
+  state.events = state.events.filter(liveEvent);
   state.natCut = natCutFrom(natIdx, abil, gone); // 새로 들어온 17~23세는 대표팀 기준에서 뺌
   // 평판: 소속 선수 몸값 합계 변화율 × 10 (±3까지)
-  const repChange = valueFrom > 0 ? clamp(Math.round(((valueTo - valueFrom) / valueFrom) * 10), -3, 3) : 0;
-  if (repChange > 0) gainRep(repChange);
-  else state.rep = Math.max(0, state.rep + repChange);
+  // 결산·기록에는 실제로 바뀐 평판을 씀 (평판이 높으면 gainRep가 덜 올려서 계산값과 다름, 17단계 리뷰 1-9)
+  const valueRep = valueFrom > 0 ? clamp(Math.round(((valueTo - valueFrom) / valueFrom) * 10), -3, 3) : 0;
+  const repBefore = state.rep;
+  if (valueRep > 0) gainRep(valueRep);
+  else state.rep = Math.max(0, state.rep + valueRep);
+  const repChange = state.rep - repBefore;
   state.summary = { season: state.season - 1, rows, retired, repChange, coachGain, champs, contWin, seen: false };
   addLog(L(`${state.season - 1}시즌 종료. 평판 ${repChange >= 0 ? '+' : ''}${repChange}. 세계에서 ${num(retired)}명이 은퇴하거나 떠나고 새 선수가 들어왔습니다. 승격·강등한 구단은 새 시즌부터 바뀐 부에서 뜁니다.`,
     `Season ${state.season - 1} is over. Reputation ${repChange >= 0 ? '+' : ''}${repChange}. Around the world, ${num(retired)} players retired or left and new ones arrived. Promoted and relegated clubs start the new season in their new divisions.`));
@@ -1287,8 +1306,12 @@ function recruitBlock(p) {
   if (state.agencyCash < recruitCost(p)) return L(`자금이 부족합니다 (${cash(recruitCost(p))} 필요)`, `Not enough cash (${cash(recruitCost(p))} needed)`);
   const until = state.cooldowns[cooldownKey(p)];
   if (until > absWeek()) return L(`거절당한 선수입니다. ${until - absWeek()}주 뒤 다시 제안할 수 있습니다`, `He turned you down. You can try again in ${pl(until - absWeek(), 'week')}`);
+  const released = state.cooldowns[releaseKey(p)];
+  if (released > absWeek()) return L(`계약을 해지한 선수입니다. ${released - absWeek()}주 뒤 다시 영입할 수 있습니다`, `You released him. You can sign him again in ${pl(released - absWeek(), 'week')}`);
   return '';
 }
+// 해지한 선수의 다시 영입 대기 키 (해지 직후 다시 영입해 계약·부상을 새로 만드는 것을 막음, 17단계 리뷰 1-11)
+const releaseKey = p => `rel:${cooldownKey(p)}`;
 
 function recruit(s) {
   const p = getPlayer(s);
@@ -1324,8 +1347,9 @@ function release(s) {
   const i = state.clients.findIndex(c => c.s === s);
   if (i < 0) return false;
   const p = getPlayer(s);
-  if (!confirm(L(`${p.name} 선수와 계약을 해지할까요? 평판이 1 내려갑니다.`, `End your contract with ${p.name}? Your reputation drops by 1.`))) return false;
+  if (!confirm(L(`${p.name} 선수와 계약을 해지할까요? 평판이 1 내려가고, ${TUNE.releaseWait}주 동안 다시 영입할 수 없습니다.`, `End your contract with ${p.name}? Your reputation drops by 1, and you can't sign him again for ${pl(TUNE.releaseWait, 'week')}.`))) return false;
   state.clients.splice(i, 1);
+  state.cooldowns[releaseKey(p)] = absWeek() + TUNE.releaseWait;
   applyLoans();
   state.events = state.events.filter(e => e.s !== s || e.type === 'tip');
   state.rep = Math.max(0, state.rep - 1);
@@ -1343,6 +1367,7 @@ const TUNE = {
   limitBase: 6, limitStep: 40, limitMax: 7,   // 소속 한도: 6명에서 시작, 평판 40이 되면 7명 (8명이면 84%의 주가 바빠서 줄임)
   satStart: 70, satWarn: 35, satLeave: 20, satDecay: 1, mainMiss: 1, happyBonus: 1, keepChance: 0.75,
   meetGain: 12, meetGap: 4,
+  releaseWait: 26,                            // 계약을 해지한 선수는 26주 동안 다시 영입할 수 없음 (17단계 리뷰 1-11)
   // renewBase: 13단계에서 [80, 55, 30] → [76, 51, 26]. 이적 요청으로 아래 수준 구단에 가서 구단 수준보다 잘하는 선수가 늘어 재계약이 쉬워져서(77% → 74%)
   renewWindow: 26, renewRetry: 2, renewBase: [76, 51, 26],
   transferCut: 0.02, dealShare: 0.25,
@@ -1932,24 +1957,31 @@ const prefCache = new Map();
 
 function prefsOf(p) {
   const id = `${state.seed}:${p.s}:${p.g}`;
-  if (prefCache.has(id)) return prefCache.get(id);
+  const base = prefCache.get(id) || prefBase(p, id);
+  // 원하는 기간은 나이·능력에 따라 바뀌어서 캐시하지 않고 그때 계산 (어린 고잠재 유망주는 2시즌, 안정 성향은 4시즌)
+  const young = ageOf(p) <= 23 && p.pot - p.ability >= 8;
+  return { main: base.main, abroad: base.abroad, wageMul: base.wageMul, dream: base.dream, years: base.main === 'stable' ? 4 : young ? 2 : base.ry < 0.5 ? 2 : 4 };
+}
+// 성향 중 바뀌지 않는 부분 (시드로 정해짐)
+function prefBase(p, id) {
   const r = rng(hash(state.seed, p.s, p.g, 77));
   let x = r() * 11;
   let main = 'stable';
   for (const [key, weight] of PRIORITY_WEIGHTS) if ((x -= weight) < 0) { main = key; break; }
   const abroad = main === 'home' ? 'no' : main === 'stage' ? 'yes' : ['no', 'any', 'any', 'yes'][Math.floor(r() * 4)];
-  const young = ageOf(p) <= 23 && p.pot - p.ability >= 8;
-  const years = main === 'stable' ? 4 : young ? 2 : r() < 0.5 ? 2 : 4;
+  // 원하는 기간용 난수: 안정 성향(늘 4시즌)이 아니면 늘 뽑음. 예전에는 어린 유망주일 때 건너뛰어서
+  // 24세가 되거나 자라면 다음 난수(꿈의 구단)가 바뀌었음 (17단계 리뷰 1-2)
+  const ry = main === 'stable' ? 0 : r();
   const home = p.nat;
   // 고향 구단 후보는 처음 부·순위 순 상위 12팀 (승강으로 바뀌지 않게 고정된 순서)
   let pool = main === 'home'
     ? home.all.slice(0, 12)
     : CLUBS.filter(c => clubLevel(c) >= p.pot - 6 && clubLevel(c) <= p.pot + 8 && (abroad === 'no' ? c.country === home : abroad === 'yes' ? c.country !== home : true));
   if (!pool.length) pool = home.all.filter(c => c.t0 === 0);
-  const pref = { main, abroad, years, wageMul: main === 'money' ? 1.25 : main === 'stable' ? 0.95 : 1.1, dream: pool[Math.floor(r() * pool.length)].id };
+  const base = { main, abroad, ry, wageMul: main === 'money' ? 1.25 : main === 'stable' ? 0.95 : 1.1, dream: pool[Math.floor(r() * pool.length)].id };
   if (prefCache.size > 5000) prefCache.clear();
-  prefCache.set(id, pref);
-  return pref;
+  prefCache.set(id, base);
+  return base;
 }
 
 // 구단이 보는 실력: 23세 이하는 잠재력의 40%를 미리 쳐줌 (유망주 계약이 커지는 이유)
@@ -2111,6 +2143,9 @@ function renewTerms(c, p, level, years = 2) {
   return { label, wage, years, chance, fee: dealFee(wage), checks, score, satGain: clamp(4 + score * 2, -10, 15) };
 }
 
+// 재계약 협상을 열 수 있는 때 (만료 26주 전부터, AP·재협상 대기와 관계없이)
+const renewOpen = c => c.end - absWeek() <= TUNE.renewWindow;
+
 function renewBlock(c) {
   const left = c.end - absWeek();
   if (left > TUNE.renewWindow) return L(`계약 만료 ${TUNE.renewWindow}주 전부터 협상할 수 있습니다 (남은 ${left}주)`, `Talks open ${pl(TUNE.renewWindow, 'week')} before the contract ends (${pl(left, 'week')} left)`);
@@ -2135,6 +2170,12 @@ function renew(s, level, years = 2) {
     state.agencyCash += t.fee;
     gainRep(1);
     state.stats.renewWin += 1;
+    // 무소속일 때 온 이적 제안(이적료 없음)은 재계약으로 끝남: 계약 중인 선수가 이적료 없이, 닫힌 이적 기간에 팔리지 않게 (17단계 리뷰 1-5)
+    const freeOffers = state.events.filter(e => e.s === s && e.type === 'offer' && !e.d.fee);
+    if (freeOffers.length) {
+      state.events = state.events.filter(e => !freeOffers.includes(e));
+      addLog(L(`재계약해서 무소속일 때 받은 ${p.name} 선수 이적 제안은 없던 일이 됐습니다.`, `With the new contract signed, the offer ${p.name} received as a free agent no longer stands.`));
+    }
     addLog(L(`${p.name} 재계약 성공: 주급 ${cash(t.wage)}, ${years}시즌, 수수료 +${cash(t.fee)}, 선수 반응 ${moodText(t.score)} (만족 ${t.satGain >= 0 ? '+' : ''}${t.satGain})`,
       `${p.name} renewed: wage ${cash(t.wage)}, ${pl(years, 'season')}, commission +${cash(t.fee)}, player reaction ${moodText(t.score)} (morale ${t.satGain >= 0 ? '+' : ''}${t.satGain})`));
     toast(L(`재계약 성공! 수수료 +${cash(t.fee)}`, `Contract renewed! Commission +${cash(t.fee)}`));
@@ -2160,7 +2201,7 @@ function makeOffer(c, p) {
   const hi = p.ability + 3;
   // 10단계: 내가 추천해 둔 구단, 그 포지션 보강이 필요한 구단(수준이 맞을 때)이 먼저 제안함
   const pitched = pitching(c) ? CLUBS[c.pitch.club] : null;
-  const needy = state.needs.map(n => CLUBS[n.club]).filter((x, i) => state.needs[i].pos === p.pos && x !== p.club && clubLevel(x) >= lo && clubLevel(x) <= hi);
+  const needy = state.needs.map(n => CLUBS[n.club]).filter((x, i) => state.needs[i].pos === p.pos && state.needs[i].until >= absWeek() && x !== p.club && clubLevel(x) >= lo && clubLevel(x) <= hi);
   let club = null;
   let from = '';
   if (pitched && pitched !== p.club && r() < TUNE.pitchClub) [club, from] = [pitched, 'pitch'];
@@ -2180,7 +2221,8 @@ function makeOffer(c, p) {
   const wage = Math.round(((down ? base : Math.max(c.wage, base)) * (down ? 0.9 + r() * 0.3 : 1.1 + r() * 0.3)) / 50) * 50;
   const fee = isFreeAgent(c) ? 0 : Math.round((valueOf(p) * (0.8 + r() * 0.5)) / 5000) * 5000;
   // late = 이적 마감일에 온 막판 제안 (그 주 안에 답해야 함), from = 'pitch'(내가 추천한 구단)·'need'(보강이 필요한 구단)
-  return { club: club.id, wage, fee, years: 2 + Math.floor(r() * 3), late: isDeadline(), from };
+  // 무소속 선수 제안은 이적 기간과 관계없이 2주 동안 답할 수 있어 막판 제안이 아님 (17단계 리뷰 1-14)
+  return { club: club.id, wage, fee, years: 2 + Math.floor(r() * 3), late: isDeadline() && !isFreeAgent(c), from };
 }
 
 // 여러 문장 중 하나를 고름: 같은 선수·같은 일에는 늘 같은 문장 (새로고침해도 바뀌지 않게)
@@ -2211,6 +2253,9 @@ function transfer(c, d) {
   if (!stay || c.st.club !== to.id) {
     archiveStint(c);
     c.st = newStint(to);
+    // 새 구단 기준 출전 비율 (17단계 리뷰 1-12). 리그가 끝난 뒤(47~52주)에는 그대로 두고 시즌 말 성장 뒤에 바꿈:
+    // 이번 시즌에 실제로 뛴 출전 비율로 23세 이하 성장을 계산해야 해서 (endSeason)
+    if (!leagueOver()) c.playRate = startChance(p.ability, clubLevel(to), 5.5);
   }
   if (to.id === Math.floor(c.s / SQUAD)) delete state.moved[c.s];
   else state.moved[c.s] = to.id;
@@ -2237,6 +2282,8 @@ function transfer(c, d) {
 
 // 수락: 선수 동의 확률을 굴림
 function acceptOffer(c, p, d) {
+  // 계약 중인 선수는 이적 기간에만 옮길 수 있음 (제안을 받은 뒤 계약 상태가 바뀐 경우를 막는 마지막 확인, 17단계 리뷰 1-5)
+  if (!isFreeAgent(c) && !windowAt()) return L(`이적 기간이 아니라 ${CLUBS[d.club].name} 이적은 할 수 없습니다. 제안이 없던 일이 됐습니다.`, `With no transfer window open, the move to ${CLUBS[d.club].name} can't happen. The offer has lapsed.`);
   if (Math.random() * 100 < offerFit(p, d).consent) return transfer(c, d);
   addSat(c, -2);
   return L(`${p.name} 선수가 ${CLUBS[d.club].name} 이적을 원하지 않아 무산됐습니다 (만족 -2).`, `${p.name} didn't want to join ${CLUBS[d.club].name}, so the deal fell through (morale -2).`);
@@ -2254,6 +2301,8 @@ function counterOffer(c, p, d) {
 
 // 다른 에이전시 접근: 만족·유대가 높을수록 붙잡기 쉬움 (만족 80 → 85%, 50 → 70%, 30 → 60%, 유대 60이면 +18%p). 실패하면 떠남
 const keepChanceOf = c => clamp(0.45 + c.sat / 200 + (TUNE.keepChance - 0.75) + bondKeepBonus(c), 0.3, 0.95);
+// 보너스를 주면 +10%p, 그래도 95%까지 (예전에는 105%로 보였음, 17단계 리뷰 1-13)
+const bonusKeep = c => Math.min(0.95, keepChanceOf(c) + 0.1);
 function keepClient(c, p, chance, gain, inPerson) {
   if (inPerson) c.met = absWeek();
   if (Math.random() < chance) {
@@ -2467,8 +2516,11 @@ const EVENT_TYPES = {
       SAY('욕심내는 거 아니에요. 그냥 제 가치를 인정받고 싶은 거예요.', 'I\'m not being greedy. I just want my worth to be recognised.')
     ], 1),
     options: [
-      { label: () => L('재계약 협상을 준비한다', 'Start preparing a new contract'), bond: 1, memo: M('주급 고민에 재계약을 약속함', 'Promised to work on a new contract when he worried about his wage'), go: true,
-        run: (c, p) => (addSat(c, 2), L(`${p.name} 선수에게 재계약을 준비하겠다고 했습니다 (만족 +2).`, `You told ${p.name} you'd prepare a new contract (morale +2).`)) },
+      // 재계약 협상은 만료 26주 전부터라, 그 전에는 다음 재계약 때 올려 주겠다고 약속만 함 (협상할 수 없는 선수 화면으로 보내지 않게, 17단계 리뷰 1-16)
+      { label: (p, d, c) => (c && !renewOpen(c) ? L('다음 재계약 때 올려 주겠다고 약속한다', 'Promise to sort it at his next renewal') : L('재계약 협상을 준비한다', 'Start preparing a new contract')),
+        bond: 1, memo: M('주급 고민에 재계약을 약속함', 'Promised to work on a new contract when he worried about his wage'), go: c => renewOpen(c),
+        run: (c, p) => (addSat(c, 2), renewOpen(c) ? L(`${p.name} 선수에게 재계약을 준비하겠다고 했습니다 (만족 +2).`, `You told ${p.name} you'd prepare a new contract (morale +2).`)
+          : L(`${p.name} 선수에게 다음 재계약 때 주급을 올려 주겠다고 약속했습니다 (만족 +2).`, `You promised ${p.name} a better wage at his next renewal (morale +2).`)) },
       { label: () => L('다음에 하자고 달랜다', 'Ask him to wait'), bond: -3, memo: M('주급 고민을 미룸', 'Put off his wage concerns'),
         run: (c, p) => (addSat(c, -6), L(`${p.name} 선수가 실망했습니다 (만족 -6).`, `${p.name} is disappointed (morale -6).`)) }
     ],
@@ -2553,6 +2605,7 @@ const EVENT_TYPES = {
         run: (c, p, d) => {
           const back = d.wk ? Math.ceil(d.wk / 2) : 0;
           if (c.out && c.out.k === 'inj') c.out.w = Math.max(absWeek(), c.out.w - back);
+          worldChanged(); // 저장 압축 캐시를 비움 (세계 배열이 바뀜)
           state.world.form[c.s] = Math.max(state.world.form[c.s], 5);
           addSat(c, 6);
           return back ? L(`${p.name} 재활 지원: 복귀 ${back}주 앞당김, 폼 회복, 만족 +6`, `${p.name}'s rehab is funded: back ${pl(back, 'week')} sooner, form restored, morale +6`)
@@ -2561,6 +2614,7 @@ const EVENT_TYPES = {
       { label: (p, d) => L(`구단 의료진에 맡긴다${d.wk ? ' (복귀 1주 늦어짐)' : ''}`, `Leave it to the club medics${d.wk ? ' (back a week later)' : ''}`), bond: -2, memo: M('다쳤을 때 구단에만 맡김', 'Left his injury entirely to the club'),
         run: (c, p, d) => {
           if (c.out && c.out.k === 'inj' && d.wk) c.out.w += 1;
+          worldChanged(); // 저장 압축 캐시를 비움 (세계 배열이 바뀜)
           state.world.form[c.s] = Math.max(1, state.world.form[c.s] - 3);
           addSat(c, -3);
           return L(`${p.name} 회복이 더딥니다 (폼 -3, 만족 -3).`, `${p.name} is recovering slowly (form -3, morale -3).`);
@@ -2607,8 +2661,8 @@ const EVENT_TYPES = {
     options: [
       { label: (p, d, c) => L(`직접 만나 붙잡는다 (${Math.round(keepChanceOf(c) * 100)}%)`, `Meet him and make your case (${Math.round(keepChanceOf(c) * 100)}%)`), ap: 1,
         run: (c, p) => keepClient(c, p, keepChanceOf(c), 15, true) },
-      { label: (p, d, c) => L(`보너스를 준다 (${Math.round((keepChanceOf(c) + 0.1) * 100)}%)`, `Offer a bonus (${Math.round((keepChanceOf(c) + 0.1) * 100)}%)`), cost: (d, c) => c.wage,
-        run: (c, p) => keepClient(c, p, keepChanceOf(c) + 0.1, 12, false) },
+      { label: (p, d, c) => L(`보너스를 준다 (${Math.round(bonusKeep(c) * 100)}%)`, `Offer a bonus (${Math.round(bonusKeep(c) * 100)}%)`), cost: (d, c) => c.wage,
+        run: (c, p) => keepClient(c, p, bonusKeep(c), 12, false) },
       {
         label: () => L('그냥 둔다 (반반)', 'Do nothing (50/50)'),
         run: (c, p) => {
@@ -2641,6 +2695,7 @@ const EVENT_TYPES = {
       { label: () => L('휴가를 허락한다 (이번 주 경기 결장)', "Let him go (misses this week's games)"), bond: 5, memo: M('가족 일에 휴가를 허락함', 'Let him take time off for his family'),
         run: (c, p) => {
           if (!c.out) c.out = { w: absWeek() + 1, k: 'fam' };
+          worldChanged(); // 저장 압축 캐시를 비움 (세계 배열이 바뀜)
           state.world.form[c.s] = Math.max(1, state.world.form[c.s] - 1);
           addSat(c, 8);
           return L(`${p.name} 휴가 허락: 이번 주 경기에 빠집니다 (폼 -1, 만족 +8).`, `${p.name} goes home for a few days and misses this week's games (form -1, morale +8).`);
@@ -2857,6 +2912,8 @@ function findTip() {
 
 // 선택지의 유대 변화 (숫자, 또는 선수 마음에 따라 다르면 (p, d) => 숫자)
 const optBond = (opt, p, d) => (typeof opt.bond === 'function' ? opt.bond(p, d) : opt.bond || 0);
+// 아직 유효한 소식: 그 슬롯이 소식을 만든 때의 선수 그대로이고(은퇴하면 세대가 바뀜), 유망주 추천이 아니면 소속 선수일 때
+const liveEvent = e => state.world.gen[e.s] === e.g && (e.type === 'tip' || Boolean(clientOf(e.s)));
 
 function pushEvent(type, s, d) {
   // 이적 기간에 계약 중인 선수에게 온 제안은 마감일까지 답해야 함 (마감일 막판 제안은 그 주 안에)
@@ -2872,6 +2929,10 @@ function pushEvent(type, s, d) {
 function resolveEvent(id, index, auto = false) {
   const ev = state.events.find(e => e.id === id);
   if (!ev) return null;
+  if (!liveEvent(ev)) {
+    state.events = state.events.filter(e => e !== ev);
+    return null;
+  }
   const type = EVENT_TYPES[ev.type];
   const opt = type.options[index];
   const c = ev.type === 'tip' ? null : clientOf(ev.s);
@@ -2882,7 +2943,8 @@ function resolveEvent(id, index, auto = false) {
   const p = getPlayer(ev.s);
   const cost = opt.cost ? opt.cost(ev.d, c) : 0;
   if (!auto && opt.ap && state.ap < opt.ap) return toast(NO_AP()), null;
-  if (!auto && cost > state.agencyCash) return toast(L(`자금이 부족합니다 (${cash(cost)} 필요)`, `Not enough cash (${cash(cost)} needed)`)), null;
+  // 돈이 드는 답만 자금을 봄 (자금이 마이너스여도 비용 없는 답·돈이 들어오는 답은 고를 수 있게)
+  if (!auto && cost > 0 && cost > state.agencyCash) return toast(L(`자금이 부족합니다 (${cash(cost)} 필요)`, `Not enough cash (${cash(cost)} needed)`)), null;
   state.events = state.events.filter(e => e !== ev);
   if (opt.ap) state.ap -= opt.ap;
   state.agencyCash -= cost;
@@ -2899,7 +2961,8 @@ function resolveEvent(id, index, auto = false) {
   const bondNote = bond && c && result ? `${/[.!?]$/.test(result) ? '' : '.'} ${L('유대', 'Bond')} ${bond > 0 ? '+' : ''}${bond}.` : '';
   if (result) addLog(`${auto ? L('(답하지 않아 기본 처리) ', '(No reply, so the default was used) ') : ''}${result}${bondNote}`);
   // go = true면 이 선수 상세로, 문자열이면 소식에 담긴 다른 선수(예: 소개받은 후배)로 이동
-  return opt.go ? (opt.go === true ? ev.s : ev.d[opt.go]) : null;
+  const go = typeof opt.go === 'function' ? c && clientOf(ev.s) && opt.go(c) : opt.go;
+  return go ? (go === true ? ev.s : ev.d[go]) : null;
 }
 
 // 경기 결과 한 마디 (구단 입장): "2-1 승", "1-1 무(승부차기 승)" / "W 2-1", "D 1-1, won on pens"
@@ -2925,7 +2988,8 @@ function teamText(results) {
 function playClientWeek(c, p, week, away) {
   c.lw = { w: absWeek() - 1, n: 0, p: 0, r: 0, g: 0, t: [], a: away || '' };
   if (away) return away === 'inj' ? L(`${p.name} 부상으로 결장`, `${p.name} out injured`) : L(`${p.name} 휴가로 결장`, `${p.name} away on leave`);
-  const results = isFreeAgent(c) ? [] : weekResults(p.club, week);
+  // 경기한 주(지난주) 기준으로 무소속인지 봄: 계약 마지막 주의 경기도 뜀 (그 주 수수료도 받으니까, 17단계 리뷰 1-7)
+  const results = c.end < absWeek() - 1 ? [] : weekResults(p.club, week);
   const level = clubLevel(p.club);
   const form = state.world.form[c.s];
   let games = 0;
@@ -3008,8 +3072,12 @@ function weeklyClients() {
         `The window shut before you found ${p.name} a new club. He's disappointed (morale -${TUNE.huntMiss}).`));
     }
     if (left === -1 && c.loan) endLoan(c, true);
-    if (left === -1) addLog(L(`${p.name} 선수 계약이 끝나 무소속이 됐습니다. 재계약하거나 이적시키기 전까지 수수료가 없습니다.`,
-      `${p.name}'s contract has run out and he is now a free agent. You earn no fee until he re-signs or moves.`));
+    if (left === -1) {
+      // 무소속이 되면 남아 있던 이적 제안은 이적료 없는 자유 이적이 됨 (17단계 리뷰 1-5)
+      for (const e of state.events) if (e.s === c.s && e.type === 'offer') e.d.fee = 0;
+      addLog(L(`${p.name} 선수 계약이 끝나 무소속이 됐습니다. 재계약하거나 이적시키기 전까지 수수료가 없습니다.`,
+        `${p.name}'s contract has run out and he is now a free agent. You earn no fee until he re-signs or moves.`));
+    }
     if (c.sat < TUNE.satLeave) removeClient(c, ['불만이 쌓여 에이전시를 떠났습니다', 'grew unhappy and left the agency'], 2);
   }
   for (const ev of state.events.filter(e => e.until < now)) resolveEvent(ev.id, EVENT_TYPES[ev.type].def, true);
@@ -3532,6 +3600,12 @@ function loanBlock(c, ap = true) {
   if (!windowAt()) return L(`이적 기간에만 임대를 보낼 수 있습니다 (${nextWindow().win.name}까지 ${nextWindow().wait}주)`, `Loans can only be arranged in a transfer window (${pl(nextWindow().wait, 'week')} until the ${nextWindow().win.name})`);
   const sc = benchChance(c);
   if (sc >= TUNE.loanBench) return L(`지금 구단에서 뛰고 있어 임대가 필요 없습니다 (출전 ${Math.round(sc * 100)}%)`, `He's playing enough at his club to stay (starts ${Math.round(sc * 100)}%)`);
+  // 계약이 임대보다 먼저 끝나면 보내지 않음 (예전에는 1주 남은 선수도 보내져 바로 끝났음, 17단계 리뷰 1-12).
+  // 재계약 협상이 아직 안 열렸으면(만료 26주 전부터) "재계약한 뒤에"는 할 수 없는 안내라 이번에는 못 보낸다고만
+  if (c.end < loanUntil()) return renewOpen(c)
+    ? L(`계약이 임대 기간(${weekLabel(loanUntil())}까지)보다 먼저 끝납니다. 재계약한 뒤에 보낼 수 있습니다`, `His contract ends before the loan would (${weekLabel(loanUntil())}). Renew it first`)
+    : L(`계약이 임대 기간(${weekLabel(loanUntil())}까지)보다 먼저 끝나서 이번 이적 기간에는 보낼 수 없습니다. 재계약 협상은 계약 만료 ${TUNE.renewWindow}주 전부터 열립니다`,
+      `His contract ends before the loan would (${weekLabel(loanUntil())}), so he can't go out on loan this window. Contract talks open ${pl(TUNE.renewWindow, 'week')} before it ends`);
   if (c.noLoan >= absWeek()) return L('이번 이적 기간에는 임대를 원하지 않습니다', "He doesn't want a loan this window");
   if (ap && state.ap < 1) return NO_AP();
   return '';
@@ -3543,11 +3617,12 @@ const loanCache = new Map();
 function loanClubs(c) {
   const win = windowAt();
   if (!win) return [];
-  const key = `${state.seed}:${c.s}:${c.g}:${windowEnd(win)}`;
-  if (loanCache.has(key)) return loanCache.get(key);
   const p = getPlayer(c.s);
-  const pref = prefsOf(p);
   const home = homeClub(c.s);
+  // 여름 이적 기간은 시즌을 넘어도 마감 주가 같아서, 시즌 말에 능력이 바뀌거나 이적하면 후보도 새로 (새로고침했을 때와 같게, 17단계 리뷰 1-6)
+  const key = `${state.seed}:${c.s}:${c.g}:${windowEnd(win)}:${p.ability}:${home.id}`;
+  if (loanCache.has(key)) return loanCache.get(key);
+  const pref = prefsOf(p);
   const fits = x => x !== home && clubLevel(x) <= p.ability && clubLevel(x) >= p.ability - TUNE.loanRange;
   const r = rng(hash(state.seed, c.s, c.g, windowEnd(win), 91));
   const out = [];
@@ -3597,6 +3672,9 @@ function loan(s, clubId) {
   c.loan = { club: club.id, until: loanUntil() };
   applyLoans();
   c.st = { ...newStint(club), ln: 1 };
+  // 최근 출전 비율은 새 구단 기준으로 (벤치 때 값이 남아 임대 첫 주에 출전 불만이 오지 않게, 17단계 리뷰 1-12).
+  // 리그가 끝난 뒤(47~52주)에 가면 시즌 말 성장을 계산한 뒤에 바꿈 (이번 시즌 성장은 실제로 뛴 출전 비율로)
+  if (!leagueOver()) c.playRate = startChance(p.ability, clubLevel(club), 5.5);
   c.hunt = 0;
   c.pitch = null;
   // 이적 기간에 남아 있던 이적 제안·이적 요청은 임대로 끝남
@@ -3783,8 +3861,14 @@ function unpackOldWorld(d) {
   return w;
 }
 
+// 세계 압축 캐시 (17단계 리뷰 2-13): 세계 배열(약 92만 자)은 다음 주·시즌 말·폼을 바꾸는 소식 답에서만 바뀌어서,
+// 그 사이의 저장(면담·관심 선수 등)은 압축을 다시 하지 않음. 세계를 바꾸는 곳은 worldChanged()를 부름 (주가 바뀌어도 새로)
+let packCache = null; // { world, week, text }
+const worldChanged = () => (packCache = null);
 function serialize() {
-  return JSON.stringify({ ...state, slots: SLOTS, world: packWorld(state.world) });
+  const week = absWeek();
+  if (!packCache || packCache.world !== state.world || packCache.week !== week) packCache = { world: state.world, week, text: packWorld(state.world) };
+  return JSON.stringify({ ...state, slots: SLOTS, world: packCache.text });
 }
 
 // 예전(v1~v6) 세이브도 읽음: 없는 값은 기본값(성장치 0, 만족 70, 투자 0단계, 스카우트 기록 없음, 이미 회사가 있음, 유대 40 등), 주급은 불러온 뒤 채움
@@ -3805,17 +3889,27 @@ function deserialize(text) {
   if (d.cooldowns && typeof d.cooldowns === 'object') {
     for (const [key, until] of Object.entries(d.cooldowns)) if (int(until)) cooldowns[key] = until;
   }
-  const summary = d.summary && typeof d.summary === 'object' && Array.isArray(d.summary.rows) ? d.summary : null;
+
   const moved = {};
   if (d.moved && typeof d.moved === 'object') {
     for (const [s, id] of Object.entries(d.moved)) if (int(Number(s)) && Number(s) >= 0 && Number(s) < SLOTS && int(id) && id >= 0 && id < CLUBS.length) moved[s] = id;
   }
+  // 소식: 종류마다 쓰는 값(d)을 검사 (모양이 틀리면 그 소식만 버림. 예전에는 광고 몫·재활 비용이 비면 자금이 NaN이 되어 다음 실행에서 세이브 전체가 거부됐음, 17단계 리뷰 2-4)
+  const fin = v => Number.isFinite(v) && v >= 0;
+  const offerOk = x => int(x.club) && x.club >= 0 && x.club < CLUBS.length && fin(x.wage) && fin(x.fee) && (x.years === undefined || (int(x.years) && x.years >= 1 && x.years <= 5));
+  const EVENT_D = {
+    offer: offerOk,
+    buy: x => offerOk(x) && x.from === 'loan' && int(x.ap) && x.ap > 0 && int(x.gl) && x.gl >= 0 && int(x.rt) && x.rt > 0, // 17단계: 임대 동안 리그 경기·골·평점
+    sponsor: x => fin(x.cut) && x.cut > 0,
+    injury: x => fin(x.cost) && (x.wk === undefined || (int(x.wk) && x.wk > 0 && x.wk < WEEKS)),
+    junior: x => int(x.junior) && x.junior >= 0 && x.junior < SLOTS,
+    wedding: x => FAMILY.includes(x.who)
+  };
   const events = (Array.isArray(d.events) ? d.events : []).filter(e => e && int(e.id) && EVENT_TYPES[e.type] && int(e.s) && e.s >= 0 && e.s < SLOTS && int(e.until))
-    .map(e => ({ id: e.id, type: e.type, s: e.s, g: int(e.g) ? e.g : 0, until: e.until, d: e.d && typeof e.d === 'object' ? e.d : {} }))
-    .filter(e => (e.type !== 'offer' && e.type !== 'buy') || (int(e.d.club) && e.d.club >= 0 && e.d.club < CLUBS.length && Number.isFinite(e.d.wage) && Number.isFinite(e.d.fee)))
-    // 17단계 임대 뒤 완전 이적: 임대 동안 리그 경기·골·평점이 있어야 글을 만듦
-    .filter(e => e.type !== 'buy' || (e.d.from === 'loan' && int(e.d.ap) && e.d.ap > 0 && int(e.d.gl) && int(e.d.rt)))
-    .filter(e => (e.type !== 'junior' || (int(e.d.junior) && e.d.junior >= 0 && e.d.junior < SLOTS)) && (e.type !== 'wedding' || FAMILY.includes(e.d.who)));
+    .map(e => ({ id: e.id, type: e.type, s: e.s, g: int(e.g) ? e.g : 0, until: e.until, d: e.d && typeof e.d === 'object' && !Array.isArray(e.d) ? { ...e.d } : {} }))
+    .filter(e => !EVENT_D[e.type] || EVENT_D[e.type](e.d))
+    .map(e => (int(e.d.v) ? e : { ...e, d: { ...e.d, v: 0 } })) // 문장 번호가 이상하면 0번 문장
+    .slice(0, 20); // 소식은 보통 3건(완전 이적 제안은 한도 밖)이라 넉넉히
   const nextEventId = Math.max(int(d.nextEventId) ? d.nextEventId : 1, ...events.map(e => e.id + 1));
   const intOr = (v, fallback) => (int(v) ? v : fallback);
   // 기록 한 구간: { season, club, L/C/K/N: [출전, 골, 도움, 평점합×10] }
@@ -3837,20 +3931,25 @@ function deserialize(text) {
   }
   const watch = Array.isArray(d.watch) ? [...new Set(d.watch.filter(keyOk))].slice(0, TUNE.watchMax) : [];
   // 8단계: 옛 선수 스카우트 [{ name, nat, season }], 후배 소개 영입 보너스 {"슬롯-세대": 끝나는 주}
-  const nkOk = v => typeof v === 'string' && /^[a-z]+\|\d+\|\d+$/.test(v) ? v : '';
+  // 이름 키 "풀|이름 번호|성 번호": 있는 이름 풀과 번호만 (예전에는 "constructor|0|0"이 통과해 화면이 깨졌음, 17단계 리뷰 2-5)
+  const nkOk = v => (typeof v === 'string' && /^[a-z]+\|\d+\|\d+$/.test(v) && nameFromKey(v) ? v : '');
   const alumni = (Array.isArray(d.alumni) ? d.alumni : []).filter(a => a && typeof a.name === 'string' && COUNTRY_BY_ID[a.nat] && int(a.season))
     .slice(0, TUNE.alumniMax).map(a => ({ name: a.name.slice(0, 20), nk: nkOk(a.nk), nat: a.nat, season: a.season }));
   const intros = {};
   if (d.intros && typeof d.intros === 'object') for (const [key, until] of Object.entries(d.intros).slice(-100)) if (keyOk(key) && int(until)) intros[key] = until;
   // 10단계 세계 뉴스: 아는 종류만, 구단·슬롯 번호가 맞는 것만. 보강 필요는 v9까지 없음(null = 불러온 뒤 다시 계산)
   const clubOk = v => int(v) && v >= 0 && v < CLUBS.length;
-  const NEWS_KINDS = { need: n => clubOk(n.club) && STARTERS[n.pos], sign: n => clubOk(n.from) && clubOk(n.to) && int(n.s), mine: n => clubOk(n.from) && clubOk(n.to) && int(n.s),
-    close: n => int(n.win) && WINDOWS[n.win], call: n => int(n.s) && COUNTRY_BY_ID[n.nat],
+  // 17단계 리뷰 2-5: 선수가 나오는 뉴스는 슬롯·세대가 맞아야 함 (범위 밖 슬롯이나 세대 없는 my 뉴스는 처음 화면을 깨뜨렸음), 이적 뉴스는 포지션, 결산 뉴스의 구단은 번호 또는 -1
+  const slotOk = n => int(n.s) && n.s >= 0 && n.s < SLOTS && int(n.g) && n.g >= 0;
+  const NEWS_KINDS = { need: n => clubOk(n.club) && STARTERS[n.pos], sign: n => clubOk(n.from) && clubOk(n.to) && slotOk(n) && STARTERS[n.pos], mine: n => clubOk(n.from) && clubOk(n.to) && slotOk(n) && STARTERS[n.pos],
+    close: n => int(n.win) && WINDOWS[n.win] && (n.to === undefined || n.to === -1 || clubOk(n.to)), call: n => slotOk(n) && COUNTRY_BY_ID[n.nat],
     // 13단계: 리그 우승, 내 선수 구단 승격·강등, 컵·대륙 대회 결승
     champ: n => clubOk(n.club) && int(n.pts), up: n => clubOk(n.club) && int(n.t) && int(n.rk), down: n => clubOk(n.club) && int(n.t) && int(n.rk),
-    cup: n => clubOk(n.club) && clubOk(n.opp) && int(n.ga) && int(n.gb), loan: n => clubOk(n.from) && clubOk(n.to) && int(n.s), cont: n => clubOk(n.club) && clubOk(n.opp) && int(n.ga) && int(n.gb) && (n.ci === undefined || (int(n.ci) && n.ci >= 0 && n.ci <= CONT_LOWER.length)) };
+    cup: n => clubOk(n.club) && clubOk(n.opp) && int(n.ga) && int(n.gb), loan: n => clubOk(n.from) && clubOk(n.to) && slotOk(n), cont: n => clubOk(n.club) && clubOk(n.opp) && int(n.ga) && int(n.gb) && (n.ci === undefined || (int(n.ci) && n.ci >= 0 && n.ci <= CONT_LOWER.length)) };
+  // 내 선수 뉴스(my)는 어느 종류든 선수 슬롯·세대가 있어야 함
+  const newsOk = n => NEWS_KINDS[n.k](n) && (!n.my || slotOk(n)) && (n.s === undefined || slotOk(n));
   const NEWS_NUMS = ['w', 'club', 'gap', 'avg', 's', 'g', 'from', 'to', 'fee', 'age', 'ab', 'win', 'n', 'opp', 'ga', 'gb', 'pa', 'pb', 'pts', 't', 'tb', 'rk', 'my', 'ci', 'back', 'apps', 'goals', 'ln'];
-  const news = (Array.isArray(d.news) ? d.news : []).filter(n => n && int(n.w) && NEWS_KINDS[n.k] && NEWS_KINDS[n.k](n)).slice(0, TUNE.newsMax).map(n => {
+  const news = (Array.isArray(d.news) ? d.news : []).filter(n => n && int(n.w) && Object.prototype.hasOwnProperty.call(NEWS_KINDS, n.k) && newsOk(n)).slice(0, TUNE.newsMax).map(n => {
     const out = { k: n.k, nm: typeof n.nm === 'string' ? n.nm.slice(0, 30) : '', nk: nkOk(n.nk) };
     for (const key of NEWS_NUMS) if (Number.isFinite(n[key])) out[key] = n[key];
     if (STARTERS[n.pos]) out.pos = n.pos;
@@ -3861,6 +3960,7 @@ function deserialize(text) {
   const needs = Array.isArray(d.needs) ? d.needs.filter(n => n && clubOk(n.club) && STARTERS[n.pos] && int(n.until)).slice(0, TUNE.needMax)
     .map(n => ({ club: n.club, pos: n.pos, gap: int(n.gap) ? n.gap : 0, avg: int(n.avg) ? n.avg : 0, until: n.until })) : null;
   const deals = d.deals && int(d.deals.n) ? { n: d.deals.n, fee: Number.isFinite(d.deals.fee) ? d.deals.fee : 0, nm: typeof d.deals.nm === 'string' ? d.deals.nm.slice(0, 30) : '', nk: nkOk(d.deals.nk), to: clubOk(d.deals.to) ? d.deals.to : -1 } : newDeals();
+  const summary = cleanSummary(d.summary, { int, clubOk, nkOk });
   // 13단계: 부 배치(구단마다 0~5 한 글자, 부마다 팀 수가 맞아야 함)와 대륙 대회 참가 구단(1부 구단만, 중복 없이).
   // 없거나(예전 세이브) 맞지 않으면 처음 배치와 1부 전력 순 (불러온 뒤 applyTiers에서 채움)
   const tiersOk = typeof d.tierOf === 'string' && d.tierOf.length === CLUBS.length && /^[0-5]+$/.test(d.tierOf)
@@ -3907,6 +4007,31 @@ function deserialize(text) {
   };
 }
 
+// 시즌 결산(summary) 검사: 줄마다 화면에 쓰는 값만 옮김. 모양이 틀린 줄은 버리고, 결산이 통째로 틀리면 null
+// (예전에는 검사하지 않아 잘못된 줄 하나로 결산·이야기 장면·알림이 다음 시즌까지 멈췄음, 17단계 리뷰 2-6)
+function cleanSummary(sm, { int, clubOk, nkOk }) {
+  if (!sm || typeof sm !== 'object' || !int(sm.season) || !Array.isArray(sm.rows)) return null;
+  const cleanFin = f => (f && int(f.c) && f.c >= 0 && f.c < COUNTRIES.length && int(f.t) && f.t >= 0 && f.t < 6 && int(f.rk) && f.rk > 0 && Array.isArray(f.tr) && f.tr.every(x => /^(L[0-5]|C|K)$/.test(x))
+    ? { c: f.c, t: f.t, rk: f.rk, n: int(f.n) ? f.n : 0, mv: f.mv === 1 || f.mv === -1 ? f.mv : 0, tr: f.tr.slice(0, 8), ln: f.ln === 1 ? 1 : 0 } : null);
+  const rows = sm.rows.slice(0, 12).map(r => {
+    if (!r || typeof r.name !== 'string' || !int(r.ageFrom)) return null;
+    const out = { name: r.name.slice(0, 30), nk: nkOk(r.nk), ageFrom: r.ageFrom, fin: cleanFin(r.fin) };
+    if (r.retired === true) {
+      Object.assign(out, { retired: true, farewell: r.farewell === true, scout: r.scout === true, seasons: int(r.seasons) ? r.seasons : 0, rep: int(r.rep) ? r.rep : 0, bond: int(r.bond) ? r.bond : 0 });
+      if (COUNTRY_BY_ID[r.nat]) out.nat = r.nat;
+      return out;
+    }
+    if (!int(r.ageTo) || !Number.isFinite(r.valueFrom) || !Number.isFinite(r.valueTo)) return null;
+    Object.assign(out, { ageTo: r.ageTo, valueFrom: r.valueFrom, valueTo: r.valueTo });
+    if (int(r.abilityFrom) && int(r.abilityTo)) Object.assign(out, { abilityFrom: r.abilityFrom, abilityTo: r.abilityTo });
+    if (int(r.apps)) Object.assign(out, { apps: r.apps, goals: int(r.goals) ? r.goals : 0, rating: Number.isFinite(r.rating) ? r.rating : 0, caps: int(r.caps) ? r.caps : 0 });
+    return out;
+  }).filter(Boolean);
+  const clubs = list => (Array.isArray(list) ? list.filter(clubOk).slice(0, 12) : []);
+  return { season: sm.season, rows, retired: int(sm.retired) && sm.retired >= 0 ? sm.retired : 0, repChange: int(sm.repChange) ? sm.repChange : undefined,
+    coachGain: int(sm.coachGain) ? sm.coachGain : 0, champs: clubs(sm.champs), contWin: clubs(sm.contWin), seen: sm.seen === true };
+}
+
 // 화면 위치 값 검사: 범위를 벗어나면 그 단계부터 기본값
 // tierOf = 불러오는 세이브의 부 배치 (없으면 지금 배치)
 function cleanUi(raw, tierOf) {
@@ -3920,13 +4045,89 @@ function cleanUi(raw, tierOf) {
   return { tab, country, tier, club, player: index(u.player, SLOTS) };
 }
 
-// 읽지 못한 세이브는 새 게임으로 덮기 전에 백업 칸으로 옮김
+// 읽지 못한 세이브는 새 게임으로 덮기 전에 백업 칸으로 옮김. 반환값 = 백업했는지
 function backupSave(raw) {
   try {
     if (raw) localStorage.setItem(BACKUP_KEY, raw);
+    return true;
   } catch (e) {
     console.warn('세이브 백업 실패:', e.message);
+    return false;
   }
+}
+
+// --- 저장 지키기 (17단계 리뷰 2-1~2-4) ---
+// 저장 번호: 저장할 때마다 1씩 올려 작은 칸에 같이 씀. 다른 탭(창)이 그사이 더 새 진행을 저장했으면 이 탭은 저장하지 않음 (두 탭이 서로 덮어쓰지 않게)
+const REV_KEY = 'be-the-agent:rev';
+let saveRev = 0;       // 이 탭이 마지막으로 읽거나 쓴 저장 번호
+let staleTab = false;  // 다른 탭이 더 새 진행을 저장함 → 이 탭은 저장하지 않고 새로고침을 안내
+let keptRaw = null;    // 읽지 못했는데 저장 공간이 모자라 백업도 못 한 세이브: 덮어쓰지 않게 이 탭은 저장하지 않음(파일로 받을 수 있음)
+function readRev() {
+  try {
+    return Number(localStorage.getItem(REV_KEY)) || 0;
+  } catch (e) {
+    return 0;
+  }
+}
+// 저장 전 점검: 돈·계약 숫자가 깨졌으면(NaN 등) 저장하지 않음 (깨진 세이브는 다음 실행에서 통째로 거부되니까)
+const saveSane = () => [state.agencyCash, state.personalCash, state.rep].every(Number.isFinite)
+  && state.clients.every(c => Number.isFinite(c.wage) && Number.isInteger(c.end) && Number.isFinite(c.sat) && Number.isFinite(c.bond));
+
+// 다른 탭(창)에서 이 게임을 더 진행함: 이 탭은 더 저장하지 않고 새로고침을 안내 (Esc로 닫고 계속하지 못하게)
+function markStale() {
+  if (staleTab) return;
+  staleTab = true;
+  if (typeof document === 'undefined' || !document.body) return;
+  const dialog = el('dialog', 'sheet');
+  const title = el('h2', 'title', L('다른 탭에서 진행 중입니다', 'This game is open elsewhere'));
+  const reload = el('button', 'btn primary', L('새로고침해서 이어 하기', 'Reload and continue'));
+  reload.type = 'button';
+  reload.addEventListener('click', () => location.reload());
+  // 새로고침하면 이 탭의 진행은 사라지니, 이 탭의 게임을 남기고 싶으면 파일로 (다른 탭에서 새 게임을 시작했을 때 등)
+  const keep = el('button', 'btn wide', L('이 탭의 게임을 파일로 내보내기', "Export this tab's game to a file"));
+  keep.type = 'button';
+  keep.addEventListener('click', () => exportSave());
+  dialog.append(title, el('p', 'sub', L('다른 탭(창)에서 이 게임을 더 진행했습니다. 이 탭에서 하는 일은 저장하지 않습니다. 새로고침하면 마지막으로 저장된 진행을 이어서 합니다.',
+    'This game has moved on in another tab or window, so nothing you do here will be saved. Reload to carry on from the latest save.')), reload, keep);
+  dialog.addEventListener('cancel', e => e.preventDefault());
+  // 브라우저는 Esc를 여러 번 누르거나 안드로이드 뒤로가기를 하면 막아도 창을 닫음 → 닫히면 다시 엶 (저장하지 않는 채로 계속하지 않게)
+  dialog.addEventListener('close', () => {
+    if (staleTab) dialog.showModal();
+  });
+  document.body.append(dialog);
+  dialog.showModal();
+  topOfSheet(dialog, title);
+}
+
+// 사라지면 안 되는 알림 띠 (저장 실패 등). 종류마다 하나, 닫아도 같은 일이 또 생기면 다시 뜸
+function showAlert(kind, text, actions = []) {
+  if (typeof document === 'undefined' || !document.body) return;
+  let bar = document.querySelector(`.alertbar[data-kind="${kind}"]`);
+  if (!bar) {
+    bar = el('div', 'alertbar');
+    bar.dataset.kind = kind;
+    bar.setAttribute('role', 'alert');
+    document.body.append(bar);
+  }
+  const row = el('div', 'actions');
+  for (const [label, fn] of [...actions, [L('닫기', 'Dismiss'), () => bar.remove()]]) {
+    const b = el('button', 'btn', label);
+    b.type = 'button';
+    b.addEventListener('click', fn);
+    row.append(b);
+  }
+  bar.replaceChildren(el('p', '', text), row);
+}
+function hideAlert(kind) {
+  if (typeof document !== 'undefined') document.querySelectorAll(`.alertbar[data-kind="${kind}"]`).forEach(x => x.remove());
+}
+// 백업하지 못한 세이브를 지키느라 저장하지 않는 중이라는 띠: 처음 열 때, 닫았어도 주가 바뀌면 다시 (저장하지 않는 것을 잊지 않게)
+let keptNoticeWeek = -1;
+function keptNotice() {
+  if (!keptRaw || keptNoticeWeek === absWeek()) return;
+  keptNoticeWeek = absWeek();
+  showAlert('kept', L('저장된 게임을 읽지 못했고, 저장 공간이 모자라 백업도 하지 못했습니다. 원래 세이브를 지우지 않으려고 지금은 저장하지 않습니다. 원래 세이브를 파일로 받아 두세요. 새로 시작하려면 기록 탭에서 "새 게임"을 누릅니다.',
+    "Your save couldn't be read, and there wasn't room to back it up. To avoid erasing it, nothing is being saved right now. Download the old save first. To start over, tap New game in the Log tab."), [[L('원래 세이브 받기', 'Download old save'), () => exportBackup()]]);
 }
 
 function readBackup() {
@@ -3957,15 +4158,29 @@ function fillWages() {
 }
 
 function saveState() {
+  if (staleTab) return;
+  if (keptRaw) return keptNotice();
+  if (!saveSane()) {
+    console.error('저장하려던 값이 올바르지 않아 저장하지 않습니다', { cash: state.agencyCash, personal: state.personalCash, rep: state.rep });
+    showAlert('bad', L('게임 값에 문제가 생겨 이번 진행은 저장하지 않았습니다. 새로고침하면 마지막으로 저장된 때로 돌아갑니다.', 'Something went wrong with the game data, so this progress was not saved. Reload to go back to the last save.'));
+    return;
+  }
   try {
+    if (readRev() > saveRev) return markStale(); // 다른 탭이 그사이 저장함
     localStorage.setItem(SAVE_KEY, serialize());
+    saveRev += 1;
+    localStorage.setItem(REV_KEY, String(saveRev));
+    hideAlert('save');
   } catch (e) {
-    toast(L('저장하지 못했습니다. 브라우저 저장 공간을 확인해 주세요.', "Couldn't save. Please check your browser storage."));
+    // 알림은 2.6초 뒤 사라지고 같은 클릭의 다른 알림에 덮이니까, 저장에 다시 성공할 때까지 남는 띠로
+    showAlert('save', L('저장하지 못했습니다. 브라우저 저장 공간이 모자랄 수 있습니다. 지금까지의 진행을 잃지 않으려면 파일로 내보내 두세요.',
+      "Couldn't save. Your browser storage may be full. Export a file now so you don't lose your progress."), [[L('파일로 내보내기', 'Export file'), () => exportSave()]]);
   }
 }
 
 // 반환값: 'ok' | 'none' | 'broken'
 function loadState() {
+  saveRev = readRev();
   let raw = null;
   try {
     raw = localStorage.getItem(SAVE_KEY);
@@ -3980,7 +4195,7 @@ function loadState() {
     return 'ok';
   } catch (e) {
     console.warn('세이브 불러오기 실패:', e.message);
-    backupSave(raw);
+    if (!backupSave(raw)) keptRaw = raw; // 백업도 못 하면 원본을 덮어쓰지 않게 이 탭은 저장하지 않음
     return 'broken';
   }
 }
@@ -4001,13 +4216,15 @@ function exportSave() {
 }
 
 function exportBackup() {
-  const raw = readBackup();
+  // 백업하지 못한 세이브(keptRaw)가 먼저: 그때 백업 칸에 있는 것은 그보다 오래된 백업임
+  const raw = keptRaw || readBackup();
   if (!raw) return;
   downloadText(raw, 'be-the-agent-backup.json');
   toast(L('백업 파일을 내보냈습니다.', 'Backup file exported.'));
 }
 
-// 불러온 세이브는 화면이 정상으로 그려진 뒤에만 저장
+// 불러온 세이브는 주요 화면이 정상으로 그려진 뒤에만 저장
+// (17단계 리뷰 2-7: 지금 화면만 그려 보고 저장해서, 다른 탭에서 깨지는 세이브도 저장됐음. 오류 원문 대신 정해 둔 문장으로 알림)
 function importSave(file) {
   const reader = new FileReader();
   reader.onload = () => {
@@ -4016,19 +4233,51 @@ function importSave(file) {
       state = deserialize(String(reader.result));
       applyTiers();
       fillWages();
+      probeScreens();
+      resetScreenState();
       render();
     } catch (e) {
+      console.warn('세이브 파일을 불러오지 못했습니다:', e);
       state = previous;
       applyTiers();
       render();
-      toast(L(`불러오지 못했습니다: ${e.message}`, `Couldn't load the file: ${e.message}`));
+      toast(L('이 게임의 세이브 파일이 아니거나 손상된 파일이라 불러오지 못했습니다.', "That file isn't a save from this game, or it's damaged, so it couldn't be loaded."));
       return;
+    }
+    // 백업하지 못한 이전 세이브가 남아 있으면 덮어써도 되는지 물음 (아니면 불러온 게임은 저장하지 않음)
+    if (keptRaw) {
+      if (!confirm(L('읽지 못한 이전 세이브가 백업되지 않은 채 남아 있습니다. 불러온 게임을 저장하면 그 세이브가 지워집니다. 저장할까요?', "Your unreadable old save still hasn't been backed up, and saving the loaded game will erase it. Save anyway?"))) {
+        toast(L('불러온 게임은 저장하지 않았습니다.', "The loaded game hasn't been saved."));
+        return;
+      }
+      keptRaw = null;
+      hideAlert('kept');
     }
     saveState();
     resetHistory();
     toast(L('저장 파일을 불러왔습니다.', 'Save file loaded.'));
   };
   reader.readAsText(file);
+}
+
+// 불러온 세이브로 주요 화면을 문서 밖에서 한 번씩 그려 봄 (못 그리면 오류를 던져 불러오기를 되돌림)
+function probeScreens() {
+  const box = () => document.createElement('div');
+  renderClients(box());
+  renderNews(box());
+  renderAgency(box());
+  renderLog(box());
+  for (const c of state.clients) renderPlayer(box(), c.s);
+  if (state.summary) state.summary.rows.forEach(summaryRow);
+}
+
+// 새 게임·불러오기 뒤 이전 게임의 화면 상태를 비움: 찾기 결과·리그 지역·장면 대기열·상단 바 움직임 (17단계 리뷰 2-23)
+function resetScreenState() {
+  findList = null;
+  worldRegion = null;
+  sceneQueue = [];
+  shown = null;
+  renewYears = 0;
 }
 
 // ===== 8. 화면 =====
@@ -4239,7 +4488,7 @@ function optionInfo(ev, opt, c) {
   const cost = opt.cost ? opt.cost(ev.d, c) : 0;
   const n = c ? optBond(opt, getPlayer(ev.s), ev.d) : 0;
   const bond = n ? L(`유대 ${n > 0 ? '+' : ''}${n}`, `bond ${n > 0 ? '+' : ''}${n}`) : '';
-  return { tags: [opt.ap ? `${opt.ap} AP` : '', cost ? cash(cost) : '', bond].filter(Boolean).join(' · '), blocked: Boolean((opt.ap && state.ap < opt.ap) || cost > state.agencyCash) };
+  return { tags: [opt.ap ? `${opt.ap} AP` : '', cost ? cash(cost) : '', bond].filter(Boolean).join(' · '), blocked: Boolean((opt.ap && state.ap < opt.ap) || (cost > 0 && cost > state.agencyCash)) };
 }
 const dueText = (ev, type, p, c) => (ev.until > absWeek() ? L(`${ev.until - absWeek()}주 안에 답하지 않으면 "${type.options[type.def].label(p, ev.d, c)}"`, `No reply within ${pl(ev.until - absWeek(), 'week')} means "${type.options[type.def].label(p, ev.d, c)}"`) : L('이번 주까지 답해야 합니다', 'You must answer this week'));
 
@@ -4283,6 +4532,7 @@ function newsCard(ev) {
 // ===== 관계 이야기 장면 (디자인 시안 B): 다음 주를 누른 뒤 새로 찾아온 이야기를 아래에서 올라오는 시트로 =====
 // 시트를 닫아도 이야기는 내 선수 탭 소식에 남음. 대기열은 저장하지 않음 (새로고침하면 소식 카드로만 보임)
 let sceneQueue = [];
+let sceneShownAt = -1e9; // 장면을 띄운 때: 그 직후의 누름은 무시 (결산 "확인"이나 앞 장면 답을 두 번 누른 것이 다음 장면에 답하지 않게)
 
 function openScene() {
   const dialog = $('scene');
@@ -4318,6 +4568,7 @@ function openScene() {
   $('scene-body').replaceChildren(el('p', 'scene-quote', `"${type.quote(p, ev.d, c)}"`), el('p', 'scene-ctx', ctx), actions,
     el('p', 'news-due', `${dueText(ev, type, p, c)} · ${L('닫아도 내 선수 탭 소식에 남습니다', "Closing this keeps it in your Players tab news")}`));
   dialog.showModal();
+  sceneShownAt = nowMs();
 }
 
 // 이적 시장 상태 한 줄: 열림(마감까지 n주)·마감일·닫힘(다음 기간까지 n주)
@@ -4481,6 +4732,15 @@ function newsText(n) {
 }
 
 // 뉴스 한 줄. 보강 필요 뉴스에는 맞는 내 선수를 추천하는 버튼
+// 뉴스 한 줄을 못 그리면(잘못된 데이터) 그 줄만 건너뜀 (17단계 리뷰 2-5)
+function safeNewsRow(n) {
+  try {
+    return newsRow(n);
+  } catch (e) {
+    console.warn('뉴스를 그리지 못해 건너뜁니다:', n && n.k, e.message);
+    return null;
+  }
+}
 function newsRow(n) {
   const t = newsText(n);
   const box = el('div', `nitem nitem-${n.k}`);
@@ -4523,7 +4783,7 @@ function newsBox() {
   const box = el('section', 'panel news-box');
   const head = el('div', 'panel-head');
   head.append(el('strong', '', L('세계 뉴스', 'World news')), actButton('link', 'news', undefined, L(`전체 ${state.news.length}건 보기 →`, `See all ${state.news.length} →`)));
-  box.append(head, ...top.map(newsRow));
+  box.append(head, ...top.map(safeNewsRow).filter(Boolean));
   return box;
 }
 
@@ -4542,7 +4802,10 @@ function renderNews(root) {
   } else root.append(el('p', 'sub', L('이적 기간이 열리면 구단들이 보강할 포지션을 알리고, 기간 동안 실제로 선수를 데려옵니다.', 'When a window opens, clubs reveal the positions they want to strengthen, then go and sign players during it.')));
   root.append(el('h2', 'section', L(`최근 뉴스 ${state.news.length}건`, `Latest news (${state.news.length})`)));
   if (!state.news.length) root.append(el('p', 'empty', L('아직 뉴스가 없습니다.', 'No news yet.')));
-  state.news.forEach(n => root.append(newsRow(n)));
+  for (const n of state.news) {
+    const row = safeNewsRow(n);
+    if (row) root.append(row);
+  }
 }
 
 // 14단계 처음 화면 (시안 A "할 일 먼저"): 상태 한 줄 → 이번 주 할 일(답할 소식 → 해 볼 만한 일) → 지난주 → 소속 선수 → 세계 뉴스
@@ -4591,6 +4854,10 @@ function renderClients(root) {
   // 1) 이번 주 할 일: 답할 소식 카드, 그다음 해 볼 만한 일. 소식 카드를 못 그리면(잘못된 데이터) 그 소식만 버리고 화면은 계속 그림
   const cards = [];
   for (const ev of [...state.events]) {
+    if (!liveEvent(ev)) {
+      state.events = state.events.filter(x => x !== ev);
+      continue;
+    }
     try {
       cards.push(newsCard(ev));
     } catch (e) {
@@ -4610,9 +4877,12 @@ function renderClients(root) {
   }
   if (!cards.length && !todos.length) root.append(el('p', 'empty', state.over ? GAME_OVER() : L('이번 주에 답할 소식이 없습니다. 다음 주 ▶로 넘기세요.', 'Nothing needs an answer this week. Tap Next ▶.')));
   // 2) 지난주: 정산·경기 기록 최근 2줄 (전체는 기록 탭)
-  if (state.logs.length) {
+  // 기록은 쓴 때의 언어로 남아서, 언어를 바꾼 직후에는 지금 언어로 쓴 줄만 보여 줌 (기록 탭에는 모두, 17단계 리뷰 2-25)
+  const sameLang = line => (LANG === 'en' ? /^S\d+ W\d+ · /.test(line) : /^\d+시즌 \d+주 · /.test(line));
+  const recent = state.logs.slice(0, 6).filter(sameLang).slice(0, 2);
+  if (recent.length) {
     const latest = el('div', 'latest');
-    state.logs.slice(0, 2).forEach(line => latest.append(el('span', '', line)));
+    recent.forEach(line => latest.append(el('span', '', line)));
     root.append(el('h2', 'section', L('지난주', 'Last week')), latest);
   }
   // 3) 소속 선수 카드
@@ -4683,6 +4953,8 @@ function renderWorld(root) {
 }
 
 // 13단계 순위표: 순위·구단·경기·득실·승점. 줄 왼쪽 색 = 대륙 대회 진출권·승격·강등, 내 선수 구단은 배지
+// 순위표 구역 기호와 읽어 주는 이름 [기호, 한국어, 영어]
+const ZONE_MARK = { cont: ['★', '대륙 대회 진출권', 'continental place'], up: ['▲', '승격권', 'promotion place'], down: ['▼', '강등권', 'relegation zone'] };
 function renderTable(root, country, t) {
   const n = country.tiers[t];
   const played = playedRounds(country, t);
@@ -4699,15 +4971,31 @@ function renderTable(root, country, t) {
     const zone = played ? zoneOf(country, t, row.rk) : '';
     const b = actButton(`lt-row${zone ? ` z-${zone}` : ''}`, 'club', row.club.id);
     const name = el('span', 'lt-name');
+    // 17단계 리뷰 2-20: 구역을 색(줄 왼쪽)만이 아니라 기호로도 (빨강·초록을 구별하기 어려운 사람도 보게), 읽어 주는 이름에도 구역
+    const mark = ZONE_MARK[zone];
+    if (mark) {
+      const sym = el('span', `lt-zone z-${zone}`, mark[0]);
+      sym.setAttribute('aria-hidden', 'true');
+      name.append(sym);
+    }
     name.append(el('span', 'lt-club', row.club.name));
     const mine = clientCountIn(row.club);
     if (mine) name.append(el('span', 'badge mine', MINE(mine)));
-    b.append(el('span', 'lt-rk', String(row.rk)), name, el('span', 'lt-num', String(row.p)), el('span', 'lt-num', row.gd > 0 ? `+${row.gd}` : String(row.gd)), el('span', 'lt-pts', String(row.pts)));
+    const gd = row.gd > 0 ? `+${row.gd}` : String(row.gd);
+    b.append(el('span', 'lt-rk', String(row.rk)), name, el('span', 'lt-num', String(row.p)), el('span', 'lt-num', gd), el('span', 'lt-pts', String(row.pts)));
+    b.setAttribute('aria-label', L(`${row.rk}위 ${row.club.name}${mine ? `, ${MINE(mine)}` : ''}, ${row.p}경기, 득실 ${gd}, 승점 ${row.pts}${mark ? `, ${mark[1]}` : ''}`,
+      `${ordinal(row.rk)} ${row.club.name}${mine ? `, ${MINE(mine)}` : ''}, played ${row.p}, goal difference ${gd}, ${row.pts} points${mark ? `, ${mark[2]}` : ''}`));
     table.append(b);
   }
   const legend = el('p', 'lt-legend');
   for (const [z, ko, en] of [['cont', '대륙 대회', 'Continental'], ['up', '승격', 'Promotion'], ['down', '강등', 'Relegation']]) {
-    if ((z === 'cont' && t === 0) || (z === 'up' && t > 0) || (z === 'down' && t + 1 < country.tiers.length)) legend.append(el('span', `lt-key z-${z}`, L(ko, en)));
+    if (!((z === 'cont' && t === 0) || (z === 'up' && t > 0) || (z === 'down' && t + 1 < country.tiers.length))) continue;
+    // 기호는 순위표 줄과 같은 span(굵기 700): ▲▼는 Pretendard 700 조각 파일에만 있어서 보통 굵기 글에 넣으면 빈칸이 됨
+    const key = el('span', `lt-key z-${z}`);
+    const sym = el('span', `lt-zone z-${z}`, ZONE_MARK[z][0]);
+    sym.setAttribute('aria-hidden', 'true');
+    key.append(sym, ` ${L(ko, en)}`);
+    legend.append(key);
   }
   root.append(table, legend);
 }
@@ -5196,14 +5484,16 @@ function renderLog(root) {
   root.append(el('h2', 'section', L('움직임', 'Motion')), moves, el('p', 'sub', systemCalm() ? L('기기 설정에서 동작 줄이기가 켜져 있어 움직임을 줄입니다.', 'Your device asks for reduced motion, so animations are kept to a minimum.')
     : L('화면이 바뀔 때 밀려 들어오고, 다음 주에 날짜와 자금이 움직이고, 우승 같은 순간에 축하 띠가 내려옵니다.', 'Screens slide in, the date and cash move when you advance a week, and big moments like trophies drop in a banner.')));
   root.append(el('h2', 'section', L('저장', 'Saving')));
-  root.append(el('p', 'sub', L('진행 상황은 이 브라우저에 자동으로 저장됩니다. iPhone Safari는 7일 동안 이 사이트를 쓰지 않으면 저장을 지울 수 있으니, 홈 화면에 추가하거나 파일로 내보내 두세요.',
-    "Progress saves automatically in this browser. iPhone Safari may clear it if you don't visit for 7 days, so add the game to your home screen or export a file.")));
+  // 17단계 리뷰 2-16: 홈 화면에 추가한 앱은 Safari와 저장 공간이 따로일 수 있어, 옮길 때는 파일로
+  root.append(el('p', 'sub', L('진행 상황은 이 브라우저에 자동으로 저장됩니다. iPhone Safari는 7일 동안 이 사이트를 쓰지 않으면 저장을 지울 수 있으니 가끔 파일로 내보내 두세요. 홈 화면에 추가한 앱은 Safari와 저장 공간이 따로일 수 있어서, 옮길 때는 Safari에서 내보낸 파일을 홈 화면 앱에서 불러오세요.',
+    "Progress saves automatically in this browser. iPhone Safari may clear it if you don't visit for 7 days, so export a file now and then. A home-screen app can keep its storage separate from Safari, so to move your game, export a file in Safari and import it in the home-screen app.")));
   const actions = el('div', 'actions');
   actions.append(actButton('btn', 'export', undefined, L('파일로 내보내기', 'Export file')), actButton('btn', 'import', undefined, L('파일 불러오기', 'Import file')), actButton('btn danger', 'new', undefined, L('새 게임', 'New game')));
   root.append(actions);
-  if (readBackup()) {
-    root.append(el('p', 'sub', L('읽지 못했던 이전 세이브가 백업되어 있습니다. 파일로 받아 두면 나중에 복구를 시도할 수 있습니다.', 'An earlier save that could not be read is backed up. Download it so you can try to recover it later.')),
-      actButton('btn', 'backup', undefined, L('이전 세이브 백업 내보내기', 'Export backed-up save')));
+  if (readBackup() || keptRaw) {
+    root.append(el('p', 'sub', keptRaw ? L('읽지 못한 이전 세이브가 백업되지 않은 채 남아 있어 지금은 저장하지 않습니다. 파일로 받아 두면 나중에 복구를 시도할 수 있습니다.', "An earlier save that couldn't be read hasn't been backed up, so nothing is being saved for now. Download it so you can try to recover it later.")
+      : L('읽지 못했던 이전 세이브가 백업되어 있습니다. 파일로 받아 두면 나중에 복구를 시도할 수 있습니다.', 'An earlier save that could not be read is backed up. Download it so you can try to recover it later.')),
+      actButton('btn', 'backup', undefined, keptRaw ? L('원래 세이브 받기', 'Download old save') : L('이전 세이브 백업 내보내기', 'Export backed-up save')));
   }
 }
 
@@ -5244,6 +5534,9 @@ function initMotion() {
     // 저장소를 못 쓰면 켬
   }
   document.documentElement.classList.toggle('calm', !motionOn());
+  // 게임 도중 기기 "동작 줄이기"를 바꿔도 CSS 움직임까지 따라감 (예전에는 시작할 때만 정해서 CSS 움직임은 계속 돌았음, 17단계 리뷰 2-19)
+  const mq = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
+  if (mq && mq.addEventListener) mq.addEventListener('change', () => document.documentElement.classList.toggle('calm', !motionOn()));
 }
 function setMotion(v) {
   motionPref = v;
@@ -5354,19 +5647,31 @@ function pickMoment(fresh) {
   return null;
 }
 function showMoment(n) {
+  if (!n || !Object.prototype.hasOwnProperty.call(MOMENT_KINDS, n.k)) return; // 띠가 없는 소식 (pickMoment가 고른 것만 옴)
   document.querySelectorAll('.moment').forEach(x => x.remove());
+  // 17단계 리뷰 2-21: 어디를 누르든·Esc로 닫힘 (예전에는 띠를 눌러야만 닫혀서 3.4초 동안 아래 돌아가기 버튼을 가렸음).
+  // 띠 위를 누르면 닫히기만 하고 아래 버튼은 눌리지 않음(보이지 않는 소식 답이 눌리지 않게). 화면 읽기가 읽게 붙인 뒤 글을 넣음
   const box = el('div', `moment${n.k === 'down' ? ' bad' : ''}`);
   box.setAttribute('role', 'status');
-  box.append(el('strong', 'moment-title', L(...MOMENT_KINDS[n.k])), el('span', 'moment-text', newsText(n).text));
   document.body.append(box);
+  box.append(el('strong', 'moment-title', L(...MOMENT_KINDS[n.k])), el('span', 'moment-text', newsText(n).text));
   let closed = false;
   const close = () => {
     if (closed) return;
     closed = true;
-    if (!motionOn()) return box.remove();
-    box.animate([{ opacity: 1 }, { opacity: 0, transform: 'translate(-50%, -10px)' }], { duration: 200, easing: 'ease-in', fill: 'forwards' }).finished.then(() => box.remove(), () => box.remove());
+    document.removeEventListener('pointerdown', close, true);
+    document.removeEventListener('keydown', onKey, true);
+    // 띠를 눌러 닫은 손가락이 떨어질 때까지(0.4초) 띠가 투명해져도 그 자리에 남겨 둠: 바로 없애면 그 탭이 아래의 보이지 않는 버튼을 누름
+    setTimeout(() => box.remove(), 400);
+    if (!motionOn()) {
+      box.style.opacity = '0';
+      return;
+    }
+    box.animate([{ opacity: 1 }, { opacity: 0, transform: 'translate(-50%, -10px)' }], { duration: 200, easing: 'ease-in', fill: 'forwards' });
   };
-  box.addEventListener('click', close);
+  const onKey = e => e.key === 'Escape' && close();
+  document.addEventListener('pointerdown', close, true);
+  document.addEventListener('keydown', onKey, true);
   setTimeout(close, 3400);
   if (!motionOn()) return;
   box.animate([{ opacity: 0, transform: 'translate(-50%, -18px) scale(0.96)' }, { opacity: 1, transform: 'translate(-50%, 0) scale(1)' }], { duration: 300, easing: EASE });
@@ -5384,12 +5689,39 @@ function showMoment(n) {
 }
 
 // 답한 소식 카드는 옆으로 빠진 뒤 처리 (그동안 다른 버튼은 막음)
+// 17단계 리뷰 2-8: 빠지는 0.18초 안에 다음 주·탭을 누르면 답이 버려졌음 → 그때는 기다리던 답을 먼저 처리(flushAnswer)
 let motionBusy = false;
+let pendingAnswer = null; // 카드가 빠지는 동안 기다리는 답 { finish }
 function dismissThen(card, run) {
   motionBusy = true;
+  const job = {};
+  job.finish = () => {
+    if (job.done) return;
+    job.done = true;
+    if (pendingAnswer === job) pendingAnswer = null;
+    motionBusy = false;
+    run();
+  };
+  pendingAnswer = job;
   card.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateX(28px) scale(0.98)' }], { duration: 180, easing: 'ease-in', fill: 'forwards' })
-    .finished.then(run, run).finally(() => (motionBusy = false));
+    .finished.then(job.finish, job.finish);
 }
+// 다음 주·탭·뒤로가기로 기다리던 답을 처리할 때는 답의 화면 이동(선수 화면으로 가기)을 하지 않음: 마지막에 누른 것을 따름
+// (이동하면 보지도 못한 선수 화면이 뒤로가기 기록에 끼거나, 뒤로 간 뒤에 앞으로 끌려감)
+let answerNoGo = false;
+function flushAnswer() {
+  if (!pendingAnswer) return;
+  answerNoGo = true;
+  try {
+    pendingAnswer.finish();
+  } finally {
+    answerNoGo = false;
+  }
+}
+// 두 번 누르기 막기 (17단계 리뷰 2-9·2-10): 소식에 답한 직후의 소식 버튼, 새 소식이 온 직후·창을 닫은 직후의 다음 주
+let lastAnswerAt = -1e9;
+let nextLockUntil = 0;
+const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
 function render() {
   renderHeader();
@@ -5413,6 +5745,22 @@ function render() {
   else renderClients(root);
   if (nextMotion && motionOn()) playScreen(root, nextMotion);
   nextMotion = '';
+  placeFocus(root);
+}
+
+// 다시 그린 뒤 초점 (17단계 리뷰 2-14): 화면을 옮겼으면 제목에, 같은 화면을 다시 그렸으면 누른 버튼 자리에.
+// 예전에는 늘 body로 가서 키보드·화면 읽기 사용자가 위치를 잃었음. 스크롤은 움직이지 않음
+let focusAfter = null; // 'screen' | { act, v, o } | null
+function placeFocus(root) {
+  const f = focusAfter;
+  focusAfter = null;
+  if (!f) return;
+  const esc = v => (typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(v) : v);
+  const same = f === 'screen' ? null : root.querySelector(`[data-act="${esc(f.act)}"]${f.v !== undefined ? `[data-v="${esc(f.v)}"]` : ''}${f.o !== undefined ? `[data-o="${esc(f.o)}"]` : ''}`);
+  const target = same && !same.disabled ? same : root.querySelector('h1');
+  if (!target) return;
+  if (target.tagName === 'H1') target.tabIndex = -1;
+  target.focus({ preventScroll: true });
 }
 
 // 13단계 결산 창 한 줄: "잉글랜드 2부 우승 · 1부 승격 · 컵 우승" (예전 세이브나 리그에서 못 뛴 선수는 빈 문자열)
@@ -5431,6 +5779,33 @@ function finText(fin) {
   return parts.join(' · ');
 }
 
+// 결산 창 한 줄: 은퇴(은퇴식·스카우트 합류) 또는 나이·능력·몸값·리그 기록, 그리고 구단 최종 순위·승강·우승
+function summaryRow(row) {
+  const li = el('li');
+  const name = storedName(row.name, row.nk);
+  li.append(el('strong', '', name));
+  if (row.retired) {
+    li.append(el('span', 'down', L(` ${row.ageFrom}세에 은퇴`, ` retired at ${row.ageFrom}`)));
+    // 은퇴식: 오래 함께한 선수가 고마움을 전하고, 유대가 아주 깊으면 스카우트로 합류
+    if (row.farewell) {
+      const nat = COUNTRY_BY_ID[row.nat];
+      li.append(el('span', 'summary-stats warmt', L(`${row.seasons ? `${row.seasons}시즌을 함께한 ` : ''}${name} 선수가 은퇴식에서 "처음부터 곁에 있어 준 에이전트에게 고맙다"고 말했습니다${row.rep ? ` (평판 +${row.rep})` : ''}.`,
+        `At his farewell, ${name}${row.seasons ? `, your client for ${pl(row.seasons, 'season')},` : ''} thanked "the agent who was there from the very start"${row.rep ? ` (reputation +${row.rep})` : ''}.`)));
+      if (row.scout && nat) li.append(el('span', 'summary-stats up', L(`은퇴 후 ${nat.name} 스카우트로 합류합니다. 이제 ${nat.name} 유망주는 스카우트를 한 번 더 보낸 것처럼 보입니다.`, `He'll scout ${nat.name} for you in retirement, so prospects from ${nat.name} now count one extra scouting report.`)));
+    }
+  }
+  else {
+    const diff = row.valueTo - row.valueFrom;
+    const ability = row.abilityFrom === undefined ? '' : L(` · 능력 ${row.abilityFrom}→${row.abilityTo}`, ` · ability ${row.abilityFrom}→${row.abilityTo}`);
+    li.append(L(` ${row.ageFrom}→${row.ageTo}세${ability} · 몸값 ${money(row.valueFrom)} → `, ` age ${row.ageFrom}→${row.ageTo}${ability} · value ${money(row.valueFrom)} → `), el('span', diff > 0 ? 'up' : diff < 0 ? 'down' : '', money(row.valueTo)));
+    if (row.apps !== undefined) li.append(el('span', 'summary-stats', L(`리그 ${row.apps}경기 ${row.goals}골 · 평점 ${row.apps ? row.rating.toFixed(1) : '-'}${row.caps ? ` · 국가대표 ${row.caps}경기` : ''}`, `League: ${row.apps} apps, ${pl(row.goals, 'goal')} · rating ${row.apps ? row.rating.toFixed(1) : '-'}${row.caps ? ` · ${pl(row.caps, 'cap')}` : ''}`)));
+  }
+  // 13단계: 구단 최종 순위·승강·우승
+  const fin = finText(row.fin);
+  if (fin) li.append(el('span', `summary-stats ${row.fin.tr.length || row.fin.mv > 0 ? 'up' : row.fin.mv < 0 ? 'down' : ''}`, fin));
+  return li;
+}
+
 // 시즌 결산 창
 function openSummary() {
   const sm = state.summary;
@@ -5438,29 +5813,11 @@ function openSummary() {
   $('summary-title').textContent = L(`${sm.season}시즌 결산`, `Season ${sm.season} review`);
   const list = el('ul', 'summary-list');
   for (const row of sm.rows) {
-    const li = el('li');
-    const name = storedName(row.name, row.nk);
-    li.append(el('strong', '', name));
-    if (row.retired) {
-      li.append(el('span', 'down', L(` ${row.ageFrom}세에 은퇴`, ` retired at ${row.ageFrom}`)));
-      // 은퇴식: 오래 함께한 선수가 고마움을 전하고, 유대가 아주 깊으면 스카우트로 합류
-      if (row.farewell) {
-        const nat = COUNTRY_BY_ID[row.nat];
-        li.append(el('span', 'summary-stats warmt', L(`${row.seasons ? `${row.seasons}시즌을 함께한 ` : ''}${name} 선수가 은퇴식에서 "처음부터 곁에 있어 준 에이전트에게 고맙다"고 말했습니다${row.rep ? ` (평판 +${row.rep})` : ''}.`,
-          `At his farewell, ${name}${row.seasons ? `, your client for ${pl(row.seasons, 'season')},` : ''} thanked "the agent who was there from the very start"${row.rep ? ` (reputation +${row.rep})` : ''}.`)));
-        if (row.scout && nat) li.append(el('span', 'summary-stats up', L(`은퇴 후 ${nat.name} 스카우트로 합류합니다. 이제 ${nat.name} 유망주는 스카우트를 한 번 더 보낸 것처럼 보입니다.`, `He'll scout ${nat.name} for you in retirement, so prospects from ${nat.name} now count one extra scouting report.`)));
-      }
+    try {
+      list.append(summaryRow(row));
+    } catch (e) {
+      console.warn('결산 줄을 그리지 못해 건너뜁니다:', e.message); // 한 줄이 틀려도 결산 창은 뜨게
     }
-    else {
-      const diff = row.valueTo - row.valueFrom;
-      const ability = row.abilityFrom === undefined ? '' : L(` · 능력 ${row.abilityFrom}→${row.abilityTo}`, ` · ability ${row.abilityFrom}→${row.abilityTo}`);
-      li.append(L(` ${row.ageFrom}→${row.ageTo}세${ability} · 몸값 ${money(row.valueFrom)} → `, ` age ${row.ageFrom}→${row.ageTo}${ability} · value ${money(row.valueFrom)} → `), el('span', diff > 0 ? 'up' : diff < 0 ? 'down' : '', money(row.valueTo)));
-      if (row.apps !== undefined) li.append(el('span', 'summary-stats', L(`리그 ${row.apps}경기 ${row.goals}골 · 평점 ${row.apps ? row.rating.toFixed(1) : '-'}${row.caps ? ` · 국가대표 ${row.caps}경기` : ''}`, `League: ${row.apps} apps, ${pl(row.goals, 'goal')} · rating ${row.apps ? row.rating.toFixed(1) : '-'}${row.caps ? ` · ${pl(row.caps, 'cap')}` : ''}`)));
-    }
-    // 13단계: 구단 최종 순위·승강·우승
-    const fin = finText(row.fin);
-    if (fin) li.append(el('span', `summary-stats ${row.fin.tr.length || row.fin.mv > 0 ? 'up' : row.fin.mv < 0 ? 'down' : ''}`, fin));
-    list.append(li);
   }
   const rep = sm.repChange === undefined ? '' : L(`평판 ${sm.repChange >= 0 ? '+' : ''}${sm.repChange}. `, `Reputation ${sm.repChange >= 0 ? '+' : ''}${sm.repChange}. `);
   const coach = Number.isInteger(sm.coachGain) && sm.coachGain > 0 ? L(`피지컬 코치 덕분에 소속 선수 능력 +${sm.coachGain}. `, `Your fitness coach added +${sm.coachGain} ability across your players. `) : '';
@@ -5473,6 +5830,13 @@ function openSummary() {
   $('summary-body').replaceChildren(list, el('p', 'sub', L(`${rep}${coach}세계에서 ${num(sm.retired)}명이 은퇴하거나 떠나고 새 선수가 들어왔습니다.`, `${rep}${coach}Around the world, ${num(sm.retired)} players retired or left and new ones arrived.`)), ...world);
   const dialog = $('summary');
   if (!dialog.open) dialog.showModal();
+  topOfSheet(dialog, $('summary-title'));
+}
+// 창을 맨 위(제목)부터 보이게: 초점이 맨 아래 버튼으로 가면 제목이 가려짐 (17단계 리뷰 2-15·2-18)
+function topOfSheet(dialog, title) {
+  title.tabIndex = -1;
+  title.focus({ preventScroll: true });
+  dialog.scrollTop = 0;
 }
 
 // 파산 창
@@ -5481,10 +5845,12 @@ function openGameOver() {
     `After ${DEBT_LIMIT} weeks in the red, the agency went bankrupt in season ${state.season}, week ${state.week}. Final reputation ${state.rep}, ${pl(state.clients.length, 'player')} on the books.`);
   const dialog = $('gameover');
   if (!dialog.open) dialog.showModal();
+  topOfSheet(dialog, $('gameover-title')); // 초점이 "새 게임 시작"에 가 있지 않게
 }
 
 function startNewGame() {
   newGame();
+  resetScreenState();
   resetHistory();
   nextMotion = 'boot';
   render();
@@ -5495,9 +5861,11 @@ function startNewGame() {
 // ===== 화면 이동: 브라우저(안드로이드) 뒤로가기와 연결 =====
 const historyDepth = () => (history.state && Number.isInteger(history.state.depth) ? history.state.depth : 0);
 
+// 새로고침해도 브라우저 기록은 남아 있어서 지금 깊이를 이어 씀 (0으로 두면 첫 뒤로가기가 "앞으로" 움직임으로 보였음, 17단계 리뷰 2-24)
 function resetHistory() {
-  history.replaceState({ ui: { ...state.ui }, depth: 0, scroll: 0 }, '');
-  lastDepth = 0;
+  const depth = historyDepth();
+  history.replaceState({ ui: { ...state.ui }, depth, scroll: 0 }, '');
+  lastDepth = depth;
 }
 
 // 앞으로 이동: 지금 위치의 스크롤을 기록해 두고 새 위치를 쌓음
@@ -5507,6 +5875,7 @@ function navigate(changes) {
   Object.assign(state.ui, changes);
   lastDepth = historyDepth() + 1;
   history.pushState({ ui: { ...state.ui }, depth: lastDepth, scroll: 0 }, '');
+  focusAfter = 'screen';
   render();
   window.scrollTo(0, 0);
 }
@@ -5519,21 +5888,25 @@ function goUp() {
   }
   const ui = state.ui;
   if (ui.player !== null) ui.player = null;
+  else if (ui.tab === 'news') ui.tab = 'clients'; // 새로고침 뒤 세계 뉴스 화면에서 돌아가기가 안 되던 것 (17단계 리뷰 2-12)
   else if (ui.club !== null) ui.club = null;
   else if (ui.tier !== null) ui.tier = null;
   else ui.country = null;
   resetHistory();
   nextMotion = 'back';
+  focusAfter = 'screen';
   render();
   window.scrollTo(0, 0);
 }
 
 function onPopState(e) {
+  flushAnswer(); // 카드가 빠지는 중에 뒤로 가면 답은 처리하고, 끝난 뒤 선수 화면으로 끌려가지 않게
   if (!e.state || !e.state.ui) return;
   state.ui = cleanUi(e.state.ui);
   const depth = Number.isInteger(e.state.depth) ? e.state.depth : 0;
   nextMotion = depth < lastDepth ? 'back' : 'forward';
   lastDepth = depth;
+  focusAfter = 'screen';
   render();
   window.scrollTo(0, e.state.scroll || 0);
 }
@@ -5541,9 +5914,24 @@ function onPopState(e) {
 // 행동 후 같은 화면을 다시 그리고 스크롤 위치 유지
 function stay(fn) {
   const y = window.scrollY;
+  // 같은 화면을 다시 그린 뒤 누른 버튼 자리에 초점을 돌려줌 (화면 안 버튼을 눌렀을 때만)
+  const a = typeof document !== 'undefined' ? document.activeElement : null;
+  if (a && a.dataset && a.dataset.act && a.closest('#view')) focusAfter = { act: a.dataset.act, v: a.dataset.v, o: a.dataset.o };
   fn();
   render();
   window.scrollTo(0, y);
+}
+
+// 새 게임 (기록 탭·파산 창): 확인한 뒤 시작. 백업하지 못한 세이브가 남아 있으면 그 세이브가 지워진다고 먼저 알림 (확인하면 그때부터 저장)
+function askNewGame(plain) {
+  const ask = keptRaw ? L('읽지 못한 이전 세이브가 백업되지 않은 채 남아 있습니다. 새로 시작하면 그 세이브가 지워집니다. 먼저 "원래 세이브 받기"로 받아 두셨나요? 새로 시작할까요?',
+    "Your unreadable old save still hasn't been backed up, and starting over will erase it. Have you downloaded it with Download old save? Start a new game?") : plain;
+  if (!confirm(ask)) return false;
+  keptRaw = null;
+  hideAlert('kept');
+  if ($('gameover').open) $('gameover').close();
+  startNewGame();
+  return true;
 }
 
 function onAction(act, v, o) {
@@ -5552,7 +5940,7 @@ function onAction(act, v, o) {
   if (act === 'import') return $('import-file').click();
   if (act === 'summary') return openSummary();
   if (act === 'new') {
-    if (confirm(L('진행 중인 게임을 지우고 새로 시작할까요? 되돌릴 수 없습니다.', 'Delete this game and start a new one? This cannot be undone.'))) startNewGame();
+    askNewGame(L('진행 중인 게임을 지우고 새로 시작할까요? 되돌릴 수 없습니다.', 'Delete this game and start a new one? This cannot be undone.'));
     return;
   }
   if (act === 'recruit') return stay(() => recruit(v));
@@ -5573,7 +5961,7 @@ function onAction(act, v, o) {
   if (act === 'event') {
     const go = resolveEvent(v, o);
     saveState();
-    if (go !== null) return navigate({ player: go });
+    if (go !== null && !answerNoGo) return navigate({ player: go });
     return stay(() => {});
   }
   if (act === 'release') {
@@ -5601,10 +5989,14 @@ function onAction(act, v, o) {
 
 function bindEvents() {
   $('btn-next').addEventListener('click', () => {
+    // 새 소식이 온 직후·창을 닫은 직후 잠깐은 무시 (두 번 눌러 마감 제안이 보이기도 전에 기본 답으로 넘어가지 않게)
+    if (nowMs() < nextLockUntil) return;
+    flushAnswer(); // 카드가 빠지는 중이던 답을 먼저 처리
     const first = state.nextEventId;
     const newsTop = state.news[0];
     sweepNext();
     const news = advanceWeek();
+    if (news) nextLockUntil = nowMs() + 500;
     nextMotion = 'week';
     render();
     // 16단계: 이번 주에 생긴 내 선수의 큰 순간 (결산·장면·파산 창이 뜨는 주에는 띠 대신 창)
@@ -5625,6 +6017,7 @@ function bindEvents() {
     }
   });
   document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => {
+    flushAnswer();
     if (state.ui.tab === b.dataset.tab && state.ui.player === null) {
       window.scrollTo(0, 0);
       return;
@@ -5635,6 +6028,11 @@ function bindEvents() {
   $('view').addEventListener('click', e => {
     const b = e.target.closest('[data-act]');
     if (!b || b.disabled || motionBusy) return;
+    // 소식에 답한 직후 같은 자리를 또 누르면 그 자리로 올라온 다음 소식에 답하게 됨 → 잠깐 무시
+    if (b.dataset.act === 'event') {
+      if (nowMs() - lastAnswerAt < 450) return;
+      lastAnswerAt = nowMs();
+    }
     if (b.dataset.y) renewYears = Number(b.dataset.y);
     const run = () => onAction(b.dataset.act, b.dataset.v === undefined ? undefined : Number(b.dataset.v), Number(b.dataset.o));
     const card = b.dataset.act === 'event' && motionOn() ? b.closest('.news') : null;
@@ -5644,6 +6042,7 @@ function bindEvents() {
   window.addEventListener('resize', placePill);
   $('summary-close').addEventListener('click', () => $('summary').close());
   $('summary').addEventListener('close', () => {
+    nextLockUntil = nowMs() + 350; // 360px 화면에서는 "확인"과 다음 주 버튼이 겹쳐서
     if (state.summary && !state.summary.seen) {
       state.summary.seen = true;
       saveState();
@@ -5651,19 +6050,27 @@ function bindEvents() {
     openScene();
   });
   // 이야기 장면: 답을 고르면 시트를 닫고 소식 카드와 똑같이 처리, 닫으면 같은 주의 다음 이야기
+  // 장면이 뜬 직후(0.45초)의 누름은 무시: 결산 "확인"·앞 장면 답을 두 번 누르면 그 자리에 뜬 다음 장면에 답하게 됨 (2-9와 같은 문제)
+  const sceneFresh = () => nowMs() - sceneShownAt < 450;
   $('scene').addEventListener('click', e => {
     const b = e.target.closest('[data-act]');
-    if (!b || b.disabled) return;
+    if (!b || b.disabled || sceneFresh()) return;
     $('scene').close();
     onAction(b.dataset.act, Number(b.dataset.v), Number(b.dataset.o));
   });
-  $('scene-close').addEventListener('click', () => $('scene').close());
-  $('scene').addEventListener('close', openScene);
-  $('gameover-new').addEventListener('click', () => {
-    $('gameover').close();
-    startNewGame();
+  $('scene-close').addEventListener('click', () => !sceneFresh() && $('scene').close());
+  $('scene').addEventListener('close', () => {
+    nextLockUntil = nowMs() + 350;
+    openScene();
   });
+  // 되돌릴 수 없는 동작이라 기록 탭의 새 게임처럼 확인 (17단계 리뷰 2-18)
+  $('gameover-new').addEventListener('click', () => askNewGame(L('파산한 게임의 기록을 지우고 새로 시작할까요? 되돌릴 수 없습니다.', 'Delete this bankrupt game and start a new one? This cannot be undone.')));
   $('gameover-close').addEventListener('click', () => $('gameover').close());
+  $('gameover').addEventListener('close', () => (nextLockUntil = nowMs() + 350));
+  // 다른 탭(창)이 이 게임을 저장하면 이 탭은 멈추고 새로고침을 안내 (두 탭이 서로 덮어쓰지 않게, 17단계 리뷰 2-1)
+  window.addEventListener('storage', e => {
+    if (e.key === SAVE_KEY || e.key === REV_KEY) markStale();
+  });
   $('import-file').addEventListener('change', e => {
     const file = e.target.files[0];
     if (file) importSave(file);
@@ -5845,6 +6252,19 @@ function runSelfCheck() {
     const d0 = { club: homeClub(c0.s).id, wage: c0.wage, fee: 0, years: 3, from: 'loan', ap: 12, gl: 1, rt: 68 };
     check(Math.sign(optBond(EVENT_TYPES.buy.options[2], p0, d0)) === { stay: -1, mid: 0, back: 1 }[buyWish(p0, d0)], '임대 뒤 완전 이적: 선수 마음과 돌아오게 하는 답');
   }
+  // 17단계 리뷰: 자금이 마이너스여도 비용 없는 답은 막지 않음(1-1), 보너스 붙잡기는 95%까지(1-13), 해지한 선수는 바로 다시 영입 못 함(1-11)
+  const cash0 = state.agencyCash;
+  try {
+    state.agencyCash = -100;
+    check(!optionInfo({ s: 0, d: {} }, { run: () => '' }, null).blocked && optionInfo({ s: 0, d: {} }, { run: () => '', cost: () => 50 }, null).blocked, '자금이 마이너스면 돈이 드는 답만 막힘');
+  } finally {
+    state.agencyCash = cash0;
+  }
+  check(bonusKeep({ sat: 100, bond: 100 }) <= 0.95 && TUNE.releaseWait > RETRY_WEEKS && releaseKey(a) !== cooldownKey(a), '보너스 붙잡기 95% 이하, 해지 뒤 다시 영입 대기');
+  // 결산 검사: 모양이 틀린 줄·구단 번호는 버림 (1-3·2-6)
+  const sm0 = cleanSummary({ season: 1, rows: [null, { name: 'x', ageFrom: 20 }, { name: '은퇴', ageFrom: 35, retired: true }], champs: ['constructor', 0], retired: 'x' },
+    { int: Number.isInteger, clubOk: v => Number.isInteger(v) && v >= 0 && v < CLUBS.length, nkOk: () => '' });
+  check(sm0 && sm0.rows.length === 1 && sm0.rows[0].retired && sm0.champs.join() === '0' && sm0.retired === 0 && nameFromKey('constructor|0|0') === '', '결산·이름 키 검사');
   // 14단계 처음 화면: 할 일 줄은 4개까지, 지난주 줄은 바로 지난주 경기만
   const lw0 = { lw: { w: absWeek() - 1, n: 1, p: 1, r: 74, g: 1, t: [['L', 2, 1, 0]], a: '' } };
   check(todoList().length <= 4 && todoList().every(t => t.act && t.text) && lastWeekText(lw0) === L('지난주 7.4(1골) [리그 2-1 승]', 'Last week: 7.4 (1 goal) [league W 2-1]')
@@ -5867,7 +6287,8 @@ function safeRender() {
     console.error(e);
   }
   try {
-    backupSave(serialize());
+    const raw = serialize();
+    if (!backupSave(raw)) keptRaw = raw; // 백업을 못 하면 새 게임이 원본을 덮지 않게 저장을 막음
   } catch (e) {
     console.warn('백업용 직렬화 실패:', e.message);
   }
@@ -5910,7 +6331,9 @@ function boot() {
   requestAnimationFrame(() => document.querySelector('.tab-pill') && document.querySelector('.tab-pill').classList.add('ready'));
   resetHistory();
   const backupNote = L('이전 저장은 기록 탭에서 백업 파일로 받을 수 있습니다.', 'You can download the old save as a backup from the Log tab.');
-  if (!rendered) toast(L(`화면을 그리지 못해 새 게임으로 시작했습니다. ${backupNote}`, `The screen couldn't be drawn, so a new game was started. ${backupNote}`));
+  // 17단계 리뷰 2-2: 백업도 못 했으면 원본을 지키려고 저장하지 않는 중이라, 사라지지 않는 띠로 알리고 원본을 받게 함
+  if (keptRaw) keptNotice();
+  else if (!rendered) toast(L(`화면을 그리지 못해 새 게임으로 시작했습니다. ${backupNote}`, `The screen couldn't be drawn, so a new game was started. ${backupNote}`));
   else if (loaded === 'broken') toast(L(`저장 데이터를 읽지 못해 새 게임으로 시작했습니다. ${backupNote}`, `Your save couldn't be read, so a new game was started. ${backupNote}`));
   if (state.over) openGameOver();
   else if (state.summary && !state.summary.seen) openSummary();

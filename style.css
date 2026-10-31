@@ -39,7 +39,7 @@
   --pos-MF: #175cd3;
   --pos-DF: #067647;
   --pos-GK: #a15c07;
-  --empty: #cbd2dc;     /* 빈 하트, 시트 손잡이 */
+  --empty: #8b95a5;     /* 빈 하트, 시트 손잡이 (흰 바탕과 3:1 이상, 17단계 리뷰 2-20) */
   --zone-cont: #175cd3; /* 순위표: 대륙 대회 진출권 */
   --zone-up: #12b76a;   /* 승격 */
   --zone-down: #c8261c; /* 강등 */
@@ -184,6 +184,11 @@ button.nbody { min-height: 44px; cursor: pointer; }
 .lt-row.z-cont { border-left-color: var(--zone-cont); }
 .lt-row.z-up { border-left-color: var(--zone-up); }
 .lt-row.z-down { border-left-color: var(--zone-down); }
+/* 구역 기호 ★▲▼ (색만으로 구분하지 않게, 17단계 리뷰 2-20) */
+.lt-zone { flex: none; font-size: 11px; font-weight: 700; line-height: 1; } /* ▲▼는 Pretendard 700 조각 파일에만 있음 */
+.lt-zone.z-cont { color: var(--zone-cont); }
+.lt-zone.z-up { color: var(--accent-ink); }
+.lt-zone.z-down { color: var(--bad); }
 .lt-legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 0 0 12px; color: var(--muted); font-size: 12px; }
 .lt-key::before { content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 4px; border-radius: 2px; vertical-align: -1px; }
 .lt-key.z-cont::before { background: var(--zone-cont); }
@@ -262,7 +267,6 @@ button.nbody { min-height: 44px; cursor: pointer; }
 .scene-ctx { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
 .scene-opt { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 52px; padding: 8px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); text-align: left; cursor: pointer; }
 .scene-opt.warm { border-color: var(--warm); background: var(--warm-soft); }
-.scene-opt:disabled { opacity: 0.45; cursor: not-allowed; }
 .opt-label { font-weight: 700; }
 .opt-tags { color: var(--muted); font-size: 12px; text-align: right; }
 .scene .news-due { margin: 10px 0 0; }
@@ -300,8 +304,7 @@ button.nbody { min-height: 44px; cursor: pointer; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .panel-line { margin: 0; font-size: 13px; }
 .panel-gap { display: block; margin-top: 16px; }
-.row:disabled { opacity: 0.45; cursor: not-allowed; }
-.row.owned:disabled { opacity: 1; cursor: default; }
+.row.owned:disabled { color: inherit; background: var(--panel); cursor: default; }
 
 /* 소속 선수 카드 (누르면 상세) */
 .card {
@@ -371,7 +374,7 @@ button.nbody { min-height: 44px; cursor: pointer; }
 .badge.mine { color: var(--accent-ink); border-color: var(--accent-ink); }
 
 /* 리그 목록 */
-.list { display: grid; gap: 6px; }
+.list { display: grid; gap: 6px; grid-template-columns: minmax(0, 1fr); } /* 열이 내용의 최소 너비로 화면 밖까지 넓어지지 않게 (17단계 리뷰 2-11) */
 .row {
   display: flex;
   align-items: center;
@@ -403,7 +406,10 @@ button.nbody { min-height: 44px; cursor: pointer; }
 .player-line { display: block; }
 .player.mine { border-color: var(--accent-ink); }
 .player .name { font-size: 15px; }
-.player-age { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.player-age { min-width: 0; overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+/* 긴 이름·국적은 줄임표로 줄고, 포지션·배지·능력치는 줄지 않음 */
+.player-top .name, .card-top .name, .detail-head .title { min-width: 0; }
+.player-top > .pos, .player-top > .badge, .player-top > .abil, .card-top > .pos, .card-top > .badge, .card-top > .abil { flex: none; }
 .player .abil { font-size: 17px; }
 .player-line { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
 
@@ -423,7 +429,10 @@ button.nbody { min-height: 44px; cursor: pointer; }
 .btn.primary { width: 100%; margin-top: 12px; background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 700; }
 .btn.danger { color: var(--bad); }
 .btn.wide { width: 100%; margin-top: 8px; }
-.btn:disabled, .next:disabled { opacity: 0.45; cursor: not-allowed; }
+/* 막힌 버튼: 흐리게(투명도) 대신 글자를 회색으로. 막힌 이유가 버튼 안에만 있는 곳도 읽히게 (예전 1.9~2.9:1, 17단계 리뷰 2-20) */
+.btn:disabled, .row:disabled, .scene-opt:disabled { opacity: 1; color: var(--muted); background: var(--sunk); border-color: var(--line); cursor: not-allowed; }
+.btn.primary:disabled { color: var(--muted); background: var(--sunk); border-color: var(--line); }
+.next:disabled { opacity: 0.45; cursor: not-allowed; }
 #hdr-cash.bad { color: var(--top-bad); }
 
 /* 하단 바 */
@@ -518,3 +527,11 @@ button.nbody { min-height: 44px; cursor: pointer; }
 
 /* 결산 창의 은퇴식 문구 (summary-stats보다 뒤에 둬서 색이 이김) */
 .warmt { color: var(--warm-ink); }
+
+/* 17단계 리뷰 2-1~2-3: 저장 실패처럼 사라지면 안 되는 알림 띠 (상단 바 아래, 닫기 전까지 남음) */
+.alertbar { position: fixed; top: calc(56px + env(safe-area-inset-top)); left: 50%; z-index: 40; display: grid; gap: 8px; width: min(448px, calc(100% - 16px)); padding: 12px; transform: translateX(-50%);
+  background: var(--panel); border: 2px solid var(--bad); border-radius: 12px; box-shadow: 0 6px 20px rgba(16, 24, 40, 0.18); }
+.alertbar p { margin: 0; font-size: 14px; line-height: 1.5; }
+.alertbar .actions .btn { flex: 1 1 auto; }
+/* 17단계 리뷰 2-14: 화면을 옮긴 뒤 초점을 받는 제목은 누를 수 없는 글이라 테두리를 그리지 않음 */
+[tabindex="-1"]:focus { outline: none; }

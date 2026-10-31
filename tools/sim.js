@@ -70,7 +70,7 @@ function answer(G, bot, ev, m) {
     const o = type.options[i];
     if (!o) return false;
     const cost = o.cost ? o.cost(ev.d, c) : 0;
-    return !(o.ap && st.ap < o.ap) && cost <= st.agencyCash;
+    return !(o.ap && st.ap < o.ap) && (cost <= 0 || cost <= st.agencyCash); // 게임과 같게: 비용 없는 답은 자금이 마이너스여도 고름
   };
   if (type.tale) {
     m.tales += 1;
